@@ -367,13 +367,14 @@ export interface FooterContext {
   readonly planning: {
     readonly session: boolean;
     readonly sending: boolean;
-    readonly confirmingEnd: boolean;
+    /** The Ready step is open: with stories to tick, or with none and a question to end (DIPO-487). */
+    readonly ending: "ready" | "empty" | null;
+    /** A card has focus (DIPO-487). */
+    readonly card: boolean;
     /** The number of the proposal whose form the input holds (DIPO-450). */
     readonly editing: number | null;
-    /** The session has proposals. */
-    readonly proposals: boolean;
-    /** The input holds the list of stories to set Ready (DIPO-451). */
-    readonly readying: boolean;
+    /** The session has cards: proposals that still need a decision. */
+    readonly cards: boolean;
     /**
      * The question dialog is open (DIPO-455): whether a free answer is being typed and whether
      * every question has an answer; null without a dialog.
@@ -403,20 +404,21 @@ export interface FooterKey {
 
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
 const NEVER = 100;
-const asking = (ctx: FooterContext) => ctx.planning.confirmingEnd;
+const asking = (ctx: FooterContext) => ctx.planning.ending === "empty";
+const stepping = (ctx: FooterContext) => ctx.planning.ending === "ready";
+const ended = (ctx: FooterContext) => ctx.planning.ending !== null;
 /** The question dialog has the keys (DIPO-455); the input's keys wait under it. */
-const inDialog = (ctx: FooterContext) =>
-  !ctx.planning.confirmingEnd && ctx.planning.dialog !== null;
+const inDialog = (ctx: FooterContext) => !ended(ctx) && ctx.planning.dialog !== null;
 const typingAnswer = (ctx: FooterContext) => inDialog(ctx) && ctx.planning.dialog?.typing === true;
 const choosing = (ctx: FooterContext) => inDialog(ctx) && ctx.planning.dialog?.typing === false;
-const inInput = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.dialog === null;
-const free = (ctx: FooterContext) =>
-  inInput(ctx) && ctx.planning.editing === null && !ctx.planning.readying;
-const editing = (ctx: FooterContext) => !ctx.planning.confirmingEnd;
-const readying = (ctx: FooterContext) => inInput(ctx) && ctx.planning.readying;
-const saving = (ctx: FooterContext) =>
-  inInput(ctx) && ctx.planning.editing !== null && !ctx.planning.readying;
-const proposing = (ctx: FooterContext) => free(ctx) && ctx.planning.proposals;
+/** The input has the keys: no Ready step, no dialog, no card in focus. */
+const inInput = (ctx: FooterContext) =>
+  !ended(ctx) && ctx.planning.dialog === null && !ctx.planning.card;
+const free = (ctx: FooterContext) => inInput(ctx) && ctx.planning.editing === null;
+const saving = (ctx: FooterContext) => inInput(ctx) && ctx.planning.editing !== null;
+const carding = (ctx: FooterContext) =>
+  !ended(ctx) && ctx.planning.dialog === null && ctx.planning.card;
+const proposing = (ctx: FooterContext) => free(ctx) && ctx.planning.cards;
 
 /** A footer key for an action of the key table, so the action's key is defined once. */
 function fromTable(id: ActionId, footerId: string, views: readonly FooterView[]): FooterKey {
@@ -489,19 +491,11 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: NEVER,
   },
   {
-    id: "planningReadySave",
-    key: "⏎",
-    label: "set the stories left Ready",
-    views: ["planning"],
-    when: readying,
-    priority: NEVER,
-  },
-  {
     id: "planningNewLine",
     key: "shift-⏎",
     label: "new line",
     views: ["planning"],
-    when: (ctx) => inInput(ctx) && !ctx.planning.readying,
+    when: inInput,
     priority: 90,
   },
   {
@@ -521,44 +515,20 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 70,
   },
   {
-    id: "planningConfirm",
-    key: "ctrl-y",
-    label: "confirm",
+    id: "planningCards",
+    key: "↑",
+    label: "cards",
     views: ["planning"],
     when: proposing,
     priority: 78,
   },
   {
-    id: "planningEdit",
-    key: "ctrl-r",
-    label: "edit",
+    id: "planningRail",
+    key: "tab",
+    label: "stories",
     views: ["planning"],
-    when: proposing,
-    priority: 76,
-  },
-  {
-    id: "planningSetReady",
-    key: "ctrl-g",
-    label: "set Ready",
-    views: ["planning"],
-    when: proposing,
-    priority: 75,
-  },
-  {
-    id: "planningDecline",
-    key: "ctrl-d",
-    label: "decline",
-    views: ["planning"],
-    when: proposing,
-    priority: 74,
-  },
-  {
-    id: "planningProposal",
-    key: "↑↓",
-    label: "proposal",
-    views: ["planning"],
-    when: proposing,
-    priority: 72,
+    when: (ctx) => free(ctx) && ctx.planning.session,
+    priority: 60,
   },
   {
     id: "planningCancelEdit",
@@ -569,11 +539,83 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 85,
   },
   {
-    id: "planningReadyCancel",
-    key: "esc",
-    label: "cancel",
+    id: "cardConfirm",
+    key: "c",
+    label: "confirm",
     views: ["planning"],
-    when: readying,
+    when: carding,
+    priority: NEVER,
+  },
+  {
+    id: "cardEdit",
+    key: "e",
+    label: "edit",
+    views: ["planning"],
+    when: carding,
+    priority: 90,
+  },
+  {
+    id: "cardDecline",
+    key: "x",
+    label: "decline",
+    views: ["planning"],
+    when: carding,
+    priority: 88,
+  },
+  {
+    id: "cardMove",
+    key: "↑↓",
+    label: "card",
+    views: ["planning"],
+    when: carding,
+    priority: 80,
+  },
+  {
+    id: "cardInput",
+    key: "esc",
+    label: "to the input",
+    views: ["planning"],
+    when: carding,
+    priority: 85,
+  },
+  {
+    id: "readyYes",
+    key: "Y",
+    label: "set the ticked Ready and end",
+    views: ["planning"],
+    when: stepping,
+    priority: NEVER,
+  },
+  {
+    id: "readyNone",
+    key: "n",
+    label: "end, none Ready",
+    views: ["planning"],
+    when: stepping,
+    priority: 90,
+  },
+  {
+    id: "readyTick",
+    key: "space",
+    label: "tick",
+    views: ["planning"],
+    when: stepping,
+    priority: 88,
+  },
+  {
+    id: "readyMove",
+    key: "↑↓",
+    label: "story",
+    views: ["planning"],
+    when: stepping,
+    priority: 80,
+  },
+  {
+    id: "readyKeep",
+    key: "esc",
+    label: "keep open",
+    views: ["planning"],
+    when: stepping,
     priority: 85,
   },
   {
@@ -639,7 +681,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     key: "",
     label: "sending",
     views: ["planning"],
-    when: (ctx) => editing(ctx) && ctx.planning.sending,
+    when: (ctx) => ctx.planning.sending,
     priority: 60,
   },
   {

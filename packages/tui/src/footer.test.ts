@@ -24,10 +24,10 @@ const ctx: FooterContext = {
   planning: {
     session: false,
     sending: false,
-    confirmingEnd: false,
+    ending: null,
+    card: false,
     editing: null,
-    proposals: false,
-    readying: false,
+    cards: false,
     dialog: null,
   },
 };
@@ -106,45 +106,55 @@ describe("the footer registry", () => {
     expect(texts("planning", { ...ctx, planning: { ...ctx.planning, session: true } })).toContain(
       "⏎ send",
     );
-    expect(
-      texts("planning", { ...ctx, planning: { ...ctx.planning, confirmingEnd: true } }),
-    ).toEqual(["y end the session", "any other key keep it"]);
+    expect(texts("planning", { ...ctx, planning: { ...ctx.planning, ending: "empty" } })).toEqual([
+      "y end the session",
+      "any other key keep it",
+    ]);
   });
 
-  it("reads the proposal keys and the edit keys of the planning view", () => {
-    const session = { ...ctx.planning, session: true, proposals: true };
-    expect(texts("planning", { ...ctx, planning: session })).toContain("ctrl-y confirm");
+  it("reads the card keys, the edit keys and the Ready step keys of the planning view (DIPO-487)", () => {
+    const session = { ...ctx.planning, session: true, cards: true };
+    expect(texts("planning", { ...ctx, planning: session })).toEqual([
+      "⏎ send",
+      "shift-⏎ new line",
+      "/end end session",
+      "↑ cards",
+      "tab stories",
+      "esc back",
+    ]);
+    expect(texts("planning", { ...ctx, planning: { ...session, card: true } })).toEqual([
+      "c confirm",
+      "e edit",
+      "x decline",
+      "↑↓ card",
+      "esc to the input",
+    ]);
     expect(texts("planning", { ...ctx, planning: { ...session, editing: 2 } })).toEqual([
       "⏎ save proposal 2",
       "shift-⏎ new line",
       "esc cancel the edit",
     ]);
-  });
-
-  it("offers ctrl-g set Ready with proposals, and only the Ready keys while readying (DIPO-451)", () => {
-    const session = { ...ctx.planning, session: true, proposals: true };
-    expect(texts("planning", { ...ctx, planning: session })).toEqual([
-      "⏎ send",
-      "shift-⏎ new line",
-      "/end end session",
-      "ctrl-y confirm",
-      "ctrl-r edit",
-      "ctrl-g set Ready",
-      "ctrl-d decline",
-      "↑↓ proposal",
-      "esc back",
-    ]);
-    expect(texts("planning", { ...ctx, planning: { ...session, readying: true } })).toEqual([
-      "⏎ set the stories left Ready",
-      "esc cancel",
+    expect(texts("planning", { ...ctx, planning: { ...session, ending: "ready" } })).toEqual([
+      "Y set the ticked Ready and end",
+      "n end, none Ready",
+      "space tick",
+      "↑↓ story",
+      "esc keep open",
     ]);
     expect(
-      texts("planning", { ...ctx, planning: { ...session, readying: true, sending: true } }),
-    ).toEqual(["⏎ set the stories left Ready", "esc cancel", "sending"]);
+      texts("planning", { ...ctx, planning: { ...session, ending: "ready", sending: true } }).at(
+        -1,
+      ),
+    ).toBe("sending");
+    const planningKeys = FOOTER_KEYS.filter((entry) => entry.views.includes("planning")).map(
+      (e) => e.key,
+    );
+    for (const gone of ["ctrl-y", "ctrl-d", "ctrl-r", "ctrl-g"])
+      expect(planningKeys).not.toContain(gone);
   });
 
   it("gives the question dialog its keys over the input's, with sending (DIPO-455)", () => {
-    const session = { ...ctx.planning, session: true, proposals: true };
+    const session = { ...ctx.planning, session: true, cards: true };
     const choosing = { ...session, dialog: { typing: false, complete: false } };
     expect(texts("planning", { ...ctx, planning: choosing })).toEqual([
       "ctrl-s send (when all answered)",
@@ -193,6 +203,7 @@ describe("the key table of DIPO-479", () => {
       "⏎ send",
       "shift-⏎ new line",
       "/end end session",
+      "tab stories",
       "esc back",
     ]);
     expect(NAV_KEYS.find((nav) => nav.id === "planning")?.key).toBe("5");

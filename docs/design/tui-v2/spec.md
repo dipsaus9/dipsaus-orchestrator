@@ -154,13 +154,14 @@ File: `06-retro.txt`. Every number from code.
 - Bars for **WHY STORIES PARKED** and **WHERE STORIES CAME FROM**, the same `━` as the pipeline and budget (one visual word for "amount"), acc, with the small rest in faint and dim.
 - `d` starts a planning session that gets these numbers as text in its first message (DIPO-453 criterion #4).
 
-## Plan (S2d, DIPO-447 to 452)
-File: `07-plan.txt`.
-- Header: `dipo / dipsaus-orchestrator / Plan`, `● planner live`, `$0.84 this session` (live, per session, DIPO-449). Second row: dim kind `refine · ` then the goal in hi.
-- A reader, not a chat app: a centred 74-column script with speakers in a 9-column margin (`you` acc, `planner` dim); planner text is hi.
-- Stories are objects in the stream: a block with a left rule (acc when confirmed, faint when proposed), `✓`/`◆`, the title in hi and dim `· S · confirmed` or `· S · proposed`, the first line of the story dim, and on the focused block `c confirm   e edit   x drop from plan` (`x` removes it from the plan; `X` elsewhere drops a story from the backlog). Confirmed ones are filed as Refined on end (DIPO-450).
-- Side rail (30 columns): IN THIS PLAN, DECISIONS (what survives a fresh Claude session, DIPO-448), ON END ("1 confirmed → Refined", `Y set them Ready`, DIPO-451). A dim divider `── continued in a fresh session at 13:02 · decisions carried over (4) ──` says when a fresh session started.
-- Composer across the full width at the bottom (`you ` acc, text hi): `⏎ new line   ctrl-s send   tab to stories   ctrl-e end session`, right `esc leave (keeps open)`.
+## Plan (S2d, DIPO-447 to 452, DIPO-487)
+File: `07-plan.txt`. The text mock wins over the ux-spec's mock 11 (decision of 2026-11-10, DIPO-487): the maintainer's hand test asked for a planning session like the Claude CLI, so the centred script with a side rail and a boxed input is replaced by one conversation column.
+- Header: `dipo / dipsaus-orchestrator / Plan`, `● planner live`, `$0.84 this session` (live, per session, DIPO-449). Under the Frame's rule the view's own head lines say kind, state, answers, model, goal and spend. The text test (`planning.test.tsx`) holds every row under the header cell for cell.
+- One column, full width: the head, the conversation (`you> ` lines and the planner's answers), then one compact line for each proposal that was confirmed (dim `filing… · title`, then ok `✓ filed as DIPO-488 · title`; a declined proposal leaves), then the cards, then the input at the foot (`> ` acc, a cursor `_`). The footer reads `⏎ send   shift-⏎ new line   /end end session   ↑ cards   tab stories`, right `esc back`.
+- A card is a proposal that still needs a decision (open, or failed with the lane's reason in err): `◆ title · S` (`✗` when failed), then the first story line dim. The focused card has the `▌` bar and the sel background and a third line `c confirm   e edit   x decline   esc to the input`. With an empty input `Up` moves focus to the last card; `Up` and `Down` move over the cards only; `c` sends `planning.confirm`, `x` `planning.decline`, `e` puts the form in the input and `Enter` there sends `planning.edit`; `Esc` or any other printable key returns focus to the input and is typed there. `Ctrl-Y`, `Ctrl-D`, `Ctrl-R` and `Ctrl-G` are gone.
+- Stories fold-out (`Tab`): IN THIS PLAN lists every proposal with its state and the ids it filed, ON END says how many filed stories are not Ready yet. DECISIONS (what survives a fresh Claude session, DIPO-448) is not shown until the engine sends them.
+- Ready step (`/end` then `Enter`): replaces the input with `Ready step · 2 of 2 ticked` and one row per filed or edited story not Ready yet: `[x] DIPO-31 title · S`. `Up` and `Down` move, `space` ticks or unticks, `Y` sends `planning.ready` with the ticked stories and then `planning.end`, and each story shows set, queued or refused with the gate's messages; `n` ends with none Ready; `Esc` keeps the session open. With nothing to list it says so and asks `End the planning session? [y/N]`.
+- A dim divider `── continued in a fresh session at 13:02 ──` is the head line `continued in a fresh model session at 13:02`.
 
 ## Offices (S2e)
 File: `08-offices.txt`. `O` from anywhere, or launched outside a repo.

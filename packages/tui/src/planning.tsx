@@ -1,27 +1,32 @@
 // The planning view (DIPO-449, 0009, 0008): its own mode, opened with `5` beside the rooms. Without an open
 // planning session it asks for a kind (`Tab` changes it) and a goal and starts one with
-// `planning.start`; with one it shows the session's kind, goal, state and live spend, the answers as
-// they stream in (`planning.output`), and the multi-line input for the next message
-// (`planning.message`). The session is the engine's view (`OfficeStoreState.planning`, from the
-// snapshot and the office stream), so a TUI that opens later shows the open session again and its
-// stored answers, read with `work.outputRange`; a session that continued in a fresh model session
-// says so (DIPO-448).
+// `planning.start`; with one it is one conversation column (DIPO-487): the
+// session's head, the answers as they stream in (`planning.output`), the proposals that still need
+// a decision as compact cards, one line for each proposal that was confirmed, and one input at the
+// foot for the next message (`planning.message`). The session is the engine's view
+// (`OfficeStoreState.planning`, from the snapshot and the office stream), so a TUI that opens later
+// shows the open session again and its stored answers, read with `work.outputRange`; a session
+// that continued in a fresh model session says so (DIPO-448).
 //
 // The input (DIPO-479): Enter sends; Shift+Enter, Option+Enter or a backslash before Enter adds a
-// line; Backspace erases, a paste keeps its line breaks. `/end` then Enter ends the session after a
-// yes (`planning.end`). Esc goes back to home and leaves the session running. The maintainer's own messages show in the transcript of this
-// run of the TUI only; the engine stores the answers.
+// line; Backspace erases, a paste keeps its line breaks. Esc goes back to home and leaves the
+// session running. `Tab` opens and closes the stories fold-out (IN THIS PLAN, ON END). The
+// maintainer's own messages show in the transcript of this run of the TUI only; the engine stores
+// the answers.
 //
-// Proposals (DIPO-450): the session's proposals show above the transcript, each with its number,
-// proposed tier, title and state, and one line of why; the latest refused block shows its problems.
-// Up and Down select a proposal; Ctrl-Y confirms it (`planning.confirm`), Ctrl-D declines it
-// (`planning.decline`) and Ctrl-R puts it into the input as a form (`proposal-form.ts`) that Enter
-// sends as `planning.edit`, and Esc leaves unsent.
+// Cards (DIPO-450, DIPO-487): a proposal that is open, or failed with the lane's reason, shows as a
+// card with its title, proposed tier and first story line. With an empty input, Up moves focus
+// into the cards; Up and Down move between them; `c` confirms the focused card
+// (`planning.confirm`), `x` declines it (`planning.decline`) and `e` puts it into the input as a
+// form (`proposal-form.ts`) that Enter sends as `planning.edit` and Esc leaves unsent. Esc, or any
+// other printable key, returns focus to the input and types there. A confirmed proposal leaves the
+// cards at once and shows as one line, `filing…` and then `filed as DIPO-n`; a declined one leaves.
 //
-// The final confirm (DIPO-451): Ctrl-G puts the session's filed stories into the input, one per
-// line; the lines the maintainer keeps are the stories that go Ready, and Enter sends them as
-// `planning.ready`. Esc leaves it unsent. The stories the gate refused show below the proposals
-// with the gate's messages, and the stories set Ready with their state.
+// The Ready step (DIPO-451, DIPO-487): `/end` then Enter opens it. It lists the session's filed
+// and edited stories that are not Ready yet, all ticked; space ticks or unticks the focused one;
+// `Y` sends `planning.ready` with the ticked stories and then `planning.end` and shows each story
+// set, queued or refused with the gate's messages; `n` ends with none set Ready; Esc keeps the
+// session open. With nothing to list it asks to end.
 
 import {
   healthLabel,
@@ -41,6 +46,7 @@ import { Box, type Key, Text } from "ink";
 import { useEffect, useRef, useState } from "react";
 
 import type { TuiActions } from "./app";
+import { Colored, type Role } from "./colour";
 import { COMPOSER_ROWS, Composer, composerKey, composerRows } from "./composer";
 import { truncate } from "./format";
 import type { Display } from "./options";
@@ -75,6 +81,22 @@ export interface PlanningArgs {
   readonly open: () => void;
 }
 
+/** What `planning.ready` answered for the stories the Ready step sent. */
+export interface ReadyOutcome {
+  readonly stories: readonly string[];
+  readonly queued: readonly string[];
+  readonly refused: readonly { readonly story: string; readonly messages: readonly string[] }[];
+}
+
+/** The Ready step (DIPO-487): the focused story, the stories unticked, and what the gate said. */
+export interface EndStep {
+  readonly cursor: number;
+  /** The ids of the candidates the maintainer unticked; every candidate starts ticked. */
+  readonly off: readonly string[];
+  /** Set once `planning.ready` answered; the session's end is then on its way. */
+  readonly outcome: ReadyOutcome | null;
+}
+
 export interface Planning {
   readonly view: PlanningView | null;
   readonly kind: string;
@@ -82,13 +104,14 @@ export interface Planning {
   readonly transcript: string;
   /** What is under way: a start, a message or an end; null otherwise. */
   readonly sending: Sending | null;
-  readonly confirmingEnd: boolean;
-  /** The number of the selected proposal, or null without one (DIPO-450). */
-  readonly selected: number | null;
+  /** The Ready step, or null while the conversation has the keys. */
+  readonly ending: EndStep | null;
+  /** The number of the focused card, or null while the input has focus (DIPO-487). */
+  readonly focused: number | null;
   /** The number of the proposal whose form the input holds, or null. */
   readonly editing: number | null;
-  /** True while the input holds the list of stories to set Ready (DIPO-451). */
-  readonly readying: boolean;
+  /** The stories fold-out is open. */
+  readonly rail: boolean;
   /** The block of questions the maintainer answers now, and the dialog's state (DIPO-455). */
   readonly dialog: { readonly block: PlanningQuestionBlock; readonly state: DialogState } | null;
   /** Opens the view with `text` in the input, as the retro's `d` does (DIPO-479). */
@@ -100,16 +123,16 @@ export interface Planning {
 const decidable = (proposal: PlanningProposalView) =>
   proposal.state === "open" || proposal.state === "failed";
 
-/** The selected proposal after `step` from `selected`, among the view's proposals. */
-function stepSelection(
-  proposals: readonly PlanningProposalView[],
-  selected: number | null,
+/** The card after `step` from `focused`, among the cards that take a decision. */
+function stepFocus(
+  cards: readonly PlanningProposalView[],
+  focused: number | null,
   step: number,
 ): number | null {
-  if (proposals.length === 0) return null;
-  const at = proposals.findIndex((proposal) => proposal.n === selected);
-  const from = at < 0 ? proposals.length - 1 : at + step;
-  return proposals[Math.max(0, Math.min(proposals.length - 1, from))]?.n ?? null;
+  if (cards.length === 0) return null;
+  const at = cards.findIndex((card) => card.n === focused);
+  const from = at < 0 ? cards.length - 1 : at + step;
+  return cards[Math.max(0, Math.min(cards.length - 1, from))]?.n ?? null;
 }
 
 /** Appends `chunk` to what is shown when it continues it; true when it did. */
@@ -222,20 +245,17 @@ type Send = (
   done: (result: unknown) => void,
 ) => void;
 
-interface ProposalKeys {
-  readonly selected: number | null;
+interface CardKeys {
+  readonly focused: number | null;
   readonly editing: number | null;
-  readonly readying: boolean;
-  /** Sends the stories left in the input as `planning.ready`. */
-  saveReady(): void;
-  /** Handles a key of the proposals; false when it is not one of theirs. */
+  /** Handles a key of the cards; false when it is not one of theirs. */
   onKey(input: string, key: Key): boolean;
   /** Sends the form in the input as `planning.edit`. */
   saveEdit(): void;
 }
 
-/** What the proposal keys need of the input. */
-interface ProposalInput {
+/** What the card keys need of the input. */
+interface CardInput {
   readonly draft: string;
   readonly setDraft: (draft: string) => void;
   readonly send: Send;
@@ -248,8 +268,8 @@ function filedWords(result: unknown): string {
   return Array.isArray(stories) && stories.length > 0 ? `: ${stories.join(", ")}` : "";
 }
 
-/** The stories a Ready confirm offers: those the session filed or edited, not set Ready yet. */
-export function readyCandidates(view: PlanningView): { story: string; summary: string }[] {
+/** The stories a Ready step offers: those the session filed or edited, not set Ready yet. */
+export function readyCandidates(view: PlanningView): { story: string; title: string }[] {
   const taken = new Set(
     (view.ready ?? [])
       .filter((r) => r.state === "set" || r.state === "setting")
@@ -258,121 +278,80 @@ export function readyCandidates(view: PlanningView): { story: string; summary: s
   const found = new Map<string, string>();
   for (const item of view.proposals ?? []) {
     if (item.state !== "filed") continue;
+    const { title, tier } = proposalHead(item.proposal);
     for (const story of item.stories ?? []) {
-      if (!taken.has(story) && !found.has(story)) found.set(story, proposalSummary(item.proposal));
+      if (!taken.has(story) && !found.has(story)) {
+        found.set(story, `${title}${tier === undefined ? "" : ` · ${tier}`}`);
+      }
     }
   }
-  return [...found].map(([story, summary]) => ({ story, summary }));
+  return [...found].map(([story, title]) => ({ story, title }));
 }
 
 /** The text that asks to end the session; it is typed in the input, with no key of its own. */
 const END_COMMAND = "/end";
 
-const READY_NOTE = "# Keep the stories that go Ready, one per line; Enter sends, Esc cancels.";
-
-/** The text of the Ready form: a note, then each candidate with what it is. */
-export function readyForm(candidates: readonly { story: string; summary: string }[]): string {
-  return [READY_NOTE, ...candidates.map((c) => `${c.story} ${c.summary}`)].join("\n");
+/** What `planning.ready` answered for the `stories` the step sent. */
+function readyOutcome(stories: readonly string[], result: unknown): ReadyOutcome {
+  const r = result as {
+    queued?: string[];
+    refused?: { story: string; messages?: string[] }[];
+  } | null;
+  return {
+    stories,
+    queued: r?.queued ?? [],
+    refused: (r?.refused ?? []).map((x) => ({ story: x.story, messages: x.messages ?? [] })),
+  };
 }
 
-/** The story ids the lines of a Ready form keep; notes and blank lines are skipped. */
-export function readReadyForm(text: string): string[] {
-  const stories: string[] = [];
-  for (const line of text.split("\n")) {
-    const id = line.trim().split(/\s+/)[0] ?? "";
-    if (id !== "" && !id.startsWith("#") && !stories.includes(id)) stories.push(id);
-  }
-  return stories;
-}
-
-/** The words for a Ready confirm's result. */
-function readyWords(result: unknown): string {
-  const r = result as { queued?: string[]; refused?: { story: string }[] } | null;
-  const queued = r?.queued ?? [];
-  const refused = r?.refused ?? [];
+/** The words for a Ready step's result. */
+function readyWords(outcome: ReadyOutcome): string {
   return [
-    queued.length === 0 ? "no story set Ready" : `${queued.join(", ")} set Ready`,
-    ...(refused.length === 0 ? [] : [`refused: ${refused.map((x) => x.story).join(", ")}`]),
+    outcome.queued.length === 0 ? "no story set Ready" : `${outcome.queued.join(", ")} set Ready`,
+    ...(outcome.refused.length === 0
+      ? []
+      : [`refused: ${outcome.refused.map((x) => x.story).join(", ")}`]),
   ].join("; ");
 }
 
-/** What the Ready form does to the input around it. */
-interface ReadyForm {
-  /** Puts the form's `text` into the input, keeping the draft it replaces. */
-  begin(text: string): void;
-  /** Closes the form and restores the draft. */
-  end(): void;
-}
+type CardKey = "up" | "down" | "leave" | "tab" | "confirm" | "decline" | "edit" | "ignore" | "type";
 
-/** Opens the Ready form and sends the stories left in it as `planning.ready` (DIPO-451). */
-function readyActions(
-  args: PlanningArgs,
-  input: ProposalInput,
-  form: ReadyForm,
-): { startReady(): void; saveReady(): void } {
-  return {
-    startReady: () => {
-      const view = args.state.planning;
-      const candidates = view === null ? [] : readyCandidates(view);
-      if (candidates.length === 0) {
-        args.setMessage("no filed story is left to set Ready");
-        return;
-      }
-      form.begin(readyForm(candidates));
-    },
-    saveReady: () => {
-      const stories = readReadyForm(input.draft);
-      if (stories.length === 0) {
-        args.setMessage("keep at least one story, or press Esc");
-        return;
-      }
-      if (args.refusedOffline()) return;
-      input.send("proposal", "planning.ready", { stories }, (result) => {
-        args.setMessage(readyWords(result));
-        form.end();
-      });
-    },
-  };
+/**
+ * What a key does while a card has focus: a card key, Esc, Tab (the view's), nothing (Ctrl keys,
+ * Enter and the other keys that are not text), or text, which goes back to the input.
+ */
+function cardKey(text: string, key: Key): CardKey {
+  if (key.upArrow) return "up";
+  if (key.downArrow) return "down";
+  if (key.escape) return "leave";
+  if (key.tab) return "tab";
+  if (key.ctrl || key.meta || text.length === 0 || text.charCodeAt(0) < 32) return "ignore";
+  if (text === "c") return "confirm";
+  if (text === "x") return "decline";
+  return text === "e" ? "edit" : "type";
 }
 
 /**
- * The proposal keys (DIPO-450): Up and Down select, Ctrl-Y confirms, Ctrl-D declines, Ctrl-R edits
- * in the input, and Esc leaves an edit unsent with the draft it replaced.
+ * The card keys (DIPO-450, DIPO-487): Up on an empty input moves focus into the cards, Up and Down
+ * move between them, `c` confirms, `x` declines and `e` edits in the input; Esc, or any other
+ * printable key, gives focus back to the input. Ctrl keys do nothing.
  */
-function useProposals(args: PlanningArgs, input: ProposalInput): ProposalKeys {
-  const proposals = args.state.planning?.proposals ?? [];
-  const [selected, setSelected] = useState<number | null>(null);
+function useCards(args: PlanningArgs, input: CardInput, dialogOpen: () => boolean): CardKeys {
+  const cards = (args.state.planning?.proposals ?? []).filter(decidable);
+  const [focus, setFocus] = useState<number | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
-  const [readying, setReadying] = useState(false);
   const [kept, setKept] = useState("");
-  const latest = proposals.at(-1)?.n ?? null;
+  const focused = cards.some((card) => card.n === focus) ? focus : null;
 
-  // A new proposal is selected as it arrives.
-  useEffect(() => {
-    setSelected(latest);
-  }, [latest]);
-
-  const chosen = proposals.find((proposal) => proposal.n === selected);
+  const chosen = cards.find((card) => card.n === focused);
   const stopEdit = () => {
     setEditing(null);
-    setReadying(false);
     input.setDraft(kept);
   };
-  const { startReady, saveReady } = readyActions(args, input, {
-    begin: (text) => {
-      setKept(input.draft);
-      setReadying(true);
-      input.setDraft(text);
-    },
-    end: stopEdit,
-  });
   const decide = (command: "planning.confirm" | "planning.decline") => {
-    if (chosen === undefined || input.sending) return;
-    if (!decidable(chosen)) {
-      args.setMessage(`proposal ${chosen.n} is ${chosen.state}`);
-      return;
-    }
-    if (args.refusedOffline()) return;
+    if (chosen === undefined || input.sending || args.refusedOffline()) return;
+    const at = cards.indexOf(chosen);
+    setFocus((cards[at + 1] ?? cards[at - 1])?.n ?? null);
     input.send("proposal", command, { proposal: chosen.n }, (result) =>
       args.setMessage(
         command === "planning.confirm"
@@ -382,13 +361,14 @@ function useProposals(args: PlanningArgs, input: ProposalInput): ProposalKeys {
     );
   };
   const startEdit = () => {
-    if (chosen === undefined || !decidable(chosen)) return;
+    if (chosen === undefined) return;
     setKept(input.draft);
+    setFocus(null);
     setEditing(chosen.n);
     input.setDraft(proposalForm(chosen.proposal));
   };
   const saveEdit = () => {
-    const original = proposals.find((proposal) => proposal.n === editing);
+    const original = (args.state.planning?.proposals ?? []).find((p) => p.n === editing);
     if (original === undefined) {
       stopEdit();
       return;
@@ -405,28 +385,29 @@ function useProposals(args: PlanningArgs, input: ProposalInput): ProposalKeys {
     });
   };
   const onKey = (text: string, key: Key): boolean => {
-    if (editing !== null || readying) {
+    if (dialogOpen()) return false;
+    if (editing !== null) {
       if (!key.escape) return false;
-      args.setMessage(readying ? "nothing was set Ready" : "the edit was not sent");
+      args.setMessage("the edit was not sent");
       stopEdit();
       return true;
     }
-    if (key.upArrow || key.downArrow) {
-      setSelected(stepSelection(proposals, selected, key.upArrow ? -1 : 1));
+    if (focused === null) {
+      if (!key.upArrow || input.draft !== "" || cards.length === 0) return false;
+      setFocus(cards.at(-1)?.n ?? null);
       return true;
     }
-    if (key.ctrl && text === "g" && args.state.planning !== null) {
-      startReady();
-      return true;
-    }
-    if (!key.ctrl || proposals.length === 0) return false;
-    if (text === "y") decide("planning.confirm");
-    else if (text === "d") decide("planning.decline");
-    else if (text === "r") startEdit();
-    else return false;
-    return true;
+    const act = cardKey(text, key);
+    if (act === "type") setFocus(null);
+    else if (act === "up" || act === "down")
+      setFocus(stepFocus(cards, focused, act === "up" ? -1 : 1));
+    else if (act === "leave") setFocus(null);
+    else if (act === "confirm") decide("planning.confirm");
+    else if (act === "decline") decide("planning.decline");
+    else if (act === "edit") startEdit();
+    return act !== "type" && act !== "tab";
   };
-  return { selected, editing, readying, onKey, saveEdit, saveReady };
+  return { focused, editing, onKey, saveEdit };
 }
 
 /**
@@ -438,7 +419,7 @@ function useQuestions(
   args: PlanningArgs,
   send: Send,
   sending: boolean,
-  forms: { readonly editing: number | null; readonly readying: boolean },
+  editing: number | null,
 ): { dialog: Planning["dialog"]; onKey(input: string, key: Key): boolean } {
   const blocks = args.state.planning?.questions ?? [];
   const [left, setLeft] = useState<number[]>([]);
@@ -451,7 +432,7 @@ function useQuestions(
     setState(block === null ? null : freshDialog(block));
   }, [number]);
 
-  const open = block !== null && state !== null && forms.editing === null && !forms.readying;
+  const open = block !== null && state !== null && editing === null;
   const onKey = (input: string, key: Key): boolean => {
     if (!open) return false;
     const step = dialogKey(block, state, input, key);
@@ -474,15 +455,80 @@ function useQuestions(
   return { dialog: open ? { block, state } : null, onKey };
 }
 
-/** A new office or session closes a question about ending the old one; another office has its own draft. */
+/** A new office or session closes the Ready step of the old one; another office has its own draft. */
 function useResets(
   run: string | null,
   office: string | null,
-  setConfirmingEnd: (confirming: boolean) => void,
+  setEnding: (ending: EndStep | null) => void,
   setDraft: (draft: string) => void,
 ): void {
-  useEffect(() => setConfirmingEnd(false), [run, office]);
+  useEffect(() => setEnding(null), [run, office]);
   useEffect(() => setDraft(""), [office]);
+}
+
+/** The keys of the Ready step (DIPO-487): it takes every key while it is open. */
+function useEnd(
+  args: PlanningArgs,
+  send: Send,
+  sending: boolean,
+  ending: EndStep | null,
+  setEnding: (ending: EndStep | null) => void,
+): (input: string, key: Key) => void {
+  const view = args.state.planning;
+  const candidates = view === null ? [] : readyCandidates(view);
+  const end = (words: string) => {
+    if (sending || args.refusedOffline()) return;
+    send("end", "planning.end", {}, () => {
+      args.setMessage(`${words}planning session ended`);
+      setEnding(null);
+    });
+  };
+  const keep = () => {
+    args.setMessage("the session stays open");
+    setEnding(null);
+  };
+  const move = (step: EndStep, by: number) => {
+    const cursor = Math.max(0, Math.min(candidates.length - 1, step.cursor + by));
+    setEnding({ ...step, cursor });
+  };
+  const tick = (step: EndStep) => {
+    const story = candidates[step.cursor]?.story;
+    if (story === undefined || step.outcome !== null) return;
+    const off = step.off.includes(story)
+      ? step.off.filter((id) => id !== story)
+      : [...step.off, story];
+    setEnding({ ...step, off });
+  };
+  // Y: the ticked stories go Ready, and once that answers the session ends.
+  const accept = (step: EndStep) => {
+    const stories = candidates.map((c) => c.story).filter((id) => !step.off.includes(id));
+    if (step.outcome !== null) end(`${readyWords(step.outcome)}; `);
+    else if (stories.length === 0) end("no story set Ready; ");
+    else if (!sending && !args.refusedOffline()) {
+      send("proposal", "planning.ready", { stories }, (result) => {
+        const done = readyOutcome(stories, result);
+        setEnding({ ...step, outcome: done });
+        args.setMessage(readyWords(done));
+        send("end", "planning.end", {}, () => {
+          args.setMessage(`${readyWords(done)}; planning session ended`);
+          setEnding(null);
+        });
+      });
+    }
+  };
+  return (input, key) => {
+    if (ending === null) return;
+    const yes = input === "y" || input === "Y";
+    if (ending.outcome === null && candidates.length === 0) {
+      if (yes) end("");
+      else keep();
+    } else if (key.escape) keep();
+    else if (key.upArrow || key.downArrow) move(ending, key.upArrow ? -1 : 1);
+    else if (input === " ") tick(ending);
+    else if ((input === "n" || input === "N") && ending.outcome === null)
+      end("no story set Ready; ");
+    else if (yes) accept(ending);
+  };
 }
 
 /** The planning view's state; always mounted, so an open draft survives a visit to another mode. */
@@ -494,27 +540,29 @@ export function usePlanning(args: PlanningArgs): Planning {
   const [draft, setDraft] = useState("");
   const [kindIndex, setKindIndex] = useState(0);
   const [sending, setSending] = useState<Sending | null>(null);
-  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const [rail, setRail] = useState(false);
+  const [ending, setEnding] = useState<EndStep | null>(null);
   const { transcript, local } = useTranscript(args);
 
-  useResets(run, office, setConfirmingEnd, setDraft);
+  useResets(run, office, setEnding, setDraft);
 
   const kind = PLANNING_KINDS[kindIndex] ?? PLANNING_KINDS[0];
 
   const send: Send = (which, command, commandArgs, done) =>
     sendCommand(args, setSending, which, { command, args: commandArgs }, done);
-  const proposals = useProposals(args, { draft, setDraft, send, sending: sending !== null });
-  const questions = useQuestions(args, send, sending !== null, proposals);
+  const cards = useCards(
+    args,
+    { draft, setDraft, send, sending: sending !== null },
+    () => questions.dialog !== null,
+  );
+  const questions = useQuestions(args, send, sending !== null, cards.editing);
+  const endKey = useEnd(args, send, sending !== null, ending, setEnding);
 
   const submit = () => {
     const text = draft.trim();
     if (sending !== null) return;
-    if (proposals.readying) {
-      proposals.saveReady();
-      return;
-    }
-    if (proposals.editing !== null) {
-      proposals.saveEdit();
+    if (cards.editing !== null) {
+      cards.saveEdit();
       return;
     }
     if (text === "") {
@@ -523,7 +571,7 @@ export function usePlanning(args: PlanningArgs): Planning {
     }
     if (view !== null && text === END_COMMAND) {
       setDraft("");
-      setConfirmingEnd(true);
+      setEnding({ cursor: 0, off: [], outcome: null });
       return;
     }
     if (args.refusedOffline()) return;
@@ -539,20 +587,15 @@ export function usePlanning(args: PlanningArgs): Planning {
   };
 
   const onKey = (input: string, key: Key) => {
-    if (confirmingEnd) {
-      setConfirmingEnd(false);
-      if (input !== "y" && input !== "Y") {
-        args.setMessage("the session stays open");
-        return;
-      }
-      if (args.refusedOffline()) return;
-      send("end", "planning.end", {}, () => args.setMessage("planning session ended"));
+    if (ending !== null) {
+      endKey(input, key);
       return;
     }
     if (questions.onKey(input, key)) return;
-    if (proposals.onKey(input, key)) return;
+    if (cards.onKey(input, key)) return;
     if (key.tab) {
       if (view === null) setKindIndex((index) => (index + 1) % PLANNING_KINDS.length);
+      else setRail((open) => !open);
       return;
     }
     const event = composerKey(draft, input, key, true);
@@ -570,10 +613,10 @@ export function usePlanning(args: PlanningArgs): Planning {
     draft,
     transcript,
     sending,
-    confirmingEnd,
-    selected: proposals.selected,
-    editing: proposals.editing,
-    readying: proposals.readying,
+    ending,
+    focused: cards.focused,
+    editing: cards.editing,
+    rail,
     dialog: questions.dialog,
     discuss: (text) => {
       setDraft(text);
@@ -606,72 +649,6 @@ export function headLines(view: PlanningView, columns: number, display: Display)
   ];
   if (view.continuedAt !== undefined) {
     lines.push(`continued in a fresh model session at ${clockTime(Date.parse(view.continuedAt))}`);
-  }
-  return lines;
-}
-
-/** How many proposals the view shows at once, ending at the selected one. */
-const PROPOSAL_ROWS = 3;
-
-/** One proposal's first line after its number: what it files, with the proposed tier. */
-function proposalSummary(proposal: PlanningProposalView["proposal"]): string {
-  switch (proposal.kind) {
-    case "story":
-      return `story [${proposal.tier}] ${proposal.title}`;
-    case "edit":
-      return `edit ${proposal.id}${proposal.title === undefined ? "" : `: ${proposal.title}`}`;
-    case "split":
-      return `split ${proposal.id} + story [${proposal.story.tier}] ${proposal.story.title}`;
-    case "refine":
-      return `refine ${proposal.draft} into story [${proposal.tier}] ${proposal.title}`;
-    case "drop":
-      return `drop ${proposal.draft}`;
-    default:
-      return String((proposal as { kind?: unknown }).kind ?? "proposal");
-  }
-}
-
-/** A proposal's state, with the stories it filed or why it failed. */
-function proposalState(proposal: PlanningProposalView): string {
-  const stories = proposal.stories ?? [];
-  if (proposal.state === "failed") return `failed: ${proposal.detail ?? "not filed"}`;
-  const edited = proposal.edited === true ? " (edited)" : "";
-  return `${proposal.state}${edited}${stories.length === 0 ? "" : ` ${stories.join(", ")}`}`;
-}
-
-/**
- * Pure: the proposal rows (DIPO-450): a heading, then for each shown proposal its number, kind,
- * proposed tier, title and state, and a line of why; the selected one is marked.
- */
-export function proposalLines(
-  view: PlanningView,
-  selected: number | null,
-  columns: number,
-  display: Display,
-): string[] {
-  const proposals = view.proposals ?? [];
-  if (proposals.length === 0) return [];
-  const { dot, ellipsis } = glyphs(display.ascii);
-  const at = Math.max(
-    0,
-    proposals.findIndex((proposal) => proposal.n === selected),
-  );
-  const first = Math.max(0, Math.min(at - PROPOSAL_ROWS + 1, proposals.length - PROPOSAL_ROWS));
-  const shown = proposals.slice(first, first + PROPOSAL_ROWS);
-  const width = Math.max(10, columns - 4);
-  const lines = [
-    `proposals ${dot} ${proposals.length} ${dot} ${proposals.filter((p) => p.state === "open").length} open`,
-  ];
-  for (const proposal of shown) {
-    const mark = proposal.n === selected ? glyphs(display.ascii).bar : " ";
-    lines.push(
-      truncate(
-        `${mark} #${proposal.n} ${proposalSummary(proposal.proposal)} ${dot} ${proposalState(proposal)}`,
-        width,
-        ellipsis,
-      ),
-      truncate(`    why: ${proposal.proposal.why}`, width, ellipsis),
-    );
   }
   return lines;
 }
@@ -711,6 +688,217 @@ export function refusalLines(view: PlanningView, columns: number, display: Displ
   ];
 }
 
+/** A proposal's title and proposed tier: what a card and the Ready step call it. */
+function proposalHead(proposal: PlanningProposalView["proposal"]): {
+  title: string;
+  tier?: string;
+} {
+  switch (proposal.kind) {
+    case "story":
+    case "refine":
+      return { title: proposal.title, tier: proposal.tier };
+    case "edit":
+      return {
+        title: `edit ${proposal.id}${proposal.title === undefined ? "" : `: ${proposal.title}`}`,
+      };
+    case "split":
+      return {
+        title: `split ${proposal.id} + ${proposal.story.title}`,
+        tier: proposal.story.tier,
+      };
+    case "drop":
+      return { title: `drop ${proposal.draft}` };
+    default:
+      return { title: String((proposal as { kind?: unknown }).kind ?? "proposal") };
+  }
+}
+
+/** A card's second line: the story line of a story, else why it is proposed. */
+function firstLine(proposal: PlanningProposalView["proposal"]): string {
+  const line =
+    (proposal.kind === "story" || proposal.kind === "refine") && proposal.storyLine !== undefined
+      ? proposal.storyLine
+      : proposal.why;
+  return line.replace(/\s+/g, " ");
+}
+
+/** One row of the view: its text, and the role it is painted in. */
+export interface Row {
+  readonly text: string;
+  readonly role?: Role;
+  readonly bold?: boolean;
+}
+
+/** The rows of one block of the conversation, kept together when the view is short of room. */
+interface Block {
+  readonly rows: readonly Row[];
+  readonly focused?: boolean;
+}
+
+/**
+ * Pure: what the conversation shows of the proposals (DIPO-487): a line for each confirmed one,
+ * `filing…` and then `filed as DIPO-n`, a card for each one that still needs a decision, and
+ * nothing for a declined one. The focused card shows its keys.
+ */
+export function proposalBlocks(
+  view: PlanningView,
+  focused: number | null,
+  columns: number,
+  display: Display,
+): Block[] {
+  const { ellipsis, bar, failed, met } = glyphs(display.ascii);
+  const width = Math.max(10, columns - 4);
+  const lines: Block[] = [];
+  const cards: Block[] = [];
+  for (const item of view.proposals ?? []) {
+    const { title, tier } = proposalHead(item.proposal);
+    const named = `${title}${tier === undefined ? "" : ` · ${tier}`}`;
+    if (item.state === "filing" || item.state === "filed") {
+      const ids = item.stories ?? [];
+      const said =
+        item.state === "filing"
+          ? `filing${ellipsis}`
+          : `filed${ids.length === 0 ? "" : ` as ${ids.join(", ")}`}`;
+      lines.push({
+        rows: [
+          {
+            text: truncate(
+              `  ${item.state === "filed" ? met : " "} ${said} · ${title}`,
+              width,
+              ellipsis,
+            ),
+            role: item.state === "filed" ? "ok" : "dim",
+          },
+        ],
+      });
+    } else if (decidable(item)) {
+      const isFocused = item.n === focused;
+      const rows: Row[] = [
+        {
+          text: truncate(
+            `${isFocused ? bar : " "} ${item.state === "failed" ? failed : display.ascii ? "#" : "◆"} ${named}`,
+            width,
+            ellipsis,
+          ),
+          role: isFocused ? "hi" : "fg",
+          bold: isFocused,
+        },
+        { text: truncate(`    ${firstLine(item.proposal)}`, width, ellipsis), role: "dim" },
+      ];
+      if (item.state === "failed") {
+        rows.push({
+          text: truncate(`    failed: ${item.detail ?? "not filed"}`, width, ellipsis),
+          role: "err",
+        });
+      }
+      if (isFocused) {
+        rows.push({ text: "    c confirm   e edit   x decline   esc to the input", role: "acc" });
+      }
+      cards.push({ rows, focused: isFocused });
+    }
+  }
+  return [...lines, ...cards];
+}
+
+/** Pure: the stories fold-out (Tab): the plan's proposals with their state, and what the end will offer. */
+export function railRows(view: PlanningView, columns: number, display: Display): Row[] {
+  const { ellipsis, met, failed, dot } = glyphs(display.ascii);
+  const width = Math.max(10, columns - 4);
+  const rows: Row[] = [{ text: "IN THIS PLAN", role: "dim" }];
+  const proposals = view.proposals ?? [];
+  if (proposals.length === 0) rows.push({ text: "  no proposal yet", role: "dim" });
+  for (const item of proposals) {
+    const { title } = proposalHead(item.proposal);
+    const mark =
+      item.state === "filed"
+        ? met
+        : item.state === "failed"
+          ? failed
+          : item.state === "open"
+            ? display.ascii
+              ? "#"
+              : "◆"
+            : dot;
+    const ids = item.stories ?? [];
+    rows.push({
+      text: truncate(
+        `  ${mark} ${ids.length === 0 ? "" : `${ids.join(", ")} `}${title} ${dot} ${item.state}`,
+        width,
+        ellipsis,
+      ),
+      role: item.state === "filed" ? "ok" : item.state === "declined" ? "dim" : "fg",
+    });
+  }
+  const left = readyCandidates(view).length;
+  rows.push(
+    { text: "ON END", role: "dim" },
+    {
+      text:
+        left === 0
+          ? "  nothing is left to set Ready; /end ends the session"
+          : `  ${left} filed, not Ready yet ${dot} /end opens the Ready step`,
+    },
+  );
+  return rows;
+}
+
+/** Pure: the Ready step (DIPO-487): the stories to tick, or each story's result once sent. */
+export function readyStepRows(
+  view: PlanningView,
+  step: EndStep,
+  columns: number,
+  display: Display,
+): Row[] {
+  const { ellipsis, bar, dot } = glyphs(display.ascii);
+  const width = Math.max(10, columns - 4);
+  const candidates = readyCandidates(view);
+  const { outcome } = step;
+  if (outcome === null && candidates.length === 0) {
+    return [
+      { text: `Ready step ${dot} nothing is left to set Ready`, role: "acc", bold: true },
+      { text: "End the planning session? [y/N]" },
+    ];
+  }
+  if (outcome !== null) {
+    const chosen = view.ready ?? [];
+    return [
+      { text: `Ready step ${dot} ${outcome.stories.length} sent`, role: "acc", bold: true },
+      ...outcome.stories.map((story): Row => {
+        const refused = outcome.refused.find((x) => x.story === story);
+        const state = chosen.find((r) => r.story === story)?.state;
+        const text =
+          refused !== undefined
+            ? `  ${story} refused and stays as it is: ${refused.messages.join("; ")}`
+            : `  ${story} ${state === "set" || state === "setting" ? state : outcome.queued.includes(story) ? "queued" : "sent"}`;
+        return {
+          text: truncate(text, width, ellipsis),
+          role: refused === undefined ? "ok" : "err",
+        };
+      }),
+    ];
+  }
+  const ticked = candidates.filter((c) => !step.off.includes(c.story)).length;
+  return [
+    {
+      text: `Ready step ${dot} ${ticked} of ${candidates.length} ticked ${dot} Y sets them Ready and ends`,
+      role: "acc",
+      bold: true,
+    },
+    ...candidates.map((candidate, i): Row => {
+      const on = !step.off.includes(candidate.story);
+      return {
+        text: truncate(
+          `${i === step.cursor ? bar : " "} [${on ? "x" : " "}] ${candidate.story} ${candidate.title}`,
+          width,
+          ellipsis,
+        ),
+        role: i === step.cursor ? "hi" : "fg",
+        bold: i === step.cursor,
+      };
+    }),
+  ];
+}
+
 export interface PlanningModeProps {
   readonly planning: Planning;
   readonly display: Display;
@@ -719,69 +907,126 @@ export interface PlanningModeProps {
   readonly height: number;
 }
 
-/** The planning mode's body. */
+/** Drops the blocks that fit least, never the focused one, until the rows fit `max`. */
+function fitBlocks(blocks: readonly Block[], max: number): Row[] {
+  const kept = [...blocks];
+  const count = () => kept.reduce((sum, block) => sum + block.rows.length, 0);
+  while (kept.length > 1 && count() > max) {
+    const drop = kept.findIndex((block) => block.focused !== true);
+    if (drop < 0) break;
+    kept.splice(drop, 1);
+  }
+  return kept.flatMap((block) => block.rows);
+}
+
+/** The answers of the session, or why there are none yet. */
+function Answers(props: { view: PlanningView; rows: readonly string[]; ellipsis: string }) {
+  const { view, rows, ellipsis } = props;
+  if (rows.length === 0) {
+    const none =
+      view.state === "waiting" ? " no answers yet" : ` waiting for the answer${ellipsis}`;
+    return <Text wrap="truncate-end">{none}</Text>;
+  }
+  return (
+    <>
+      {rows.map((row, i) => (
+        <Text key={`row:${i}`} wrap="truncate-end">{` ${row}`}</Text>
+      ))}
+    </>
+  );
+}
+
+/** The lines above the conversation: the session's head, or the form that starts one. */
+function viewHead(planning: Planning, columns: number, display: Display): string[] {
+  const { view } = planning;
+  if (view !== null)
+    return [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
+  return [
+    "Planning: no open planning session",
+    `kind: ${PLANNING_KINDS.map((kind) => (kind === planning.kind ? `[${kind}]` : kind)).join("  ")}`,
+    "goal (what do you want to plan?):",
+  ];
+}
+
+/** The planning mode's body: one conversation column and one input at the foot. */
 export function PlanningMode(props: PlanningModeProps) {
   const { planning, display, columns } = props;
   const { view } = planning;
   const rule = (display.ascii ? "-" : "─").repeat(Math.max(1, columns - 2));
-  const head =
-    view === null
-      ? [
-          "Planning: no open planning session",
-          `kind: ${PLANNING_KINDS.map((kind) => (kind === planning.kind ? `[${kind}]` : kind)).join("  ")}`,
-          "goal (what do you want to plan?):",
-        ]
-      : [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
-  const inputRows = planning.editing === null && !planning.readying ? COMPOSER_ROWS : FORM_ROWS;
+  const head = viewHead(planning, columns, display);
+  const inputRows = planning.editing === null ? COMPOSER_ROWS : FORM_ROWS;
+  const step =
+    view !== null && planning.ending !== null
+      ? readyStepRows(view, planning.ending, columns, display)
+      : null;
   const input =
     planning.dialog === null
       ? composerRows(planning.draft, columns, inputRows)
       : dialogLines(planning.dialog.block, planning.dialog.state, columns, display);
-  const confirm = planning.confirmingEnd ? ["End the planning session? [y/N]"] : [];
-  // The proposals (DIPO-450) sit between the answers and the input; an edit says which it is.
-  const proposals = [
-    ...(view === null ? [] : proposalLines(view, planning.selected, columns, display)),
-    ...(view === null ? [] : readyLines(view, columns, display)),
-    ...(planning.readying ? ["setting stories Ready:"] : []),
-    ...(planning.editing === null ? [] : [`editing proposal ${planning.editing}:`]),
-  ];
-  const room = Math.max(
-    0,
-    props.height - head.length - input.length - confirm.length - proposals.length - 2,
-  );
+  const foot = step?.length ?? input.length + (planning.editing === null ? 0 : 1);
+  const extra: Row[] =
+    view === null
+      ? []
+      : [
+          ...readyLines(view, columns, display).map((text): Row => ({ text })),
+          ...(planning.rail ? railRows(view, columns, display) : []),
+        ];
+  const blocks = view === null ? [] : proposalBlocks(view, planning.focused, columns, display);
+  const space = Math.max(1, props.height - head.length - foot - 2);
+  const cards = fitBlocks(blocks, Math.max(1, space - extra.length - 1));
+  const room = Math.max(0, space - cards.length - extra.length);
   const rows =
     view === null
       ? []
       : wrapLines(splitLines(planning.transcript), Math.max(10, columns - 2)).slice(-room);
+  const line = (row: Row, key: string) => (
+    <Colored
+      key={key}
+      display={display}
+      role={row.role}
+      {...(row.bold === true ? { bold: true } : {})}
+      wrap="truncate-end"
+    >
+      {` ${row.text}`}
+    </Colored>
+  );
   return (
-    <Box flexDirection="column">
-      {head.map((line, i) => (
-        <Text key={`head:${i}`} wrap="truncate-end">{` ${line}`}</Text>
+    <Box flexDirection="column" height={props.height}>
+      {head.map((text, i) => (
+        <Text key={`head:${i}`} wrap="truncate-end">{` ${text}`}</Text>
       ))}
       <Text wrap="truncate-end">{` ${rule}`}</Text>
-      {view === null
-        ? null
-        : rows.length === 0
-          ? [
-              <Text key="none" wrap="truncate-end">
-                {view.state === "waiting"
-                  ? " no answers yet"
-                  : ` waiting for the answer${glyphs(display.ascii).ellipsis}`}
-              </Text>,
-            ]
-          : rows.map((row, i) => <Text key={`row:${i}`} wrap="truncate-end">{` ${row}`}</Text>)}
-      {view === null ? null : <Text wrap="truncate-end">{` ${rule}`}</Text>}
-      {proposals.map((line, i) => (
-        <Text key={`proposal:${i}`} wrap="truncate-end">{` ${line}`}</Text>
-      ))}
-      {planning.dialog === null ? (
-        <Composer draft={planning.draft} columns={columns} rows={inputRows} />
-      ) : (
-        input.map((line, i) => <Text key={`dialog:${i}`} wrap="truncate-end">{` ${line}`}</Text>)
+      {view === null ? null : (
+        <Answers view={view} rows={rows} ellipsis={glyphs(display.ascii).ellipsis} />
       )}
-      {confirm.map((line) => (
-        <Text key="confirm">{` ${line}`}</Text>
-      ))}
+      {cards.map((row, i) => line(row, `card:${i}`))}
+      {extra.map((row, i) => line(row, `extra:${i}`))}
+      <Box flexGrow={1} />
+      {view !== null && step !== null ? (
+        step.map((row, i) => line(row, `step:${i}`))
+      ) : (
+        <>
+          {planning.editing === null ? null : (
+            <Text wrap="truncate-end">{` editing proposal ${planning.editing}:`}</Text>
+          )}
+          {planning.dialog === null ? (
+            <Composer draft={planning.draft} columns={columns} rows={inputRows} />
+          ) : (
+            input.map((text, i) => (
+              <Text key={`dialog:${i}`} wrap="truncate-end">{` ${text}`}</Text>
+            ))
+          )}
+        </>
+      )}
     </Box>
   );
+}
+
+/** Which keys the Ready step takes: those of a list to tick, or of a question to end (DIPO-487). */
+export function endingKind(planning: Planning): "ready" | "empty" | null {
+  const { ending, view } = planning;
+  if (ending === null) return null;
+  return ending.outcome === null && (view === null || readyCandidates(view).length === 0)
+    ? "empty"
+    : "ready";
 }
