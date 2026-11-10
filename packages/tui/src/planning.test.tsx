@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { Event, PlanningView } from "@dipsaus-orchestrator/contract";
 
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
+import { mockRows } from "../test/support/mock-screens";
 import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -216,7 +217,7 @@ describe("the planning view", () => {
     });
   });
 
-  it("shows each proposal with its tier and why and the latest refusal, and confirms, edits and declines by command (DIPO-450)", async () => {
+  it("shows an open proposal as a card and confirms, declines and edits it with c, x and e (DIPO-487)", async () => {
     const snapshots = new Map([
       [
         OFFICES.dipsaus,
@@ -231,14 +232,12 @@ describe("the planning view", () => {
     ]);
     const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
     await ui.press("5");
-    const frame = await ui.waitFor("#2 story [S] Export as XML");
-    expect(frame).toContain("proposals · 2 · 2 open");
-    expect(frame).toContain("#1 story [M] Export as CSV · open");
-    expect(frame).toContain("why: Why Export as XML: the maintainer asked for it.");
-    expect(frame).toContain("▌ #2");
+    const frame = await ui.waitFor("Export as XML · S");
+    expect(frame).toContain("◆ Export as CSV · M");
+    expect(frame).toContain("As maintainer I want to export the stories as a CSV file");
     expect(frame).toContain("refused a proposal at");
-    expect(frame).toContain("tier: Invalid option");
-    expect(frame).toContain("ctrl-y confirm");
+    expect(frame).not.toContain("c confirm");
+    expect(frame).not.toContain("▌ ◆");
 
     const sent = async (name: string) => {
       for (let i = 0; i < 100 && !session.commands.some((c) => c.name === name); i++) {
@@ -247,11 +246,24 @@ describe("the planning view", () => {
       return session.commands.find((c) => c.name === name);
     };
 
-    // Decline the selected (the latest), then select the first and confirm it.
-    await ui.press("ctrl-d");
-    expect((await sent("planning.decline"))?.args).toEqual({ proposal: 2 });
+    // The modifier keys do nothing, with the input or a card in focus.
+    for (const key of ["ctrl-y", "ctrl-d", "ctrl-r", "ctrl-g"]) await ui.press(key);
+    await Bun.sleep(50);
+    expect(
+      session.commands.filter((c) => c.name.startsWith("planning.") && c.name !== "x"),
+    ).toEqual([]);
+
+    // Up on an empty input focuses the last card; the modifier keys still do nothing there.
     await ui.press("up");
-    await ui.waitFor("▌ #1");
+    const focused = await ui.waitFor("▌ ◆ Export as XML · S");
+    expect(focused).toContain("c confirm   e edit   x decline");
+    for (const key of ["ctrl-y", "ctrl-d", "ctrl-r", "ctrl-g"]) await ui.press(key);
+    await Bun.sleep(50);
+    expect(session.commands.some((c) => c.name.startsWith("planning."))).toBe(false);
+    await ui.press("x");
+    expect((await sent("planning.decline"))?.args).toEqual({ proposal: 2 });
+    await ui.waitFor("▌ ◆ Export as CSV · M");
+
     session.commandReply = (name) =>
       name === "planning.confirm"
         ? {
@@ -260,27 +272,114 @@ describe("the planning view", () => {
             changed: true,
           }
         : undefined;
-    await ui.press("ctrl-y");
+    await ui.press("c");
     expect((await sent("planning.confirm"))?.args).toEqual({ proposal: 1 });
     await ui.waitFor("proposal 1 confirmed: DIPO-31");
 
-    // Edit: the proposal goes into the input as a form, and Enter sends it as planning.edit.
+    // Esc and any other printable key return focus to the input; the key is typed there.
     session.commandReply = () => undefined;
-    await ui.press("ctrl-r");
-    const editing = await ui.waitFor("editing proposal 1:");
-    expect(editing).toContain("tier: M");
-    expect(editing).toContain("⏎ save proposal 1");
-    const why = "why: Why Export as CSV: the maintainer asked for it.";
+    await ui.press("up");
+    await ui.waitFor("▌ ◆");
+    await ui.press("escape");
+    await ui.waitFor("> _");
+    expect(ui.frame()).not.toContain("▌ ◆");
+    await ui.press("up");
+    await ui.waitFor("▌ ◆");
+    await ui.press("z");
+    const typed = await ui.waitFor("> z_");
+    expect(typed).not.toContain("▌ ◆");
+
+    // Edit: the proposal goes into the input as a form, and Enter sends it as planning.edit.
+    await ui.press("backspace");
+    await ui.press("up");
+    await ui.press("e");
+    const editing = await ui.waitFor("editing proposal 2:");
+    expect(editing).toContain("tier: S");
+    expect(editing).toContain("⏎ save proposal 2");
+    const why = "why: Why Export as XML: the maintainer asked for it.";
     for (let i = 0; i < why.length; i++) await ui.press("backspace");
     await ui.press("why: Shorter why.");
     await ui.press("enter");
     const edit = await sent("planning.edit");
     expect(edit?.args).toMatchObject({
-      proposal: 1,
-      edited: { kind: "story", title: "Export as CSV", tier: "M", why: "Shorter why." },
+      proposal: 2,
+      edited: { kind: "story", title: "Export as XML", tier: "S", why: "Shorter why." },
     });
-    await ui.waitFor("proposal 1 edited");
+    await ui.waitFor("proposal 2 edited");
     expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+  });
+
+  it("shows a confirmed proposal as one line and a declined one not at all, and focus moves only over cards (DIPO-487)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            proposals: [
+              filed(1, "Export as CSV", "DIPO-31"),
+              { ...proposal(2, "Export as XML", "S"), state: "filing" },
+              { ...proposal(3, "Export as JSON", "S"), state: "declined" },
+              { ...proposal(4, "Export as YAML", "S"), state: "failed", detail: "lane closed it" },
+              proposal(5, "Export as TOML", "M"),
+            ],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui } = await open({ columns: 140, rows: 40, snapshots });
+    await ui.press("5");
+    const frame = await ui.waitFor("filed as DIPO-31");
+    expect(frame.match(/filed as DIPO-31/g)).toHaveLength(1);
+    expect(frame).toContain("filing… · Export as XML");
+    expect(frame).not.toContain("◆ Export as CSV");
+    expect(frame).not.toContain("◆ Export as XML");
+    expect(frame).not.toContain("Export as JSON");
+    expect(frame).toContain("✗ Export as YAML · S");
+    expect(frame).toContain("failed: lane closed it");
+    expect(frame).toContain("◆ Export as TOML · M");
+
+    // Up focuses the last card, again the failed one, and no further: two cards, no others.
+    await ui.press("up");
+    await ui.waitFor("▌ ◆ Export as TOML");
+    await ui.press("up");
+    await ui.waitFor("▌ ✗ Export as YAML");
+    await ui.press("up");
+    await Bun.sleep(50);
+    expect(ui.frame()).toContain("▌ ✗ Export as YAML");
+    await ui.press("down");
+    await ui.waitFor("▌ ◆ Export as TOML");
+    await ui.press("down");
+    await Bun.sleep(50);
+    expect(ui.frame()).toContain("▌ ◆ Export as TOML");
+  });
+
+  it("opens and closes the stories fold-out on Tab, in one column with one input at the foot (DIPO-487)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            proposals: [filed(1, "Export as CSV", "DIPO-31"), proposal(2, "Export as XML", "S")],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui } = await open({ columns: 112, rows: 30, snapshots });
+    await ui.press("5");
+    const closed = await ui.waitFor("◆ Export as XML");
+    expect(closed).not.toContain("IN THIS PLAN");
+    expect(closed).not.toContain("│");
+    expect(closed.match(/^ > /gm)).toHaveLength(1);
+    await ui.press("tab");
+    const unfolded = await ui.waitFor("IN THIS PLAN");
+    expect(unfolded).toContain("DIPO-31 Export as CSV · filed");
+    expect(unfolded).toContain("1 filed, not Ready yet");
+    expect(unfolded.match(/^ > /gm)).toHaveLength(1);
+    await ui.press("tab");
+    await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("IN THIS PLAN");
   });
 
   it("shows a question block as a dialog, picks options and a free answer with keys, and sends the answers as one command (DIPO-455)", async () => {
@@ -354,7 +453,60 @@ describe("the planning view", () => {
     expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
   });
 
-  it("sets the stories left in the Ready form Ready and lists what the gate refused (DIPO-451)", async () => {
+  it("opens the Ready step on /end, ticks and unticks, sets the ticked stories Ready and ends (DIPO-487)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            proposals: [
+              filed(1, "Export as CSV", "DIPO-31"),
+              filed(2, "Export as XML", "DIPO-32"),
+              filed(3, "Export as JSON", "DIPO-33"),
+            ],
+            ready: [{ story: "DIPO-33", state: "set", at: "2026-10-14T10:06:00.000Z" }],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui, session } = await open({ columns: 140, rows: 40, snapshots });
+    await ui.press("5");
+    await ui.waitFor("filed as DIPO-32");
+    await ui.press("/end");
+    await ui.press("enter");
+    const step = await ui.waitFor("2 of 2 ticked");
+    expect(step).toContain("▌ [x] DIPO-31 Export as CSV · M");
+    expect(step).toContain("[x] DIPO-32 Export as XML · M");
+    expect(step).not.toContain("DIPO-33 Export as JSON");
+    expect(session.commands.some((c) => c.name.startsWith("planning."))).toBe(false);
+
+    await ui.press("down");
+    await ui.press(" ");
+    const some = await ui.waitFor("1 of 2 ticked");
+    expect(some).toContain("[ ] DIPO-32");
+    await ui.press(" ");
+    await ui.waitFor("2 of 2 ticked");
+    await ui.press(" ");
+    await ui.waitFor("1 of 2 ticked");
+
+    session.commandReply = (name) =>
+      name === "planning.ready"
+        ? { ok: true, result: { run: RUN, queued: ["DIPO-31"], refused: [] }, changed: true }
+        : undefined;
+    await ui.press("Y");
+    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.end"); i++) {
+      await Bun.sleep(5);
+    }
+    const names = session.commands.map((c) => c.name).filter((n) => n.startsWith("planning."));
+    expect(names).toEqual(["planning.ready", "planning.end"]);
+    expect(session.commands.find((c) => c.name === "planning.ready")?.args).toEqual({
+      stories: ["DIPO-31"],
+    });
+    await ui.waitFor("DIPO-31 set Ready; planning session ended");
+  });
+
+  it("shows each story the Ready step sent as set, queued or refused with the gate's messages (DIPO-487)", async () => {
     const snapshots = new Map([
       [
         OFFICES.dipsaus,
@@ -368,31 +520,64 @@ describe("the planning view", () => {
     ]);
     const { ui, session } = await open({ columns: 140, rows: 40, snapshots });
     await ui.press("5");
-    await ui.waitFor("#2 story [M] Export as XML");
-    await ui.press("ctrl-g");
-    const form = await ui.waitFor("setting stories Ready:");
-    expect(form).toContain("DIPO-31 story [M] Export as CSV");
-    expect(form).toContain("DIPO-32 story [M] Export as XML");
-    // Drop the second story's line: only DIPO-31 is chosen.
-    const line = "DIPO-32 story [M] Export as XML";
-    for (let i = 0; i < line.length + 1; i++) await ui.press("backspace");
+    await ui.waitFor("filed as DIPO-32");
+    await ui.press("/end");
+    await ui.press("enter");
+    await ui.waitFor("2 of 2 ticked");
     session.commandReply = (name) =>
       name === "planning.ready"
         ? {
             ok: true,
-            result: { run: RUN, queued: ["DIPO-31"], refused: [] },
+            result: {
+              run: RUN,
+              queued: ["DIPO-31"],
+              refused: [{ story: "DIPO-32", messages: ["R08: no acceptance criteria"] }],
+            },
             changed: true,
           }
-        : undefined;
+        : name === "planning.end"
+          ? { ok: false, error: { code: "planning.notOpen", message: "no open session" } }
+          : undefined;
+    await ui.press("y");
+    const result = await ui.waitFor(
+      "DIPO-32 refused and stays as it is: R08: no acceptance criteria",
+    );
+    expect(result).toContain("DIPO-31 queued");
+  });
+
+  it("ends with none Ready on n, keeps the session open on Esc, and asks to end when nothing is left (DIPO-487)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            proposals: [filed(1, "Export as CSV", "DIPO-31")],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui, session } = await open({ columns: 140, rows: 40, snapshots });
+    await ui.press("5");
+    await ui.waitFor("filed as DIPO-31");
+    await ui.press("/end");
     await ui.press("enter");
-    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.ready"); i++) {
+    await ui.waitFor("1 of 1 ticked");
+    await ui.press("escape");
+    await ui.waitFor("the session stays open");
+    expect(ui.frame()).not.toContain("1 of 1 ticked");
+    expect(session.commands.some((c) => c.name.startsWith("planning."))).toBe(false);
+    await ui.press("/end");
+    await ui.press("enter");
+    await ui.waitFor("1 of 1 ticked");
+    await ui.press("n");
+    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.end"); i++) {
       await Bun.sleep(5);
     }
-    expect(session.commands.find((c) => c.name === "planning.ready")?.args).toEqual({
-      stories: ["DIPO-31"],
-    });
-    await ui.waitFor("DIPO-31 set Ready");
-    expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+    expect(
+      session.commands.filter((c) => c.name.startsWith("planning.")).map((c) => c.name),
+    ).toEqual(["planning.end"]);
+    await ui.waitFor("no story set Ready; planning session ended");
   });
 
   it("shows the gate's messages for a story that stays Refined (DIPO-451)", async () => {
@@ -521,13 +706,62 @@ describe("the keys of the planning view (DIPO-479)", () => {
     expect(frame).not.toContain('"questions"');
     expect(frame).not.toContain("**");
 
-    // Tab focuses the first fold, Tab the second; Enter opens it and Enter shuts it again.
-    await ui.press("tab");
-    await ui.press("tab");
+    // Shift+Tab focuses the first fold, again the second (Tab opens the stories fold-out);
+    // Enter opens it and Enter shuts it again.
+    await ui.press("\u001b[Z");
+    await ui.press("\u001b[Z");
     await ui.press("enter");
     const open1 = await ui.waitFor("port-command.ts");
     expect(open1).not.toContain("⏎ full");
     await ui.press("enter");
     expect(await ui.waitFor("⏎ full")).toContain("⏎ full");
+  });
+});
+
+describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
+  it("matches the mock at 112 columns", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            goal: "Split DIPO-116 into stories that can be Ready this week",
+            turns: 2,
+            proposals: [
+              filed(1, "Copy referenced skills into the box", "DIPO-488"),
+              {
+                ...proposal(2, "Refuse a story whose skill is missing", "S"),
+                proposal: {
+                  ...proposal(2, "Refuse a story whose skill is missing", "S").proposal,
+                  storyLine:
+                    "As maintainer I want the Ready gate to fail when a skill the story names is not in the repository so that a worker never starts without it.",
+                },
+              },
+              { ...proposal(3, "Show the skill list in the story card", "S"), state: "filing" },
+            ],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const output = new Map([
+      [
+        `${RUN}:worker`,
+        "you> Skip the plugin marketplace for now. What's the smallest story that lets a worker use one skill?\n\nThe smallest useful cut is a story that copies skills named in the story's\nreferences into the box.\nNo discovery and no plugins. Two stories:\n",
+      ],
+    ]);
+    const { ui } = await open({ columns: 112, rows: 30, snapshots, output });
+    await ui.press("5");
+    await ui.waitFor("Refuse a story whose skill");
+    await ui.press("up");
+    await ui.waitFor("▌ ◆");
+    // Every row under the header, cell for cell: the head, the conversation, the cards, the input and the footer.
+    const ours = ui
+      .frame()
+      .split("\n")
+      .map((row) => row.trimEnd());
+    const mock = mockRows("07-plan.txt");
+    expect(ours).toHaveLength(mock.length);
+    expect(ours.slice(1)).toEqual(mock.slice(1));
   });
 });

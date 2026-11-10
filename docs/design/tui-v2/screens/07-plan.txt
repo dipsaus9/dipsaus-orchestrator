@@ -1,31 +1,34 @@
-=== S2d Plan: a session with the planner · ux-spec mock 11 · 112 cols × 30 rows ===
+=== S2d Plan: a conversation with the planner · ux-spec mock 11, changed by DIPO-487 · 112 cols × 30 rows ===
 [acc]**dipo**[/][dim] / dipsaus-orchestrator / [/]Plan                                 [ok]●[/] planner live[dim]    $0.84 this session    13:30[/]
-[dim]refine · [/][hi]Split DIPO-116 into stories that can be Ready this week[/]
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  [dim]── continued in a fresh session at 13:02 · decisions carried over (4) ──[/]     [faint]│[/]  [dim]IN THIS PLAN[/]
-                                                                               [faint]│[/]  [ok]✓[/] Copy skills into box
-  [acc]you[/]      Skip the plugin marketplace for now. What's the smallest story      [faint]│[/]  [acc]◆[/] Refuse missing skill
-           that lets a worker use one skill?                                   [faint]│[/]
-                                                                               [faint]│[/]  [dim]DECISIONS[/]
-  [dim]planner[/]  [hi]The smallest useful cut is a story that copies skills named in[/]      [faint]│[/]  [dim]· no marketplace yet[/]
-           [hi]the story's references into the box. No discovery and no plugins.[/]   [faint]│[/]  [dim]· skills by reference[/]
-           [hi]Two stories:[/]                                                        [faint]│[/]  [dim]· tier S each[/]
-                                                                               [faint]│[/]  [dim]· after DIPO-452[/]
-           [acc]│[/]  [ok]✓ [/][hi]Copy referenced skills into the box[/][dim]  · S · confirmed[/]           [faint]│[/]
-           [acc]│[/]  [dim]As maintainer I want skills named in references available…[/]       [faint]│[/]  [dim]ON END[/]
-           [sel][faint]│[/]  [acc]◆ [/][hi]Refuse a story whose skill is missing[/][dim]  · S · proposed[/]       [/]   [faint]│[/]  1 confirmed → Refined
-           [sel][faint]│[/]  [dim]As maintainer I want the Ready gate to fail when…[/]             [/]   [faint]│[/]  [acc]Y[/] set them Ready
-           [sel][faint]│[/]  [dim][acc]c[/] confirm   [acc]e[/] edit   [acc]x[/] drop from plan[/]                         [/]   [faint]│[/]
-                                                                               [faint]│[/]
-  [dim]planner[/]  [hi]Both touch engine/src/gate/. DIPO-452 also changes drafts, so I'd[/]   [faint]│[/]
-           [hi]order them after it[acc]▍[/][/]                                                [faint]│[/]
-                                                                               [faint]│[/]
-                                                                               [faint]│[/]
-                                                                               [faint]│[/]
-                                                                               [faint]│[/]
-                                                                               [faint]│[/]
-[acc]┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐[/]
-[acc]│[/] [acc]you [/][hi]Fine. Also add a test plan line for the gate rule.[/][acc]▍[/]                                                      [acc]│[/]
-[acc]│[/]                                                                                                              [acc]│[/]
-[acc]└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[/]
-[acc]⏎[/] send   [acc]shift-⏎[/] new line   [acc]tab[/] to stories   [acc]/end[/] end session                            [dim][acc]esc[/] leave (keeps open)[/]
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Planning · plan · waiting · 2 answers · claude-opus-5-5
+ goal: Split DIPO-116 into stories that can be Ready this week
+ spend: in 12k · out 3k · cache write 1k · cache read 40k
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ you> Skip the plugin marketplace for now. What's the smallest story that lets a worker use one skill?
+ The smallest useful cut is a story that copies skills named in the story's
+ references into the box.
+ No discovery and no plugins. Two stories:
+[ok]   ✓ filed as DIPO-488 · Copy referenced skills into the box[/]
+[dim]     filing… · Show the skill list in the story card[/]
+ [sel][acc]▌[/] [hi]**◆ Refuse a story whose skill is missing · S**[/][/]
+[sel][dim]     As maintainer I want the Ready gate to fail when a skill the story names is not in the repository so th…[/][/]
+[sel][acc]     c confirm   e edit   x decline   esc to the input[/][/]
+
+
+
+
+
+
+
+
+
+
+
+
+ [acc]>[/] _
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]c[/] confirm   [acc]e[/] edit   [acc]x[/] decline   [acc]↑↓[/] card   [acc]esc[/] to the input
+--- notes ---
+One conversation column (DIPO-487): the rows under the header are the view as the TUI draws it, and `planning.test.tsx` holds them cell for cell. Compared with ux-spec mock 11 the side rail is a fold-out on Tab, the input is one line with no box, proposals are cards (`c` confirm, `e` edit, `x` decline) and a confirmed one is one line.
+The focused card shows its keys. Without a focused card the footer reads `⏎ send   shift-⏎ new line   /end end session   ↑ cards   tab stories` and `esc back` at the right.

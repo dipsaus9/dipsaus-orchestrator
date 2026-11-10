@@ -18,7 +18,7 @@ import { ModeScreen, promptHeight } from "./modes";
 import { OverlayOver } from "./overlays";
 import { promptRows } from "./prompt-box";
 import type { SegLine } from "./segments";
-import { type Planning, PlanningMode } from "./planning";
+import { endingKind, type Planning, PlanningMode } from "./planning";
 import { dialogComplete } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
 import type { Display } from "./options";
@@ -80,10 +80,12 @@ function screenKeys(props: ScreenProps, columns: number): Hint[] {
     planning: {
       session: planning.view !== null,
       sending: planning.sending !== null,
-      confirmingEnd: planning.confirmingEnd,
+      ending: endingKind(planning),
+      card: planning.focused !== null,
       editing: planning.editing,
-      proposals: (planning.view?.proposals?.length ?? 0) > 0,
-      readying: planning.readying,
+      cards: (planning.view?.proposals ?? []).some(
+        (p) => p.state === "open" || p.state === "failed",
+      ),
       dialog:
         planning.dialog === null
           ? null
