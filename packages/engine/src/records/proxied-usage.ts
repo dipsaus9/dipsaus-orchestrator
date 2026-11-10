@@ -15,8 +15,9 @@
 //   answer counted after the session ended still reaches the day's spend.
 // - A reviewer's tokens count against the reviewer's own caps, as its stream's did (0002): the scope
 //   carries the agent's role.
-// - A planning session's tokens (DIPO-447) count in the office's usage and spend like any run's,
-//   against no cap: the session has no story and no run cap, and ends when the maintainer ends it.
+// - A planning session's tokens (DIPO-447) and an idea audit's (DIPO-470) count in the office's usage
+//   and spend like any run's, against no cap: a session run with no budget (`isUncapped`) has no
+//   story and no run cap, and ends when its work ends.
 
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
@@ -28,7 +29,7 @@ import {
 } from "../box/model-proxy";
 import type { OfficeHandle } from "../db/office";
 
-import { PLANNER_ROLE, REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "./caps";
+import { isUncapped, REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "./caps";
 import { findRun } from "./run-records";
 import {
   feedFinalChanges,
@@ -62,13 +63,12 @@ function scopeOf(office: OfficeHandle, owner: ProxyOwner): UsageScope {
     agent: owner.agent,
     role,
     tier: run.tier ?? "",
-    // A reviewer's own token cap per session (0002), as its ingestion keeps it; a planner has none.
-    budgetLimit:
-      role === PLANNER_ROLE
-        ? 0
-        : role === REVIEWER_ROLE
-          ? (run.reviewMaxTokens ?? 0)
-          : runCaps(office, run).budgetTokens,
+    // A reviewer's own token cap per session (0002), as its ingestion keeps it; a run with no cap has none.
+    budgetLimit: isUncapped(run)
+      ? 0
+      : role === REVIEWER_ROLE
+        ? (run.reviewMaxTokens ?? 0)
+        : runCaps(office, run).budgetTokens,
   };
 }
 
@@ -76,8 +76,8 @@ function scopeOf(office: OfficeHandle, owner: ProxyOwner): UsageScope {
 function capReached(office: OfficeHandle, scope: UsageScope): boolean {
   const run = findRun(office, scope.run as RunId);
   if (run === null) return false;
-  // A planning session has no run cap (DIPO-447).
-  if (scope.role === PLANNER_ROLE) return false;
+  // A session run with no budget has no token cap (DIPO-447, DIPO-470).
+  if (isUncapped(run)) return false;
   if (scope.role === REVIEWER_ROLE) {
     const cap = run.reviewMaxTokens;
     if (cap === null || cap === undefined) return false;

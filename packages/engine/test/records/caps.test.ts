@@ -3,11 +3,19 @@
 // started with. The reviewer's tokens, turns and minutes count against its own caps only.
 
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { RunId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "../../src/records/caps";
+import {
+  isUncapped,
+  REVIEWER_ROLE,
+  reviewTotals,
+  runCaps,
+  runTotals,
+} from "../../src/records/caps";
 import { type GrantAmount, recordGrant } from "../../src/records/grants";
 import { appendRunStep, findRun, insertRun, type NewRun } from "../../src/records/run-records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
@@ -295,4 +303,52 @@ describe("runCaps", () => {
         f.t.state.close();
       }
     }));
+});
+
+describe("isUncapped (DIPO-470)", () => {
+  it("says a session run with budget 0 has no token cap, whatever its agents' roles (planning, audit)", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      try {
+        const planning = storedRun(f, startRun(f, { budget: 0, loopCap: 0, reviewRoundCap: null }));
+        const audit = storedRun(f, startRun(f, { budget: 0, loopCap: 0, reviewRoundCap: null }));
+        expect(isUncapped({ ...planning, role: "planner" })).toBe(true);
+        expect(isUncapped({ ...audit, role: "auditor" })).toBe(true);
+      } finally {
+        f.t.state.close();
+      }
+    }));
+
+  it("says a session run with a real budget (the scan session) is capped", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      try {
+        const scan = storedRun(f, startRun(f, { budget: 1000, loopCap: 0, reviewRoundCap: null }));
+        expect(isUncapped({ ...scan, role: "scanner" })).toBe(false);
+      } finally {
+        f.t.state.close();
+      }
+    }));
+
+  it("says a story run is capped, with a real budget or with budget 0", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      try {
+        const story = storedRun(f, startRun(f, { budget: 1000, loopCap: 3, reviewRoundCap: null }));
+        expect(isUncapped({ ...story, kind: "story" })).toBe(false);
+        expect(isUncapped({ ...story, kind: "story", budgetLimit: 0 })).toBe(false);
+      } finally {
+        f.t.state.close();
+      }
+    }));
+
+  it("leaves the planner-only role check out of the proxied ledger", () => {
+    const source = readFileSync(
+      join(import.meta.dir, "../../src/records/proxied-usage.ts"),
+      "utf8",
+    );
+    expect(source).not.toContain("PLANNER_ROLE");
+    expect(source).not.toContain("AUDITOR_ROLE");
+    expect(source).toContain("isUncapped(run)");
+  });
 });

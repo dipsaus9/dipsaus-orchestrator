@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { AgentId, RunId, StoryId } from "@dipsaus-orchestrator/contract";
+import { AgentId, RunId, StoryId, StoryKey } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -672,4 +672,139 @@ describe("fail closed (criterion 7)", () => {
     const response = await handle(boxRequest("/v1/messages"), BOX_A);
     expect(response.status).toBe(503);
   });
+});
+
+/** A run of any kind, with its one agent, for the cases of the session runs (DIPO-470). */
+interface RunOf {
+  readonly kind: "story" | "session";
+  readonly role: string;
+  readonly budgetLimit: number;
+  readonly reviewMaxTokens?: number | null;
+}
+
+const AUDIT_BOX = "192.0.2.22";
+const UNKNOWN_BOX = "192.0.2.23";
+let storyNo = 100;
+
+function addRunOf(run: RunId, agent: AgentId, of: RunOf): void {
+  f.office.immediate(() => {
+    const now = f.t.clock.now();
+    let key: StoryKey | null = null;
+    let story: string | null = null;
+    if (of.kind === "story") {
+      story = `DIPO-${storyNo++}`;
+      key = addStory(f.office, f.t.ids, { story: StoryId.parse(story) }, now).key;
+    }
+    insertRun(f.office, {
+      runId: run,
+      kind: of.kind,
+      key,
+      story,
+      tier: of.kind === "story" ? "S" : null,
+      role: of.role,
+      model: "haiku",
+      startSha: of.kind === "story" ? "b".repeat(40) : null,
+      branch: story === null ? null : `${story}/count`,
+      budgetUnit: "tokens",
+      budgetLimit: of.budgetLimit,
+      loopCap: 0,
+      reviewRoundCap: null,
+      reviewMaxTokens: of.reviewMaxTokens ?? null,
+      configHash: "h",
+      overrideKeys: null,
+      runProfileId: null,
+      startedAt: now,
+    });
+    recordAgent(f.office, {
+      agentId: agent,
+      runId: run,
+      role: of.role,
+      model: "haiku",
+      startedAt: now,
+    });
+  });
+}
+
+describe("session runs and the caps of a run (DIPO-470)", () => {
+  it("forwards an idea audit's requests with no token cap and counts them, while a developer at its cap is refused", async () => {
+    const audit = RunId.parse(f.t.ids.next("run"));
+    const auditAgent = AgentId.parse(f.t.ids.next("agt"));
+    addRunOf(audit, auditAgent, { kind: "session", role: "auditor", budgetLimit: 0 });
+    owners.set(AUDIT_BOX, { office: f.office.officeId, run: audit, agent: auditAgent });
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: BUDGET, output_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    for (let i = 0; i < 3; i++) {
+      expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(200);
+    }
+    expect(upstream.calls).toHaveLength(3);
+    expect(stored(audit)).toMatchObject({ input: 3 * BUDGET, output: 3 });
+    // Fail closed on the same path: a developer over its cap gets 429 and nothing more is forwarded.
+    expect((await handle(boxRequest("/v1/messages"), BOX_A)).status).toBe(200);
+    expect((await handle(boxRequest("/v1/messages"), BOX_A)).status).toBe(429);
+    expect(upstream.calls).toHaveLength(4);
+  });
+
+  it("refuses a scan session over its real budget with 429", async () => {
+    const scan = RunId.parse(f.t.ids.next("run"));
+    const scanAgent = AgentId.parse(f.t.ids.next("agt"));
+    addRunOf(scan, scanAgent, { kind: "session", role: "scanner", budgetLimit: BUDGET });
+    owners.set(AUDIT_BOX, { office: f.office.officeId, run: scan, agent: scanAgent });
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: BUDGET, output_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(200);
+    expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(429);
+    expect(upstream.calls).toHaveLength(1);
+  });
+
+  it("refuses a reviewer over its own cap with 429 while its run is under budget", async () => {
+    const run = RunId.parse(f.t.ids.next("run"));
+    const reviewer = AgentId.parse(f.t.ids.next("agt"));
+    addRunOf(run, reviewer, {
+      kind: "story",
+      role: "reviewer",
+      budgetLimit: BUDGET,
+      reviewMaxTokens: 500,
+    });
+    owners.set(AUDIT_BOX, { office: f.office.officeId, run, agent: reviewer });
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: 600, output_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(200);
+    expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(429);
+    expect(upstream.calls).toHaveLength(1);
+  });
+
+  it("refuses a request from an address no running session owns with 403, forwarding nothing", async () => {
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    expect((await handle(boxRequest("/v1/messages"), UNKNOWN_BOX)).status).toBe(403);
+    expect(upstream.calls).toEqual([]);
+  });
+
+  const bypasses: [string, RunOf][] = [
+    [
+      "a story run recorded with budget limit 0",
+      { kind: "story", role: "developer", budgetLimit: 0 },
+    ],
+    ["a planner agent on a story run", { kind: "story", role: "planner", budgetLimit: BUDGET }],
+    ["an auditor agent on a story run", { kind: "story", role: "auditor", budgetLimit: BUDGET }],
+    ["an agent with an unknown role", { kind: "story", role: "intruder", budgetLimit: BUDGET }],
+  ];
+  for (const [name, of] of bypasses) {
+    it(`refuses ${name} with 429 once its tokens reach its budget`, async () => {
+      const run = RunId.parse(f.t.ids.next("run"));
+      const agent = AgentId.parse(f.t.ids.next("agt"));
+      addRunOf(run, agent, of);
+      owners.set(AUDIT_BOX, { office: f.office.officeId, run, agent });
+      const upstream = upstreamOf(() => jsonAnswer({ input_tokens: BUDGET, output_tokens: 1 }));
+      const handle = await realProxy(ledger(), upstream.fetch);
+      if (of.budgetLimit === 0) {
+        expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(429);
+        expect(upstream.calls).toEqual([]);
+        return;
+      }
+      expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(200);
+      expect((await handle(boxRequest("/v1/messages"), AUDIT_BOX)).status).toBe(429);
+      expect(upstream.calls).toHaveLength(1);
+    });
+  }
 });
