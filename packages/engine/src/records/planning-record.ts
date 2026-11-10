@@ -15,7 +15,7 @@ export type PlanningEntryKind = "goal" | "choice" | "story" | "question" | "star
 export interface PlanningEntry {
   readonly seq: number;
   readonly kind: PlanningEntryKind;
-  /** The model session's run, for `started` and `ended`. */
+  /** The model session's run, for `started`, `ended` and `story` (DIPO-480). */
   readonly run: string | null;
   /**
    * `goal`: the planning kind; `choice`: the question; `story`: the story id; `started`: why it
@@ -161,17 +161,77 @@ export function openQuestions(entries: readonly PlanningEntry[]): string[] {
 const section = (title: string, lines: readonly string[], none: string): string =>
   `${title}:\n${lines.length === 0 ? none : lines.join("\n")}`;
 
+/** A story a planning session filed or edited, as its next message lists it (DIPO-480). */
+export interface FiledStory {
+  readonly story: string;
+  readonly kind: "filed" | "edited";
+  /** The story as filed: the title and, for an edit, the fields it changed; null when the lane no longer has it. */
+  readonly title: string | null;
+  readonly dependencies: readonly string[];
+  /** The full text as filed, or the changed fields of an edit; null when the lane no longer has it. */
+  readonly text: string | null;
+  /** `open`: filed, its backlog PR open; `merged`: on the base since `since`; `closed`: given up; `unknown`: the lane has no journal of it and it is not on the base. */
+  readonly state: "open" | "merged" | "closed" | "unknown";
+  readonly since: string | null;
+  readonly notice: string | null;
+}
+
+/** Pure: how a story's state reads in the list. */
+function filedState(filed: FiledStory): string {
+  const what = filed.kind === "filed" ? "filed" : "edited";
+  if (filed.state === "merged")
+    return `${what}, on the base since commit ${filed.since ?? "unknown"}`;
+  if (filed.state === "closed") {
+    return `${what}, but its backlog change was closed and is not on any branch${filed.notice === null ? "" : ` (${filed.notice})`}`;
+  }
+  return `${what}, backlog PR open`;
+}
+
+/** Pure: the stories of the session as a list: each with id, title, dependencies, state and text. */
+export function filedStoriesText(stories: readonly FiledStory[]): string {
+  return stories
+    .map((filed) =>
+      filed.state === "unknown"
+        ? `- ${filed.story}: ${filed.kind}`
+        : [
+            `- ${filed.story}${filed.title === null ? "" : `: ${filed.title}`}`,
+            `  state: ${filedState(filed)}`,
+            ...(filed.kind === "filed"
+              ? [
+                  `  dependencies: ${filed.dependencies.length === 0 ? "none" : filed.dependencies.join(", ")}`,
+                ]
+              : []),
+            ...(filed.text === null
+              ? []
+              : [
+                  `  text as ${filed.kind}:`,
+                  ...filed.text.split("\n").map((line) => `    ${line}`),
+                ]),
+          ].join("\n"),
+    )
+    .join("\n");
+}
+
 /**
  * Pure: the record as text for a fresh model session's first message: the decisions, the filed
- * and edited stories and the open questions, in the order they were recorded.
+ * and edited stories (with `filed`, each with its state and text) and the open questions, in the
+ * order they were recorded.
  */
-export function planningRecordText(entries: readonly PlanningEntry[]): string {
+export function planningRecordText(
+  entries: readonly PlanningEntry[],
+  filed?: readonly FiledStory[],
+): string {
   const decisions = entries
     .filter((entry) => entry.kind === "choice")
     .map((entry) => `- ${entry.subject ?? ""}: ${entry.text}`);
-  const stories = entries
-    .filter((entry) => entry.kind === "story")
-    .map((entry) => `- ${entry.subject ?? ""}: ${entry.text}`);
+  const stories =
+    filed === undefined
+      ? entries
+          .filter((entry) => entry.kind === "story")
+          .map((entry) => `- ${entry.subject ?? ""}: ${entry.text}`)
+      : filed.length === 0
+        ? []
+        : [filedStoriesText(filed)];
   const questions = openQuestions(entries).map((question) => `- ${question}`);
   return [
     section("Decisions the maintainer confirmed", decisions, "None yet."),
@@ -206,6 +266,7 @@ export function recordStoryEntry(
   if (seen !== null) return;
   addPlanningEntry(office, session, {
     kind: "story",
+    run,
     subject: entry.story,
     proposal: entry.proposal,
     text: entry.kind,

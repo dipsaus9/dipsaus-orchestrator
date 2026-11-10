@@ -16,9 +16,15 @@ import type { FeatureRegistry, ReadContext } from "../commands/registry";
 import { activeStoryViews } from "../views/story";
 
 /** The state a story has as a dependency: Ready, running and in review stories move by themselves. */
+/** The first failed Ready gate rule of a Refined story, as the Queue's REFINED group shows it. */
+export function firstGateFailure(view: StoryView): string | undefined {
+  return view.gateFailures?.[0]?.text ?? view.gateMessages?.[0];
+}
+
 function stateOf(view: StoryView | undefined): ChainState {
   if (view === undefined) return "waiting";
   if (view.column === "desk") return "parked";
+  if (view.column === "refined") return "refined";
   return view.column === "ready" || view.column === "running" || view.column === "review"
     ? "moving"
     : "waiting";
@@ -102,6 +108,9 @@ export function chainOf(stories: readonly StoryView[]): z.output<typeof officeCh
           story: view.story,
           key: view.key,
           state: stateOf(view),
+          ...(view.column === "refined" && firstGateFailure(view) !== undefined
+            ? { reason: firstGateFailure(view) }
+            : {}),
           unblocks: waiting
             .filter((other) => needs.get(String(other.story))?.includes(id))
             .map((other) => other.story)

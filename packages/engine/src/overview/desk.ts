@@ -78,7 +78,8 @@ import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 import { MERGED_WHILE_PARKED, mergedParkDeskItems } from "../worktree/merged-parked";
-import { lifecycleOf } from "../views/story";
+import { activeStoryViews, lifecycleOf } from "../views/story";
+import { firstGateFailure } from "./chain";
 
 import { PLANNER_ROLE, REVIEWER_ROLE } from "../records/caps";
 import { openNotes } from "../records/decision-notes";
@@ -118,6 +119,8 @@ export interface OfficeHandItem {
   /** When it began to wait, in ms. */
   readonly since: number;
   readonly hand: string;
+  /** The commands it offers, such as `dipo update` (DIPO-485); none when absent. */
+  readonly actions?: readonly { readonly command: string; readonly cli: string }[];
 }
 
 /** A story offered for a free run slot (`run/next-up.ts`), as the desk shows it. */
@@ -276,6 +279,8 @@ export const DESK_CONSEQUENCES: Readonly<Partial<Record<CommandName, string>>> =
     "Nothing starts until you confirm. Declined stories return once their task file changes.",
   "nextUp.decline": "Declined stories return once their task file changes.",
   "daemon.resumeStarts": "Lift it early, only if you raised your plan.",
+  "daemon.update":
+    "New starts pause, dipo builds the base, replaces its binary and restarts. A failed build keeps the old one.",
 };
 
 /** Whether a command is registered, so the desk may offer it. */
@@ -519,6 +524,8 @@ class DeskBuilder {
   readonly #sources: DeskSources;
   readonly #implemented: Implemented;
   readonly #dependents: Map<string, StoryId[]>;
+  /** The Refined stories by upper-case id, with their first failed Ready gate rule (DIPO-484). */
+  readonly #refined: Map<string, string | undefined>;
   readonly #items: Ranked[] = [];
   /** The time of the read, for the time left on a waiting question; none without one. */
   readonly #now: number | undefined;
@@ -533,6 +540,11 @@ class DeskBuilder {
     this.#sources = sources;
     this.#implemented = implemented;
     this.#dependents = dependentsByStory(office);
+    this.#refined = new Map(
+      activeStoryViews(office)
+        .filter((view) => view.column === "refined")
+        .map((view) => [String(view.story).toUpperCase(), firstGateFailure(view)]),
+    );
     this.#now = now;
   }
 
@@ -549,8 +561,20 @@ class DeskBuilder {
 
   /** Adds an item; its detail and hand text are cleaned and capped here, whoever built them. */
   #add(group: number, rank: number, sinceMs: number, item: DeskItem): void {
+    // A Refined story that depends on the item's story waits for the maintainer to set it Ready, so
+    // it is listed apart from what the item blocks (DIPO-484).
+    const refined = item.blocks.filter((id) => this.#refined.has(id.toUpperCase()));
     const clean: DeskItem = {
       ...item,
+      ...(refined.length === 0
+        ? {}
+        : {
+            blocks: item.blocks.filter((id) => !refined.includes(id)),
+            refined: refined.map((id) => {
+              const reason = this.#refined.get(id.toUpperCase());
+              return { story: id, ...(reason === undefined ? {} : { reason: deskLine(reason) }) };
+            }),
+          }),
       detail: deskLine(item.detail),
       ...(item.hand === undefined ? {} : { hand: deskLine(item.hand) }),
       ...(item.note === undefined
@@ -828,7 +852,9 @@ class DeskBuilder {
           detail: deskText(item.detail),
           since: iso(item.since),
           blocks: [],
-          actions: [],
+          actions: (item.actions ?? []).flatMap((action) =>
+            this.#action(action.command, action.cli),
+          ),
           hand: item.hand,
         });
       }

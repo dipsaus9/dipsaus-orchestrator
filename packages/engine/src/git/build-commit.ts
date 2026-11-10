@@ -9,6 +9,9 @@ import { GitError } from "./runner";
 /** The directory every file of the binary lies under. */
 export const ENGINE_PATH = "packages/";
 
+/** How many commit subjects a count carries, for the desk's update item (DIPO-485). */
+export const ENGINE_TITLES_MAX = 5;
+
 /** Each git read of the count is killed after this long, so one count never holds the queue long. */
 export const ENGINE_READ_TIMEOUT_MS = 10_000;
 
@@ -25,7 +28,14 @@ export function buildCommitSha(buildCommit: string): string | null {
  * repository holds the build commit but a git read failed or timed out.
  */
 export type EngineCommitsRead =
-  | { readonly kind: "count"; readonly commits: number }
+  | {
+      readonly kind: "count";
+      readonly commits: number;
+      /** The base commit the count was made against (DIPO-485), as last fetched. */
+      readonly tip: string;
+      /** The subjects of the newest `ENGINE_TITLES_MAX` of them, newest first; empty when none. */
+      readonly titles: readonly string[];
+    }
   | { readonly kind: "none" }
   | { readonly kind: "failed"; readonly detail: string };
 
@@ -87,9 +97,29 @@ export async function readEngineCommitsAfter(
         return { kind: "failed", detail: count.stderr.trim() || `exit ${count.code}` };
       }
       const value = Number.parseInt(count.stdout.trim(), 10);
-      return Number.isInteger(value) && value >= 0
-        ? { kind: "count", commits: value }
-        : { kind: "failed", detail: `rev-list printed ${JSON.stringify(count.stdout.trim())}` };
+      if (!Number.isInteger(value) || value < 0) {
+        return {
+          kind: "failed",
+          detail: `rev-list printed ${JSON.stringify(count.stdout.trim())}`,
+        };
+      }
+      const commitTip = tip.stdout.trim();
+      const log =
+        value === 0
+          ? null
+          : await git.step(git.repository, [
+              "log",
+              `--max-count=${ENGINE_TITLES_MAX}`,
+              "--format=%s",
+              `${sha}..${commitTip}`,
+              "--",
+              ENGINE_PATH,
+            ]);
+      const titles =
+        log === null || log.code !== 0
+          ? []
+          : log.stdout.split("\n").filter((line) => line.trim() !== "");
+      return { kind: "count", commits: value, tip: commitTip, titles };
     });
   } catch (error) {
     return { kind: "failed", detail: error instanceof Error ? error.message : String(error) };

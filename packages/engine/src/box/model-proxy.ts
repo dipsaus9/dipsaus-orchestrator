@@ -140,6 +140,9 @@ export interface ProxiedUsage {
 export type ProxyAccount = (usage: ProxiedUsage) => void;
 
 /** Thrown by `ModelUsageLedger.open` when the owner's token cap is reached: the proxy answers 429. */
+/** The proxy's text for a refusal at the token cap, and the reason a run's ending names (DIPO-484). */
+export const CAP_REFUSAL = "the run's token budget is used up";
+
 export class ModelUseCapped extends Error {}
 
 /**
@@ -462,7 +465,7 @@ function openAccount(
     return { account: ledger.open(owner, model) };
   } catch (error) {
     if (error instanceof ModelUseCapped) {
-      return refusal(429, "the run's token budget is used up", "the token cap is reached");
+      return refusal(429, CAP_REFUSAL, "the token cap is reached");
     }
     return refusal(
       503,

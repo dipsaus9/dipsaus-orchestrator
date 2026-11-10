@@ -72,7 +72,7 @@ describe("EngineBehindCache", () => {
   it("serves the count once the read finished, named after the main checkout", async () => {
     const { cache, settle } = setup();
     cache.rows();
-    await settle(A, { kind: "count", commits: 2 });
+    await settle(A, { kind: "count", commits: 2, tip: "abc", titles: [] });
     expect(cache.rows()).toEqual([{ office: A, name: "alpha", commits: 2 }]);
   });
 
@@ -96,7 +96,7 @@ describe("EngineBehindCache", () => {
   it("keeps the last count and logs at debug when a read fails", async () => {
     const { cache, settle, lines, pending } = setup();
     cache.rows();
-    await settle(A, { kind: "count", commits: 1 });
+    await settle(A, { kind: "count", commits: 1, tip: "abc", titles: [] });
     void cache.refreshAll();
     await settle(A, { kind: "failed", detail: "git rev-list timed out" });
     expect(cache.rows()).toEqual([{ office: A, name: "alpha", commits: 1 }]);
@@ -112,9 +112,9 @@ describe("EngineBehindCache", () => {
   it("replaces the count with what the next read finds", async () => {
     const { cache, settle } = setup();
     cache.rows();
-    await settle(A, { kind: "count", commits: 1 });
+    await settle(A, { kind: "count", commits: 1, tip: "abc", titles: [] });
     void cache.refreshAll();
-    await settle(A, { kind: "count", commits: 3 });
+    await settle(A, { kind: "count", commits: 3, tip: "abc", titles: [] });
     expect(cache.rows()).toEqual([{ office: A, name: "alpha", commits: 3 }]);
     void cache.refreshAll();
     await settle(A, { kind: "none" });
@@ -128,10 +128,10 @@ describe("EngineBehindCache", () => {
     // A read still in flight when the interval comes round is not doubled.
     clock.advance(ENGINE_BEHIND_REFRESH_MS);
     expect(pending).toHaveLength(1);
-    await settle(A, { kind: "count", commits: 1 });
+    await settle(A, { kind: "count", commits: 1, tip: "abc", titles: [] });
     clock.advance(ENGINE_BEHIND_REFRESH_MS);
     expect(pending).toHaveLength(1);
-    await settle(A, { kind: "count", commits: 2 });
+    await settle(A, { kind: "count", commits: 2, tip: "abc", titles: [] });
     cache.stop();
     clock.advance(ENGINE_BEHIND_REFRESH_MS * 5);
     expect(pending).toHaveLength(0);
@@ -163,7 +163,7 @@ describe("EngineBehindCache", () => {
   it("drops offices that are no longer loaded and offices without git", async () => {
     const { cache, settle, loaded } = setup({ offices: [A, B], noGit: [B] });
     cache.rows();
-    await settle(A, { kind: "count", commits: 1 });
+    await settle(A, { kind: "count", commits: 1, tip: "abc", titles: [] });
     expect(cache.rows()).toEqual([{ office: A, name: "alpha", commits: 1 }]);
     loaded.splice(0, 1);
     expect(cache.rows()).toEqual([]);

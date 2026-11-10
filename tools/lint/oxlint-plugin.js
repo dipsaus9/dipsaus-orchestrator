@@ -720,7 +720,10 @@ export const ENGINE_LAYERS = [
   { band: 4, entries: ["worktree"] },
   { band: 4, entries: ["stories"] },
   { band: 5, entries: ["gate-decisions", "retention", "run"] },
-  { band: 5, entries: ["backup", "merge", "overview", "questions", "reconcile", "story-pr"] },
+  {
+    band: 5,
+    entries: ["backup", "merge", "overview", "questions", "reconcile", "story-pr", "update"],
+  },
   { band: 5, entries: ["backlog"] },
   { band: 6, entries: ["features.ts"] },
   { band: 6, entries: ["create"] },

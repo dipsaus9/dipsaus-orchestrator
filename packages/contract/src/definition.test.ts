@@ -9,6 +9,7 @@ describe("command and read definitions", () => {
     expect(confirmed.toSorted()).toEqual(
       [
         "daemon.stop",
+        "daemon.update",
         "office.forget",
         "office.setPrivacy",
         "gate.reject",

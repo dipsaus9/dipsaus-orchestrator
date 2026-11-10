@@ -85,7 +85,7 @@ function runsOf(core: Core, story: StoryServices, partners: EnginePartners): Eng
     implemented: core.implemented,
     // The office's starts paused lifts, and its parks resume, only while the engine schedules
     // work (0020).
-    scheduling: () => core.lifecycle.state === "running",
+    scheduling: () => core.lifecycle.schedules(),
     // A planning session files the proposals the maintainer confirms through the lane (DIPO-450).
     planningLane: (office) => story.lane.planning(office),
     // ... and sets them Ready after the Ready gate passed (DIPO-451).
@@ -355,7 +355,7 @@ function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: W
     base: story.runBase,
     freeSlots: (office) => runs.places.freeSlots(office),
     startsPaused: (office) => runs.startsPaused.state(office),
-    scheduling: () => core.lifecycle.state === "running",
+    scheduling: () => core.lifecycle.schedules(),
     start: (ctx, key) => workRun.run(ctx, { stories: [key] }),
     starting: (office) => workRun.starting(office),
     changedFiles: gitChangedFiles({ git: core.gitOf, stories: core.stories }),
@@ -367,6 +367,7 @@ function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: W
   core.lifecycle.onTransition((change) => {
     if (change.to === "running") nextUp.refreshAll();
   });
+  core.lifecycle.onSchedulingResumed(() => nextUp.refreshAll());
   return nextUp;
 }
 
@@ -380,6 +381,7 @@ function listenForIdeas(core: Core, runs: EngineRuns): void {
   core.lifecycle.onTransition((change) => {
     if (change.to === "running") runs.audits.retryAll(core.offices.loadedOffices());
   });
+  core.lifecycle.onSchedulingResumed(() => runs.audits.retryAll(core.offices.loadedOffices()));
 }
 
 /**

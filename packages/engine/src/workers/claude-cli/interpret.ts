@@ -76,6 +76,10 @@ import {
 import type { z } from "zod";
 
 /** The tool through which `--json-schema` returns the report; not worker activity. */
+/** The `planLimit` details of the two 429 forms: the CLI's `rate_limit` error and a turn ended by a 429 (DIPO-484). */
+export const ASSISTANT_429_LIMIT = "assistant error rate_limit";
+export const TURN_429_LIMIT = "turn ended by a 429 rate-limit error";
+
 export const REPORT_TOOL = "StructuredOutput";
 /** Tools that start a subagent. */
 export const SUBAGENT_TOOLS: readonly string[] = ["Agent", "Task"];
@@ -1055,8 +1059,8 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
     next = { ...next, lastError: msg.error };
     if (msg.error === "rate_limit") {
       events.push({ t: "limit", status: "rate_limit" });
-      events.push({ t: "waiting", on: "plan-limit", detail: "assistant error rate_limit" });
-      next = { ...next, planLimit: next.planLimit ?? "assistant error rate_limit" };
+      events.push({ t: "waiting", on: "plan-limit", detail: ASSISTANT_429_LIMIT });
+      next = { ...next, planLimit: next.planLimit ?? ASSISTANT_429_LIMIT };
     } else if (START_FAILURE_ERRORS.includes(msg.error)) {
       events.push({ t: "waiting", on: "auth", detail: msg.error });
       next = { ...next, startFailure: next.startFailure ?? msg.error };
@@ -1223,9 +1227,8 @@ function result(value: unknown, state: ClaudeParseState): Step {
   if (turn.apiErrorStatus === 429) {
     // 0008: a turn ended by a 429 is a rejected plan limit, as a `rate_limit_event`
     // with `status: rejected` would be.
-    events.push({ t: "limit", status: "rejected" });
-    if (next.planLimit === null)
-      next = { ...next, planLimit: "turn ended by a 429 rate-limit error" };
+    events.push({ t: "limit", status: "rejected", http429: true });
+    if (next.planLimit === null) next = { ...next, planLimit: TURN_429_LIMIT };
   }
 
   // The cost as the CLI reports it, stored as reported (0008).
@@ -1264,7 +1267,7 @@ function turnProblem(
   state: ClaudeParseState,
 ): TurnProblem | null {
   if (turn.apiErrorStatus === 429) {
-    return { kind: "planLimit", detail: "turn ended by a 429 rate-limit error" };
+    return { kind: "planLimit", detail: TURN_429_LIMIT, http429: true };
   }
   if (state.startFailure !== null) return { kind: "startFailed", detail: state.startFailure };
   if (subtype === "error_max_turns") return null;

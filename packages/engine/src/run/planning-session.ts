@@ -123,6 +123,8 @@ import {
   addPlanningEntry,
   continuableSession,
   type NewPlanningEntry,
+  type FiledStory,
+  filedStoriesText,
   planningRecordText,
   planningSessionOfRun,
   readPlanningRecord,
@@ -137,7 +139,12 @@ import { draftOrigins } from "../records/ideas";
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
 import type { GateStore } from "../gate-decisions";
-import { type PlannedChange, type PlanningLane, REVISE_KIND } from "../story-store/planning";
+import {
+  type PlannedChange,
+  type PlannedFiling,
+  type PlanningLane,
+  REVISE_KIND,
+} from "../story-store/planning";
 import { activeStoryViews, storyView } from "../views/story";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type HostOp, type WorkerEvent, type WorkerSpec } from "../workers/types";
@@ -420,6 +427,59 @@ interface Open {
   autoRefusals: number;
   /** The `[dipo]` lines the next maintainer message carries before it. */
   notes: string[];
+  /** The list of filed stories the session last got (`filedSignature`); null before any (DIPO-480). */
+  filedSeen: string | null;
+  /** The base commit dipo first saw each story on the base at, by story id (DIPO-480). */
+  readonly mergedSince: Map<string, string>;
+}
+
+/** A story of the session's record with the filing the lane journaled for it (DIPO-480). */
+interface SessionStory {
+  readonly story: string;
+  readonly key: StoryKey | null;
+  readonly kind: "filed" | "edited";
+  readonly filing: PlannedFiling | undefined;
+}
+
+/** Pure: what a list of filed stories says, to tell when a filing changed. */
+const filedSignature = (filed: readonly FiledStory[]): string =>
+  JSON.stringify(filed.map((f) => [f.story, f.state, f.since, f.notice]));
+
+/** Pure: the text of the filing's target as the story was filed, or the fields an edit changed. */
+function filingText(filing: PlannedFiling): string {
+  if (filing.kind === REVISE_KIND) {
+    const edit = filing.target;
+    return [
+      ...(edit.title === undefined ? [] : [`Title: ${edit.title}`]),
+      ...(edit.storyLine === undefined ? [] : [`Story: ${edit.storyLine}`]),
+      ...(edit.context === undefined ? [] : [edit.context]),
+      ...(edit.criteria === undefined
+        ? []
+        : ["Acceptance criteria:", ...edit.criteria.map((text, i) => `${i + 1}. ${text}`)]),
+      ...(edit.references === undefined ? [] : [`References: ${edit.references.join(", ")}`]),
+    ].join("\n");
+  }
+  const story = filing.target;
+  const plan = story.testPlan;
+  return [
+    `Title: ${story.title}`,
+    `Type ${story.type}, milestone ${story.milestone}, tier ${story.tier}`,
+    story.description,
+    "Acceptance criteria:",
+    ...story.criteria.map((text, i) => `${i + 1}. ${text}`),
+    `References: ${story.references.length === 0 ? "none" : story.references.join(", ")}`,
+    ...(plan === undefined
+      ? []
+      : plan.entries !== undefined
+        ? [
+            "Test plan:",
+            ...plan.entries.map(
+              (entry) =>
+                `- (${entry.kind}) ${entry.check}${entry.expect === undefined ? "" : ` Expected: ${entry.expect}`}`,
+            ),
+          ]
+        : [`Test plan: not applicable: ${plan.not_applicable}`]),
+  ].join("\n");
 }
 
 /** A story the maintainer chose to go Ready (DIPO-451); no `changes` when it was refused. */
@@ -667,9 +727,16 @@ export class PlanningSessions {
   async #deliver(open: Open, text: string): Promise<void> {
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
     const notes = open.notes;
-    if (!(await this.#sendText(open, [...notes, text].join("\n\n")))) {
+    const filing = await this.#filingNote(open);
+    if (
+      !(await this.#sendText(
+        open,
+        [...notes, ...(filing === null ? [] : [filing.note]), text].join("\n\n"),
+      ))
+    ) {
       throw notOpen(`${open.run} could not be reached`);
     }
+    if (filing !== null) open.filedSeen = filing.signature;
     open.notes = open.notes.slice(notes.length);
     open.autoRefusals = 0;
   }
@@ -790,7 +857,6 @@ export class PlanningSessions {
     const open = this.#open.get(ctx.office.officeId as OfficeId);
     if (open === undefined) throw notOpen("start one with planning.start");
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
-    const { handle } = open;
     const lane = this.#deps.lane?.(open.office);
     const gate = this.#deps.gate?.(open.office);
     if (lane === undefined || gate === undefined) {
@@ -799,27 +865,18 @@ export class PlanningSessions {
         "This office has no backlog lane yet, so nothing can be set Ready; try again once it loaded.",
       );
     }
-    // Every story is checked first, so a wrong one changes nothing. A story whose filing PR has
-    // not merged has an id but no key yet: it is listed in the record only.
-    const record = handle.deferred(() => readPlanningRecord(handle, open.session));
+    // Every story is checked first, so a wrong one changes nothing.
     const chosen: { story: string; key: StoryKey | null }[] = [];
     for (const ref of args.stories) {
-      const found = handle.deferred(() => resolveStoryRef(handle, ref));
-      const inSession = record.some((entry) => {
-        if (entry.kind !== "story" || entry.subject === null) return false;
-        const subject = entry.subject;
-        if (subject === ref) return true;
-        const other = handle.deferred(() => resolveStoryRef(handle, subject));
-        return other.ok && found.ok && other.key === found.key;
-      });
-      if (!inSession) {
+      const filed = this.#sessionStory(open, ref);
+      if (filed === null) {
         throw new CommandError(
           "planning.storyUnknown",
           `${ref} is not a story this planning session filed or edited.`,
           { story: ref },
         );
       }
-      const identity = { story: found.ok ? found.story : ref, key: found.ok ? found.key : null };
+      const identity = { story: filed.story, key: filed.key };
       if (!chosen.some((other) => other.story === identity.story)) chosen.push(identity);
     }
     const queued: string[] = [];
@@ -1105,15 +1162,117 @@ export class PlanningSessions {
       );
     }
     for (const dependency of dependencies) {
-      const found = handle.deferred(() => resolveStoryRef(handle, dependency));
-      if (!found.ok) {
+      const id = dependency.toUpperCase();
+      const found = handle.deferred(() => resolveStoryRef(handle, id));
+      // A story of this session whose change the lane closed is not on any branch: no dependency.
+      const filed = found.ok ? null : this.#sessionStory(open, id);
+      if (!found.ok && (filed === null || filed.filing?.outcome === "closed")) {
         throw new CommandError(
           "planning.storyUnknown",
-          `Proposal ${item.n} depends on ${dependency}, which this office does not have.`,
+          `Proposal ${item.n} depends on ${dependency}, which neither this office nor this planning session has filed.`,
           { proposal: item.n, story: dependency },
         );
       }
     }
+  }
+
+  /**
+   * The stories of the session's record, each with the filing the lane journaled for it. A story
+   * whose filing PR has not merged has an id but no key yet: it is in the record only (DIPO-451).
+   */
+  #sessionStories(open: Open): SessionStory[] {
+    const { handle } = open;
+    const lane = this.#deps.lane?.(open.office);
+    return handle
+      .deferred(() => readPlanningRecord(handle, open.session))
+      .flatMap((entry): SessionStory[] => {
+        if (entry.kind !== "story" || entry.subject === null) return [];
+        const subject = entry.subject;
+        const kind = entry.text === "edited" ? "edited" : "filed";
+        const own = handle.deferred(() => resolveStoryRef(handle, subject));
+        const filing =
+          lane === undefined || entry.run === null || entry.proposal === null
+            ? undefined
+            : lane
+                .filingsOf(entry.run, entry.proposal)
+                .find((candidate) => (kind === "edited") === (candidate.kind === REVISE_KIND));
+        return [
+          { story: own.ok ? own.story : subject, key: own.ok ? own.key : null, kind, filing },
+        ];
+      });
+  }
+
+  /**
+   * The story `ref` names when this planning session filed or edited it, whether or not its filing
+   * PR merged; null for anything else (DIPO-480).
+   */
+  #sessionStory(open: Open, ref: string): SessionStory | null {
+    const { handle } = open;
+    const id = ref.toUpperCase();
+    const found = handle.deferred(() => resolveStoryRef(handle, id));
+    return (
+      this.#sessionStories(open).find(
+        (entry) => entry.story === id || (found.ok && entry.key === found.key),
+      ) ?? null
+    );
+  }
+
+  /**
+   * The stories the session filed or edited, with their state; `base` is the commit a story that
+   * merged since the last message is first seen on the base at.
+   */
+  #filedStories(open: Open, base: string): FiledStory[] {
+    return this.#sessionStories(open).map((entry): FiledStory => {
+      const { filing } = entry;
+      const merged = filing === undefined ? entry.key !== null : filing.merged;
+      if (merged && !open.mergedSince.has(entry.story)) open.mergedSince.set(entry.story, base);
+      return {
+        story: entry.story,
+        kind: entry.kind,
+        title: filing?.target.title ?? null,
+        dependencies:
+          filing === undefined || filing.kind === REVISE_KIND ? [] : filing.target.dependencies,
+        text: filing === undefined ? null : filingText(filing),
+        state:
+          filing?.outcome === "closed"
+            ? "closed"
+            : merged
+              ? "merged"
+              : filing === undefined
+                ? "unknown"
+                : "open",
+        since: open.mergedSince.get(entry.story) ?? null,
+        notice: filing?.notice ?? null,
+      };
+    });
+  }
+
+  /**
+   * The `[dipo]` message that lists the session's filed stories, when a filing changed since the
+   * last list the session got: a story was filed, its backlog PR merged or its change was closed.
+   * The box copy is never refreshed; this is how the session knows them (DIPO-480).
+   */
+  async #filingNote(open: Open): Promise<{ note: string; signature: string } | null> {
+    const stories = this.#sessionStories(open);
+    if (stories.length === 0) return null;
+    const unseen = stories.some(
+      (entry) =>
+        (entry.filing === undefined ? entry.key !== null : entry.filing.merged) &&
+        !open.mergedSince.has(entry.story),
+    );
+    const git = this.#deps.git(open.office);
+    const base =
+      unseen && git !== undefined ? await (this.#deps.baseCommit ?? defaultBaseCommit)(git) : "";
+    const filed = this.#filedStories(open, base);
+    const signature = filedSignature(filed);
+    if (signature === open.filedSeen) return null;
+    return {
+      signature,
+      note: [
+        "[dipo] The stories this planning session filed or edited, as they stand now. The copy of the base branch is not refreshed: a story filed, or merged, after its commit is in this list and not in the copy, so a story that is listed here is never missing.",
+        filedStoriesText(filed),
+      ].join("\n"),
+    };
   }
 
   /** The task an edit changes: one the office knows, Refined, Ready or Parked. */
@@ -1345,6 +1504,8 @@ export class PlanningSessions {
       refusals: [],
       autoRefusals: 0,
       notes: [],
+      filedSeen: null,
+      mergedSince: new Map(),
     };
     this.#recordStart(open, config);
     this.#open.set(office, open);
@@ -1446,11 +1607,14 @@ export class PlanningSessions {
     const { handle, run, agent } = open;
     const settings = config.planning;
     const now = deps.clock.now();
+    // The stories the session filed so far (a continuing session): the same list its messages carry.
+    const filed = this.#filedStories(open, commit);
+    open.filedSeen = filedSignature(filed);
     const taskMessage = planningFirstMessage(
       handle.deferred(() => ({
         kind: open.kind,
         goal: open.goal,
-        record: planningRecordText(readPlanningRecord(handle, open.session)),
+        record: planningRecordText(readPlanningRecord(handle, open.session), filed),
         drafts: planningDrafts(handle),
         desk: deps.desk?.(handle, now) ?? [],
         runs: recentStoryRuns(handle),

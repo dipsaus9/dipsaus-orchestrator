@@ -6,6 +6,7 @@ import type { HostOp, TurnProblem } from "../workers/types";
 
 import { sendFeedback } from "./feedback";
 import { resolveIntent } from "../records/intents";
+import { proxyRefusalOf } from "../records/proxy-refusals";
 import type { OutcomeSupport } from "./outcome-support";
 import {
   INTENT_TAGS,
@@ -38,7 +39,10 @@ export class TurnOutcomes {
     ];
     switch (problem.kind) {
       case "planLimit":
-        this.onPlanLimit(view, { credits: false });
+        this.onPlanLimit(view, {
+          credits: false,
+          ...(problem.http429 === true ? { http429: true as const } : {}),
+        });
         return;
       case "startFailed":
         // The worker cannot run: close it; the exit holds the adapter.
@@ -127,6 +131,18 @@ export class TurnOutcomes {
    * parked `worker-failed` ("plan limit until <time>"), which resumes by itself when the pause lifts.
    */
   onPlanLimit(view: RunView, limit: PlanLimitHit): void {
+    // A 429 in a session for which the model proxy recorded a refusal is the run's token cap, not
+    // the plan: that run ends capped with the proxy's reason and the office does not pause (DIPO-484).
+    const refusal = this.#proxyRefusal(view, limit);
+    if (refusal !== null) {
+      this.#deps.ender().begin(view.runId, {
+        intent: "cap",
+        ops: [{ closeStdin: true }, { signal: "SIGTERM", afterMs: NEW_SESSION_SIGTERM_AFTER_MS }],
+        reason: "budget-exceeded",
+        detail: refusal,
+      });
+      return;
+    }
     const pause = planLimitPause(limit, this.#deps.clock.now());
     this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);
     this.#deps
@@ -138,6 +154,12 @@ export class TurnOutcomes {
           { signal: "SIGTERM", afterMs: NEW_SESSION_SIGTERM_AFTER_MS },
         ]),
       );
+  }
+
+  #proxyRefusal(view: RunView, limit: PlanLimitHit): string | null {
+    const office = this.#deps.offices.get(view.office);
+    if (limit.http429 !== true || office === undefined) return null;
+    return proxyRefusalOf(office, view.runId, view.work.agent, this.#deps.clock.now());
   }
 
   onModelSwitched(view: RunView, model: string): void {

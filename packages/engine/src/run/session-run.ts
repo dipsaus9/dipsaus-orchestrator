@@ -39,6 +39,7 @@ import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import { Ingestor, type IngestAdapter, type IngestedExit } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
+import { proxyRefusalOf } from "../records/proxy-refusals";
 import { recordAgent } from "../records/agents";
 import type { LaunchedHost } from "../records/worker-hosts";
 import {
@@ -271,6 +272,12 @@ export class SessionRuns implements ScanSessionRunner {
       return { kind: "failed", runId, reason: "its host never reported an exit" };
     }
     const result = deps.worker.result(followed.end.state, followed.end.exit);
+    // A 429 the model proxy sent at the session's token cap is that cap, not the plan (DIPO-484).
+    const refusal = this.#proxyCap(office, runId, agent, result);
+    if (refusal !== null) {
+      this.#end(request.office, office, runId, "dropped");
+      return { kind: "failed", runId, reason: `ended capped: ${refusal}` };
+    }
     if (result.outcome === "plan-limit") {
       this.#end(request.office, office, runId, "dropped");
       return {
@@ -290,6 +297,16 @@ export class SessionRuns implements ScanSessionRunner {
         ? (result.detail ?? result.park?.detail ?? `the session ended ${result.outcome}`)
         : `dipo stopped it: ${followed.stopped}`;
     return { kind: "failed", runId, reason: why };
+  }
+
+  #proxyCap(
+    office: OfficeHandle,
+    run: RunId,
+    agent: string,
+    result: { readonly outcome: string; readonly http429?: true },
+  ): string | null {
+    if (result.outcome !== "plan-limit" || result.http429 !== true) return null;
+    return proxyRefusalOf(office, run, agent, this.#deps.clock.now());
   }
 
   /**

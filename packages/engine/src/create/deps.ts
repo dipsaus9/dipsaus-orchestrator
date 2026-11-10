@@ -20,7 +20,7 @@ import type { FeatureModule } from "../commands/registry";
 import type { Logger } from "../log/logger";
 import type { SpawnKeepAwake } from "../platform/keepawake";
 import type { PostNotification } from "../platform/notify";
-import type { ProcessProbe } from "../platform/process";
+import type { ProcessProbe, SpawnDetached } from "../platform/process";
 import type { HostStarter } from "../run/launch";
 import type { WorkerPort } from "../workers/port";
 import type { DrainCaps, DrainRequest, DrainResult } from "./drain";
@@ -50,6 +50,11 @@ export interface DaemonFacts {
   /** When the daemon started, on the engine clock. */
   readonly startedAt: number;
   readonly socket: string;
+  /**
+   * The running executable, for an update from the desk (DIPO-485); absent when dipo runs from
+   * source, which has no binary to replace.
+   */
+  readonly executable?: string;
   /** True once the executable on disk changed (0005). */
   readonly upgradePending: () => boolean;
   /** Starts the daemon's drain; the first request wins. */
@@ -83,6 +88,8 @@ export interface EngineDeps {
    */
   readonly postNotification?: PostNotification;
   readonly daemon: DaemonFacts;
+  /** Starts the restart of an update from the desk (DIPO-485); the real one by default. */
+  readonly spawnDetached?: SpawnDetached;
   /**
    * SQL steps after the compiled-in migrations, numbered after them; a test adds a failing step
    * (DIPO-111).

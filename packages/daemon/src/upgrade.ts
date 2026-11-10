@@ -1,7 +1,7 @@
 // Upgrades while the daemon runs (0005). Every 60 s the daemon compares a stamp of its executable
 // with the one taken at start. A different stamp means the binary was replaced: `daemon.status`
-// reports `upgradePending`, and the maintainer runs `dipo daemon restart`. The daemon never
-// restarts itself.
+// reports `upgradePending`, and the maintainer runs `dipo daemon restart`. The daemon restarts itself
+// only after a confirmed update from the desk (DIPO-485), which runs that same command.
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 import type { Logger } from "@dipsaus-orchestrator/engine";
