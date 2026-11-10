@@ -4,7 +4,7 @@ title: Idea audits are not refused by dipo's own token cap
 status: Refined
 assignee: []
 created_date: '2026-11-10 10:16'
-updated_date: '2026-11-10 10:18'
+updated_date: '2026-11-10 10:24'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -38,11 +38,11 @@ M3 (maintainer's choice, 2026-11-10). The trigger: with DIPO-469 pinned (binary 
 
 The cause: the audit records its run (packages/engine/src/run/audit-session.ts ~:203-232) as kind `session`, role `auditor`, `budgetLimit: 0`, and its spec has `caps.budgetTokens: 0` (~:245): no token cap, as 0022 and 0008 mean for a session. The model proxy's ledger (packages/engine/src/records/proxied-usage.ts) exempts only `PLANNER_ROLE` from the cap, in two places: `scopeOf` (~:66-71) and `capReached` (~:80). The auditor role (DIPO-452) was never added, so for an audit `capReached` is `0 >= 0`, true before its first token; `open` throws `ModelUseCapped` (~:97-98) and packages/engine/src/box/model-proxy.ts (~:464-465) answers 429 "the run's token budget is used up". Claude Code retries the 429, then reports a rate limit, and packages/engine/src/workers/claude-cli/interpret.ts (~:1056, ~:1224) reads every 429 as the plan's limit. No test sends an audit session's model request through the real `proxiedUsageLedger` and `startModelProxy`: packages/engine/test/box/model-proxy-count.test.ts covers story runs only.
 
-The fix, one mechanism (0001): one rule decides "this run has no token cap", keyed on the run's own record, not on an agent's role: a run of kind `session` whose recorded budget limit is 0 is uncapped. One function next to the caps (packages/engine/src/records/caps.ts) answers it, and both `scopeOf` and `capReached` ask it. It replaces the planner-only role check (`role === PLANNER_ROLE` in both places), which goes. Every other run keeps its cap as today: a story run's developer, a reviewer's own cap (0002), and the scan session, a session run with a real budget (packages/engine/src/run/session-run.ts ~:223).
+The fix, one mechanism (0001): one rule decides "this run has no token cap", keyed on the run's own record, not on an agent's role: a run of kind `session` whose recorded budget limit (`run.budgetLimit`, never the caps with grants added) is 0 is uncapped. One function next to the caps (packages/engine/src/records/caps.ts) answers it, and both `scopeOf` and `capReached` ask it. It replaces the planner-only role check (`role === PLANNER_ROLE` in both places), which goes. Every other run keeps its cap as today: a story run's developer, a reviewer's own cap (0002), and the scan session, a session run with a real budget (packages/engine/src/run/session-run.ts ~:223).
 
-Second, in scope: dipo's own refusal must never be read as the plan's limit. Today a session the proxy refuses for its cap ends `plan-limit`; for a story run that parks it as "plan limit until T" and pauses the office's starts (0020), on a limit that never happened. The ledger knows when it refused a run for its cap; the engine, where it reads a worker's result, reads that fact and ends the session `capped` with the reason "the model proxy refused it: the run's token budget is used up", never `plan-limit`, and pauses no starts. The interpreter stays as it is: a 429 the proxy did not send for a cap is still the plan's limit (0008). This is the smallest change that makes the desk and the log truthful, and it belongs here because the same 429 caused the wrong `plan-limit` the maintainer saw; leaving it out would leave the next cap refusal of a story run pausing the whole office.
+Not in scope: a later 429 the proxy sends for a real cap is still read as the plan's limit by the interpreter. After this fix no session without a budget is refused, and a story run at its cap is parked budget-exceeded by the engine's own cap watch while Claude Code still retries; the ledger keeps no record of a refusal, so telling the two apart would need new state. It stays on the watch list and becomes a story only if it recurs.
 
-ADR: 0008 says only the planning session's box is never refused for a cap. Its line on the proxy's cap changes to name the rule (a session run with no budget, which today is the planning session and the idea audit) and to say that a session the proxy refused for its cap ends capped, not on a plan limit. The maintainer approves that wording in this story's PR. 0022 already says the audit counts like any session's, with no run cap.
+ADR: 0008 says only the planning session's box is never refused for a cap. Its line on the proxy's cap changes to name the rule: a session run with no budget, which today is the planning session and the idea audit, is never refused for a cap. The maintainer approves that wording in this story's PR. This lines 0008 up with 0022, which sets up the audit box like the planning session's.
 
 This touches a guard, the proxy's token cap (R30): the criteria list what the old barrier caught, the bypass forms and a fail-closed test on the real path.
 
@@ -61,8 +61,6 @@ test_plan:
       check: "(unit) packages/engine/test/box/model-proxy-count.test.ts, bypass forms, each refused with 429 once the run's tokens reach its budget: a story run recorded with budget limit 0 (refused before its first token, as today); an agent whose role is the string planner or auditor on a story run with a real budget; an agent with an unknown role on a story run"
     - kind: "automated"
       check: "(unit) fail closed on the real path: the real startModelProxy with a fake upstream, a fixture-built office database and the real proxiedUsageLedger, as model-proxy-count.test.ts does: an audit session's request (run kind session, role auditor, budget limit 0) is forwarded and answered 200 with its tokens counted in the office's usage, and in the same test a developer at its cap is refused 429 with nothing forwarded"
-    - kind: "automated"
-      check: "(unit) a session the proxy refused for its cap ends capped, never plan-limit: an audit session's failure reason names the token budget, a story run parks budget-exceeded naming the proxy's refusal and the office's starts are not paused; a 429 the proxy did not send for a cap (a recorded rate-limit turn from the fixtures) still ends plan-limit and pauses starts as today"
     - kind: "manual"
       check: "After the story merges and dipo is re-pinned, wait for the next audit trigger (or add one idea with dipo idea), then read the daemon log and dipo ideas, and open dipo desk"
       expect: "the log shows no 'the session ended plan-limit' warning for an audit, the held ideas are passed or rejected with a reason in dipo ideas, and each passed idea is on the desk as a proposed user story"
@@ -76,6 +74,5 @@ test_plan:
 - [ ] #3 The old barrier still holds, with a test for each: a story run's developer over its budget gets 429, a reviewer over its own cap gets 429, a scan session over its real budget gets 429, and an address with no run row is refused as today
 - [ ] #4 Tests cover the bypass forms, each refused with 429 at its budget: a story run recorded with budget limit 0, an agent whose role is planner or auditor on a story run, and an agent with an unknown role
 - [ ] #5 A fail-closed test on the real path: the real startModelProxy, a fake upstream, a fixture-built office database and the real ledger forward an audit session's request (200) and refuse a developer at its cap (429, nothing forwarded)
-- [ ] #6 A session the proxy refused for its cap ends capped with the reason that the run's token budget is used up, never plan-limit, and pauses no starts; a 429 the proxy did not send for a cap still ends plan-limit as today
-- [ ] #7 The 0008 line on the proxy's cap names the rule (a session run with no budget is never refused for a cap) and says a session the proxy refused for its cap ends capped; the maintainer approves the wording in this story's PR
+- [ ] #6 The 0008 line on the proxy's cap names the rule (a session run with no budget is never refused for a cap); the maintainer approves the wording in this story's PR
 <!-- AC:END -->
