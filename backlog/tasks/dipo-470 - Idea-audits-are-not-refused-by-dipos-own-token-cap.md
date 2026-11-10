@@ -1,10 +1,10 @@
 ---
 id: DIPO-470
 title: Idea audits are not refused by dipo's own token cap
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-10 10:16'
-updated_date: '2026-11-10 10:47'
+updated_date: '2026-11-10 10:54'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -50,7 +50,10 @@ Built by dipo where it can (tier S). A failed audit leaves its ideas held and ne
 
 ```dipo
 branch: "DIPO-470/audit-proxy-cap"
-unknowns: []
+unknowns:
+  - q: "The fix is in and verified: idea audits and planning sessions are uncapped by one rule on the run's record. isUncapped(run) in caps.ts (kind session and budgetLimit 0) replaces the planner-only role check in both scopeOf and capReached in proxied-usage.ts. The proxy header comment in model-proxy.ts now states the rule. Tests added in caps.test.ts and model-proxy-count.test.ts cover criteria 1 to 5. bun run verify passes (format, lint, typecheck, all 7 test shards). Criterion 6 is blocked on your approval of the 0008 wording; I did not edit the ADR. The part was taken by dipo-part. The change is uncommitted in the working tree.</summary>\n<parameter name=\"question\">Do you approve this wording for 0008 line 63? It replaces 'A planning session's box is counted the same way, against its planning run, which has no cap: its requests count in the office's usage and spend and are never refused for one.' Proposed: 'A session run with no token budget (a planning session's or an idea audit's, recorded with budget limit 0) is counted the same way, against that run: its requests count in the office's usage and spend and are never refused for a cap.' If yes, I will write it, or you can apply it yourself."
+    status: "resolved"
+    answer: "Approved: write the proposed 0008 line 63 wording, then finish the story"
 test_plan:
   entries:
     - kind: "automated"
@@ -64,10 +67,6 @@ test_plan:
     - kind: "manual"
       check: "After the story merges and dipo is re-pinned, wait for the next audit trigger (or add one idea with dipo idea), then read the daemon log and dipo ideas, and open dipo desk"
       expect: "the log shows no 'the session ended plan-limit' warning for an audit, the held ideas are passed or rejected with a reason in dipo ideas, and each passed idea is on the desk as a proposed user story"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "The fix is in and verified: idea audits and planning sessions are uncapped by one rule on the run's record. isUncapped(run) in caps.ts (kind session and budgetLimit 0) replaces the planner-only role check in both scopeOf and capReached in proxied-usage.ts. The proxy header comment in model-proxy.ts now states the rule. Tests added in caps.test.ts and model-proxy-count.test.ts cover criteria 1 to 5. bun run verify passes (format, lint, typecheck, all 7 test shards). Criterion 6 is blocked on your approval of the 0008 wording; I did not edit the ADR. The part was taken by dipo-part. The change is uncommitted in the working tree.</summary>\n<parameter name=\"question\">Do you approve this wording for 0008 line 63? It replaces 'A planning session's box is counted the same way, against its planning run, which has no cap: its requests count in the office's usage and spend and are never refused for one.' Proposed: 'A session run with no token budget (a planning session's or an idea audit's, recorded with budget limit 0) is counted the same way, against that run: its requests count in the office's usage and spend and are never refused for a cap.' If yes, I will write it, or you can apply it yourself."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -92,4 +91,6 @@ Parked 2026-11-10 10:47 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 99,082 of 300,000 tokens; 40 of 90 turns; 2 of 45 minutes
 - Last good commit: 1f2ae2f7265f6f31d809a653edb0377abdef1e47
+
+Resumed 2026-11-10 10:54 UTC; grants: none; note: Approved: write the proposed 0008 line 63 wording, then finish the story
 <!-- SECTION:NOTES:END -->
