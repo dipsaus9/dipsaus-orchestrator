@@ -4,7 +4,7 @@ title: Run each story as the role its label names
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-10 15:05'
+updated_date: '2026-11-12 13:49'
 labels:
   - 'tier:L'
 milestone: m-4
@@ -33,12 +33,12 @@ ordinal: 450000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Story: As maintainer I want each story to run with the instructions, model and effort of the role its label names so that roles I add as files do the work they are written for.
 
-Today every run is the developer. Run start records DEVELOPER_ROLE (packages/engine/src/run/work-run.ts:1204, 1226; recordDeveloper at 345). The system file is always the bundled developer text (packages/engine/src/run/prompts.ts:92, packages/engine/src/run/resume.ts:374). Model and effort come only from the tier (packages/engine/src/run/launch.ts:321-326). The maintainer decided (planning 2026-11-10):
-- A role label is required. R17 (packages/engine/src/gate/rules.ts:440) now asks for exactly one role label naming a roster role. With none it fails, saying a role label is needed and listing the roster's roles; dipo office init labels existing stories (seed story).
+Today every run is the developer. Run start records DEVELOPER_ROLE (packages/engine/src/run/work-run.ts:139, used at 1222 and 1244; recordDeveloper at 329). The system file is always the bundled developer text (packages/engine/src/run/prompts.ts:92, packages/engine/src/run/resume.ts:374). Model and effort come only from the tier (packages/engine/src/run/launch.ts:324-325). The maintainer decided (planning 2026-11-10):
+- A role label is required. R17 (packages/engine/src/gate/rules.ts:440) now asks for exactly one role label naming a roster role. With none it fails, saying a role label is needed and listing the roster's roles; dipo office init labels existing stories (DIPO-472).
 - A run keeps the role it started with. A role file changed on the base later never changes a live or parked run's sessions, as a tier edit does not (DIPO-207, startTierOf at resume.ts:285).
 
 Scope:
-- At start, the run reads its role from the story's role label and takes the role from the roster (DIPO-471) loaded at the base it claims. It stores the role's name, instructions, model and effort with the run in the start transaction (work-run.ts:1216), the way the config snapshot is stored. A new migration is likely.
+- At start, the run reads its role from the story's role label and takes the role from the roster (DIPO-471) loaded at the base it claims. It stores the role's name, instructions, model and effort with the run in the start transaction (#recordRun, work-run.ts:1205), the way the config snapshot is stored. A new migration is likely.
 - The run row, the agent rows and work.assigned carry that role, not developer.
 - The system file is the implement-box contract plus the stored instructions. renderSystemFile (packages/engine/src/prompts/system.ts:14) takes the role text, and ROLE_TEMPLATES loses developer (packages/engine/src/prompts/templates.ts:71). The bundled developer.md stays as the seed text only. The system file is still byte-identical for the same kind and role text.
 - Model and effort are the role's when set, else the tier's. The tier still gives budget, turns, minutes and loops (vision 5). The run's model and its first agent's effort hold the result, and startTierOf finds the first agent of the run's own role, not 'developer' (resume.ts:288).

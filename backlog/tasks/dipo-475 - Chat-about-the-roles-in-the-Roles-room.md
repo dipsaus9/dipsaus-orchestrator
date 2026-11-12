@@ -4,7 +4,7 @@ title: Chat about the roles in the Roles room
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-10 15:05'
+updated_date: '2026-11-12 13:49'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -32,9 +32,9 @@ Story: As maintainer I want to talk through my roles with a planner in the Roles
 The maintainer decided (planning 2026-11-10) that the Roles room holds a chat, that the chat may add, edit and remove roles, and that it reads the role files plus each role's recent runs.
 
 Session:
-- A new planning kind, roles (PLANNING_KINDS, packages/contract/src/work.ts:405), on the same session machinery (packages/engine/src/run/planning-session.ts). It shares the office's one planning slot: starting it while a session is open is refused as planning.open (planning-session.ts:639) is.
+- A new planning kind, roles (PLANNING_KINDS, packages/contract/src/work.ts:408), on the same session machinery (packages/engine/src/run/planning-session.ts). It shares the office's one planning slot: starting it while a session is open is refused as planning.open (planning-session.ts:698) is.
 - It runs with the planner role and the planning-box contract, read-only as every planning session is.
-- A roles session accepts only the role, role-edit and role-remove proposals and refuses story proposals. The other kinds refuse role proposals. Its first message carries only the schema of the role proposals.
+- A roles session accepts only the role, role-edit and role-remove proposals (DIPO-474) and refuses story proposals. The other kinds refuse role proposals. Its first message carries only the schema of the role proposals.
 
 First message (packages/engine/src/prompts/task/planning.md; new tags go into PROMPT_TAGS, packages/engine/src/prompts/templates.ts:176):
 - The goal.
@@ -44,7 +44,7 @@ First message (packages/engine/src/prompts/task/planning.md; new tags go into PR
 - The role proposal schema and the question schema.
 
 TUI:
-- In the Roles room, a key starts the chat with a typed goal. The chat shows beside the list, with the planning view's message, question, proposal and confirm handling (packages/tui/src/planning.tsx).
+- In the Roles room (DIPO-473), a key starts the chat with a typed goal. The chat shows beside the list, with the planning view's message, question, proposal and confirm handling (packages/tui/src/planning.tsx).
 - The planning view's kind cycle does not offer roles.
 - After a confirmed change merges, the list shows the new roster, through the roster refresh of the Roles room story.
 
