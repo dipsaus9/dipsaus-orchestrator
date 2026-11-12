@@ -4,12 +4,14 @@ title: Let planning proposals name the role and file it as a label
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-12 13:49'
+updated_date: '2026-11-12 13:57'
 labels:
   - 'tier:M'
 milestone: m-4
 dependencies:
   - DIPO-471
+  - DIPO-472
+  - DIPO-474
 references:
   - packages/contract/src/work.ts
   - packages/engine/src/backlog/lane/stories.ts
