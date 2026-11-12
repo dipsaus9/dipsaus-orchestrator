@@ -4,7 +4,7 @@ title: 'File confirmed role additions, edits and removals through the planning l
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-10 15:05'
+updated_date: '2026-11-12 13:41'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -30,7 +30,7 @@ Story: As maintainer I want role changes I confirm in a session to be written to
 
 The maintainer decided (planning 2026-11-10) that a session may propose adding, editing and removing a role, and that a confirmed change lands through the planning lane's auto-merging backlog PR. Confirming is the review.
 
-Proposals (packages/contract/src/work.ts, PlanningProposal at ~638; checks in packages/engine/src/run/planning-proposals.ts):
+Proposals (packages/contract/src/work.ts, PlanningProposal at 640; checks in packages/engine/src/run/planning-proposals.ts):
 - role: a new role with a name, a purpose, optional model and effort, the instructions and a why.
 - role-edit: an existing role by name, with only the fields that change, and a why.
 - role-remove: an existing role by name, with a why.
@@ -42,10 +42,10 @@ The engine checks beyond the schema when it reads the block:
 Refused blocks go back to the session as other proposals' problems do.
 
 Filing:
-- A confirmed proposal becomes a lane target that writes or deletes .dipo/roles/<name>.md. The lane drops changes outside backlog/ unless their path is allowed (inLane, packages/engine/src/backlog/lane/lane.ts:280; drop at 796), so role files under .dipo/roles/ are added to what it allows.
+- A confirmed proposal becomes a lane target that writes or deletes .dipo/roles/<name>.md. The lane drops changes outside backlog/ unless their path is allowed (inLane, packages/engine/src/backlog/lane/lane.ts:282; drop at 798-801). inLane matches a kind's extra paths exactly (extra.includes(path), lane.ts:283), so allowing role files under .dipo/roles/ needs a folder match for that kind, not one more exact path.
 - An edit rewrites only the changed fields and keeps the rest of the file.
 - At apply time the target checks again: an add whose file now exists, an edit or removal whose role is gone, and a removal whose role a non-Done story now names do not apply. Each is recorded with the reason, as stale story targets are.
-- The planning record and the [dipo] lines of the next turn say which roles were added, edited or removed (planning.record, packages/engine/src/run/planning-session.ts:616).
+- The planning record and the [dipo] lines of the next turn say which roles were added, edited or removed (record, packages/engine/src/run/planning-session.ts:675).
 
 Which session kinds may use these proposals is the roles chat's story. Amend 0022 for the new proposal kinds and 0010 for the lane's role file paths.
 
