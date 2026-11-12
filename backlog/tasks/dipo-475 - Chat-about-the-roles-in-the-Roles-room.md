@@ -4,12 +4,15 @@ title: Chat about the roles in the Roles room
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-12 13:49'
+updated_date: '2026-11-12 13:57'
 labels:
   - 'tier:M'
 milestone: m-4
 dependencies:
   - DIPO-471
+  - DIPO-473
+  - DIPO-474
+  - DIPO-476
 references:
   - packages/contract/src/work.ts
   - packages/engine/src/run/planning-session.ts

@@ -4,12 +4,14 @@ title: Run each story as the role its label names
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-12 13:49'
+updated_date: '2026-11-12 13:57'
 labels:
   - 'tier:L'
 milestone: m-4
 dependencies:
   - DIPO-471
+  - DIPO-472
+  - DIPO-476
 references:
   - packages/engine/src/gate/rules.ts
   - packages/engine/src/run/work-run.ts
