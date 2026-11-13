@@ -27,6 +27,7 @@ import {
   type DeskItem,
   type EngineError,
   type Event,
+  NEXT_UP_AUTO_START_LINE,
   type OfficeId,
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
@@ -425,6 +426,9 @@ export function listLines(
   groups.forEach((group, n) => {
     if (n > 0) lines.push([]);
     lines.push([seg(groupName(group.kind, ctx.narrow), "dim")]);
+    if (group.items.some((item) => item.autoStart !== undefined)) {
+      lines.push([seg(NEXT_UP_AUTO_START_LINE, "dim")]);
+    }
     for (const item of group.items) {
       const focused = index === ctx.selected;
       const from = lines.length;

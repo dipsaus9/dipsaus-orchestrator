@@ -8,7 +8,7 @@
 // stories; the desk shows it and the notifier posts it once.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -20,7 +20,12 @@ import {
   StoryId,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
+import { ManualClock, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
+import { OfficeGit, spawnGitExec } from "../../src/git";
+import { systemSpawn } from "../../src/platform/process";
+import { createUlid } from "../../src/platform/ids";
+import type { CommandContext } from "../../src/commands/registry";
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
@@ -37,10 +42,13 @@ import { insertStoryPr, setStoryPrState, type StoryPrState } from "../../src/rec
 import { freeSlots } from "../../src/run-state";
 import type { BaseRead } from "../../src/run/work-run";
 import {
+  gitChangedFiles,
   milestoneNumber,
   NEXT_UP_NOTICE,
   NextUp,
+  type NextUpDeps,
   nextUpOrder,
+  recordDecline,
   storyHash,
   TIP_READ_MS,
 } from "../../src/run/next-up";
@@ -98,6 +106,28 @@ interface World {
   /** The fake starts after their answer, for `settled`. */
   readonly starts: Promise<void>[];
   notified: number;
+  /** `nextUp.autoStart` of the office. */
+  mode: "none" | "no-overlap";
+  /** The office's starts paused (0020, a plan limit among them) when set. */
+  paused: boolean;
+  /** dipo updates itself, or the desk offers the update, when set. */
+  updating: boolean;
+  updateOffered: boolean;
+  /** What each start got: the context `work.run` is handed. */
+  readonly contexts: CommandContext[];
+  /** The stories whose start the fake skips, with the skip reason, as `work.run` does. */
+  readonly skips: Map<string, string>;
+  /** The runs whose changed files the fake cannot read: it leaves them out, as git does. */
+  readonly unreadable: Set<string>;
+  /** Replaces the changed-files read, for the real one and for one that throws. */
+  changedImpl: NonNullable<NextUpDeps["changedFiles"]> | null;
+  readonly infos: { message: string; fields: Readonly<Record<string, unknown>> }[];
+  /** The start sha the claims record. */
+  startSha: string;
+  /** False while the daemon schedules no work. */
+  scheduling: boolean;
+  /** The stories whose start the fake decides and then fails, as a start that fails later does. */
+  readonly failLater: Set<string>;
 }
 
 let dir = "";
@@ -113,6 +143,7 @@ beforeEach(async () => {
     unparsed: [],
     checkout: { path: "/base", base: "main" },
   });
+  const nextRequest = createUlid(t.clock);
   const nextUp = new NextUp({
     clock: t.clock,
     offices: { get: () => office, configBlocksRuns: () => [] },
@@ -125,15 +156,33 @@ beforeEach(async () => {
     start: (ctx, key) => {
       const id = ctx.stories.get(key)?.story ?? key;
       w.started.push(id);
+      w.contexts.push(ctx);
+      const skip = w.skips.get(id);
+      if (skip !== undefined) {
+        return {
+          result: { started: [], skipped: [{ story: StoryId.parse(id), key, reason: skip }] },
+        };
+      }
       if (w.startFails) throw new Error("the box could not be prepared");
       const run = RunId.parse(w.t.ids.next("run"));
       w.starting.add(key);
+      if (w.failLater.has(id)) {
+        w.starts.push(
+          (async () => {
+            await Promise.resolve();
+            w.starting.delete(key);
+            w.failures.set(key, `${id} was not started: setup failed`);
+            void w.nextUp.refresh(office.officeId);
+          })(),
+        );
+        return { result: { started: [{ story: id, key, run }], skipped: [] } };
+      }
       // The claim after the answer, outside the command's transaction.
       w.starts.push(
         (async () => {
           await Promise.resolve();
           await w.hold.get(id);
-          claim(id, [], run);
+          claim(id, w.tasks.find((one) => one.id === id)?.references ?? [], run);
           w.starting.delete(key);
           void w.nextUp.refresh(office.officeId);
         })(),
@@ -142,16 +191,31 @@ beforeEach(async () => {
     },
     starting: () => [...w.starting],
     startFailure: (_office, key) => w.failures.get(key),
-    changedFiles: async () => {
+    changedFiles: async (officeId, runs) => {
       w.changedReads += 1;
       await w.changedGate;
-      return w.changed;
+      if (w.changedImpl !== null) return w.changedImpl(officeId, runs);
+      return new Map(
+        runs
+          .filter((run) => !w.unreadable.has(run.runId))
+          .map((run) => [run.runId, w.changed.get(run.runId) ?? []] as const),
+      );
+    },
+    autoStart: () => w.mode,
+    scheduling: () => w.scheduling,
+    startsPaused: () => (w.paused ? { reason: "plan-limit" } : null),
+    updatePending: () => w.updating,
+    requestId: () => RequestId.parse(nextRequest()),
+    ids: t.ids,
+    info: (message, fields) => {
+      w.infos.push({ message, fields });
     },
     branchTips: async () => w.tips,
     onChanged: () => {
       w.notified += 1;
     },
   });
+  nextUp.holdForUpdate(() => (w.updateOffered ? { commits: 1 } : null));
   const registry = buildRegistry([nextUp.feature]);
   w = {
     t,
@@ -179,6 +243,18 @@ beforeEach(async () => {
     starting: new Set(),
     starts: [],
     notified: 0,
+    mode: "none",
+    paused: false,
+    updating: false,
+    updateOffered: false,
+    contexts: [],
+    skips: new Map(),
+    unreadable: new Set(),
+    changedImpl: null,
+    infos: [],
+    startSha: "a".repeat(40),
+    scheduling: true,
+    failLater: new Set(),
   };
 });
 
@@ -213,7 +289,7 @@ function claim(
       tier: "S",
       role: "developer",
       model: "haiku",
-      startSha: "a".repeat(40),
+      startSha: w.startSha,
       branch: `${id}/a-story`,
       budgetUnit: "tokens",
       budgetLimit: 1_000,
@@ -232,7 +308,7 @@ function claim(
       branch: `${id}/a-story`,
       base: "main",
       baseSha: "b".repeat(40),
-      startSha: "a".repeat(40),
+      startSha: w.startSha,
       claimSha: "c".repeat(40),
       reused: false,
       claimedAt: w.t.clock.now(),
@@ -772,5 +848,391 @@ describe("review fixes", () => {
     const reply = await command("nextUp.confirm", { story: "DIPO-1" });
     expect(reply.ok).toBe(false);
     expect(await refresh()).toEqual(["DIPO-1"]);
+  });
+});
+
+// ---- nextUp.autoStart (DIPO-499, 0010) -------------------------------------------------------
+
+/** The notices with `code`, by story key. */
+function noticeKeys(code: string): string[] {
+  return w.office
+    .all<{ key: string }>(
+      `select key from change_log where office_id = $office_id and type = 'engine.notice'
+          and json_extract(delta, '$.code') = $code order by seq`,
+      { code },
+    )
+    .map((row) => row.key);
+}
+
+/** Refreshes and lets every start the fake decided finish its claim. */
+async function settle(): Promise<string[]> {
+  const found = await refresh();
+  await Promise.all(w.starts);
+  await w.nextUp.refresh(w.officeId);
+  return found;
+}
+
+const whyOf = (id: string) =>
+  w.nextUp.offers(w.officeId).find((offer) => offer.story === id)?.why ?? "";
+
+/** A running story DIPO-9 whose references are \`scope\`, and room for \`free\` more runs. */
+function running(scope: readonly string[], free = 1): RunId {
+  story("DIPO-9", { references: [...scope], status: "In Progress" });
+  const run = claim("DIPO-9", scope);
+  w.limit = 1 + free;
+  return run;
+}
+
+describe("nextUp.autoStart: none and no-overlap", () => {
+  it("none starts nothing by itself: the offer waits for a confirm", async () => {
+    story("DIPO-1", { references: ["src/a.ts"] });
+    expect(await settle()).toEqual(["DIPO-1"]);
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual(["DIPO-1"]);
+  });
+
+  it("no-overlap starts the first offer that shares no files through the confirm's start, once, with a notice and no item left", async () => {
+    w.mode = "no-overlap";
+    running(["src/a.ts"]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    await settle();
+    expect(w.started).toEqual(["DIPO-1"]);
+    expect(offered()).toEqual([]);
+    expect(w.infos).toEqual([
+      {
+        message: "started a story by itself",
+        fields: {
+          office: w.officeId,
+          story: "DIPO-1",
+          why: expect.stringContaining("it shares no files with the running stories"),
+        },
+      },
+    ]);
+    // One notice that it started, none that it was offered.
+    expect(noticeKeys("run.nextUpStarted")).toEqual([w.keys.get("DIPO-1") as string]);
+    expect(noticeKeys(NEXT_UP_NOTICE)).toEqual([]);
+    const text = w.office.get<{ text: string }>(
+      `select json_extract(delta, '$.text') as text from change_log
+        where office_id = $office_id and json_extract(delta, '$.code') = 'run.nextUpStarted'`,
+    );
+    expect(text?.text).toBe(
+      "started DIPO-1 by itself: it shares no files with the running stories",
+    );
+  });
+
+  it("starts through an engine-made request of origin other, which the run's entries record", async () => {
+    w.mode = "no-overlap";
+    running([]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    await settle();
+    const [ctx] = w.contexts;
+    expect(w.contexts).toHaveLength(1);
+    expect(ctx?.origin).toBe("other");
+    expect(ctx?.stories.get(w.keys.get("DIPO-1") as string)?.story).toBe("DIPO-1" as StoryId);
+    const caused = w.office.get<{ caused_by: string }>(
+      `select caused_by from change_log where office_id = $office_id
+          and json_extract(delta, '$.code') = 'run.nextUpStarted'`,
+    );
+    expect(caused?.caused_by).toBe(ctx?.requestId as string);
+    // A confirm's request carries the maintainer's origin, not this one.
+    w.mode = "none";
+    story("DIPO-2", { references: ["x"], milestone: "m-9" });
+    w.limit = 3;
+    await refresh();
+    resultOf(await command("nextUp.confirm", { story: "DIPO-2" }));
+    expect(w.contexts.at(-1)?.origin).toBe("cli");
+  });
+});
+
+describe("what is never started by itself", () => {
+  beforeEach(() => {
+    w.mode = "no-overlap";
+  });
+
+  it("an offer whose references overlap a running story's references, naming the files and the story", async () => {
+    running(["src/a.ts"]);
+    story("DIPO-1", { references: ["src"] });
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual(["DIPO-1"]);
+    expect(whyOf("DIPO-1")).toContain("not started by itself: shares src with DIPO-9");
+    expect(w.nextUp.offers(w.officeId)[0]?.shared).toEqual([{ story: "DIPO-9", paths: ["src"] }]);
+  });
+
+  it("an offer whose references overlap a running story's changed files", async () => {
+    const run = running([]);
+    w.changed.set(run, ["packages/x/y.ts"]);
+    story("DIPO-1", { references: ["packages/x"] });
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(whyOf("DIPO-1")).toContain("shares packages/x with DIPO-9");
+  });
+
+  it("a declined story", async () => {
+    running([]);
+    const key = story("DIPO-1", { references: ["a"] });
+    w.office.immediate(() =>
+      recordDecline(w.office, key, storyHash(w.tasks.at(-1) as PlainTask), w.t.clock.now()),
+    );
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual([]);
+  });
+
+  it("a story whose dependency is not Done", async () => {
+    running([]);
+    story("DIPO-1", {
+      references: ["a"],
+      dependencies: [{ id: "DIPO-8", state: "resolved", status: "In Progress" }],
+    });
+    await settle();
+    expect(w.started).toEqual([]);
+  });
+
+  it("a story without references: what it touches is not known", async () => {
+    running([]);
+    story("DIPO-1", { references: [] });
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(whyOf("DIPO-1")).toContain("not started by itself: it has no references");
+  });
+
+  it("while the office's starts are paused, at a plan limit included", async () => {
+    running([]);
+    story("DIPO-1", { references: ["a"] });
+    w.paused = true;
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual([]);
+  });
+
+  it("while dipo updates itself", async () => {
+    running([]);
+    story("DIPO-1", { references: ["a"] });
+    w.updating = true;
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual(["DIPO-1"]);
+  });
+
+  it("while the desk offers dipo update", async () => {
+    running([]);
+    story("DIPO-1", { references: ["a"] });
+    w.updateOffered = true;
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual(["DIPO-1"]);
+  });
+
+  it("without a free slot, at caps.parallelRuns", async () => {
+    running([], 0);
+    story("DIPO-1", { references: ["a"] });
+    await settle();
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual([]);
+  });
+});
+
+describe("what the auto start counts", () => {
+  beforeEach(() => {
+    w.mode = "no-overlap";
+  });
+
+  it("with two slots free and two offers that overlap each other only the first starts, while it is still starting", async () => {
+    running([], 2);
+    story("DIPO-1", { references: ["src/shared.ts"], priority: "high" });
+    story("DIPO-2", { references: ["src"], priority: "low" });
+    let open!: () => void;
+    w.hold.set("DIPO-1", new Promise<void>((resolve) => (open = resolve)));
+    await refresh();
+    expect(w.started).toEqual(["DIPO-1"]);
+    expect(whyOf("DIPO-2")).toContain("shares src with DIPO-1");
+    // Still starting on a later pass: the second still counts it.
+    await refresh();
+    expect(w.started).toEqual(["DIPO-1"]);
+    open();
+    await settle();
+    expect(w.started).toEqual(["DIPO-1"]);
+  });
+
+  it("a story that becomes Ready while a run ends starts only after the changed files were read again", async () => {
+    const run = running([], 1);
+    const other = RunId.parse(w.t.ids.next("run"));
+    story("DIPO-8", { references: [], status: "In Progress" });
+    claim("DIPO-8", [], other);
+    w.limit = 2;
+    // DIPO-8's run ended with the slot: DIPO-1 became Ready, and the read of what DIPO-9 changed is open.
+    release(other);
+    w.changed.set(run, ["src/late.ts"]);
+    let open!: () => void;
+    w.changedGate = new Promise<void>((resolve) => (open = resolve));
+    story("DIPO-1", { references: ["src/late.ts"] });
+    const pending = refresh();
+    await Promise.resolve();
+    await Bun.sleep(5);
+    expect(w.started).toEqual([]);
+    open();
+    await pending;
+    await Promise.all(w.starts);
+    // It overlaps what DIPO-9 changed: the fresh read keeps it from starting.
+    expect(w.started).toEqual([]);
+    expect(whyOf("DIPO-1")).toContain("shares src/late.ts with DIPO-9");
+  });
+
+  it("the first refresh after scheduling turns on starts nothing before the changed files are read", async () => {
+    w.scheduling = false;
+    const run = running([], 1);
+    w.changed.set(run, []);
+    story("DIPO-1", { references: ["docs/x.md"] });
+    await refresh();
+    expect(w.started).toEqual([]);
+    let open!: () => void;
+    w.changedGate = new Promise<void>((resolve) => (open = resolve));
+    w.scheduling = true;
+    w.nextUp.refreshAll();
+    await Bun.sleep(5);
+    expect(w.started).toEqual([]);
+    expect(w.changedReads).toBeGreaterThan(0);
+    open();
+    await w.nextUp.refresh(w.officeId);
+    await Promise.all(w.starts);
+    expect(w.started).toEqual(["DIPO-1"]);
+  });
+});
+
+describe("fail closed", () => {
+  beforeEach(() => {
+    w.mode = "no-overlap";
+  });
+
+  const stays = () => {
+    expect(w.started).toEqual([]);
+    expect(offered()).toEqual(["DIPO-1"]);
+    expect(whyOf("DIPO-1")).toContain("could not be read");
+  };
+
+  it("a changed-files read that throws starts nothing", async () => {
+    running(["src/a.ts"]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    w.changedImpl = async () => {
+      throw new Error("git failed");
+    };
+    await settle();
+    stays();
+  });
+
+  it("a running branch the read leaves out starts nothing", async () => {
+    const run = running(["src/a.ts"]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    w.unreadable.add(run);
+    await settle();
+    stays();
+  });
+
+  it("with no office git, the real gitChangedFiles reads nothing and nothing starts", async () => {
+    running(["src/a.ts"]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    w.changedImpl = gitChangedFiles({ git: () => undefined, stories: backlogLayout });
+    await settle();
+    stays();
+  });
+
+  it("the real gitChangedFiles on a repository whose running branch cannot be read starts nothing; a readable one lets it start", async () => {
+    await withBareRemote(async (repo) => {
+      writeFileSync(join(repo.dir, "README.md"), "# fixture\n");
+      const start = await repo.commitAll("start");
+      const real = realpathSync(repo.dir);
+      const git = new OfficeGit({
+        officeId: w.officeId,
+        mainWorktree: real,
+        commonDir: join(real, ".git"),
+        settings: { remote: "origin", base: "main" },
+        runner: { exec: spawnGitExec(systemSpawn), env: repo.env, sleep: async () => {} },
+        clock: new ManualClock(),
+      });
+      w.changedImpl = gitChangedFiles({ git: () => git, stories: backlogLayout });
+      w.startSha = start;
+      running(["src/a.ts"]);
+      story("DIPO-1", { references: ["docs/b.md"] });
+      // The branch DIPO-9's run records does not exist in the repository.
+      await settle();
+      stays();
+      // With the branch there, the read works and a story that shares nothing starts.
+      await repo.git("branch", "DIPO-9/a-story", start);
+      // The pass that could not read is tried again after a while.
+      w.t.clock.advance(TIP_READ_MS);
+      await settle();
+      expect(w.started).toEqual(["DIPO-1"]);
+    });
+  });
+});
+
+describe("no retry loop", () => {
+  beforeEach(() => {
+    w.mode = "no-overlap";
+  });
+
+  /** Changes the story's task file: its hash differs. */
+  function touch(id: string): void {
+    const found = w.tasks.find((one) => one.id === id) as PlainTask;
+    w.tasks[w.tasks.indexOf(found)] = { ...found, description: `${found.description} More.` };
+  }
+
+  it("a story whose pickup check fails is tried once, keeps the refusal in its why and is tried again only when its task file changes", async () => {
+    running([]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    w.skips.set("DIPO-1", "pickupCheckFailed");
+    await settle();
+    expect(w.started).toEqual(["DIPO-1"]);
+    expect(offered()).toEqual(["DIPO-1"]);
+    expect(whyOf("DIPO-1")).toContain(
+      "not started by itself: work.run skipped it: pickupCheckFailed",
+    );
+    await settle();
+    await settle();
+    expect(w.started).toEqual(["DIPO-1"]);
+    // The maintainer can still confirm it.
+    resultOf(await command("nextUp.confirm", { story: "DIPO-1" }));
+    expect(w.started).toEqual(["DIPO-1", "DIPO-1"]);
+    touch("DIPO-1");
+    await settle();
+    expect(w.started).toHaveLength(3);
+  });
+
+  it("a start that throws is tried once", async () => {
+    running([]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    w.startFails = true;
+    await settle();
+    await settle();
+    expect(w.started).toEqual(["DIPO-1"]);
+    expect(whyOf("DIPO-1")).toContain("its start failed: the box could not be prepared");
+    touch("DIPO-1");
+    await settle();
+    expect(w.started).toEqual(["DIPO-1", "DIPO-1"]);
+  });
+
+  it("a start that fails later is tried once", async () => {
+    running([]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    w.failLater.add("DIPO-1");
+    await settle();
+    await settle();
+    await settle();
+    expect(w.started).toEqual(["DIPO-1"]);
+    expect(offered()).toEqual(["DIPO-1"]);
+    expect(w.nextUp.offers(w.officeId)[0]?.failed).toContain("setup failed");
+  });
+
+  it("is tried again once the next-up signature changes", async () => {
+    const run = running([]);
+    story("DIPO-1", { references: ["docs/b.md"] });
+    w.startFails = true;
+    await settle();
+    expect(w.started).toEqual(["DIPO-1"]);
+    // The running story ends: the signature differs.
+    release(run);
+    await settle();
+    expect(w.started).toEqual(["DIPO-1", "DIPO-1"]);
   });
 });

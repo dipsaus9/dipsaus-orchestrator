@@ -1062,6 +1062,10 @@ export type DeskIdea = z.infer<typeof DeskIdea>;
 // `since` is when it began to wait; `blocks` lists the active stories that depend on its story.
 // `actions` are the commands it offers; `hand` says what to do by hand when no dipo command does
 // it, such as a merge on the code host for a PR labelled `autorelease: pending`.
+/** The line that heads the next-up group while `nextUp.autoStart` is `no-overlap` (0010). */
+export const NEXT_UP_AUTO_START_LINE =
+  "Next up starts by itself when it shares no files (nextUp.autoStart: no-overlap)";
+
 export const DeskItem = z
   .object({
     kind: DeskKind,
@@ -1073,6 +1077,8 @@ export const DeskItem = z
     note: DeskNote.optional(),
     idea: DeskIdea.optional(),
     reason: ParkReason.optional(),
+    // On a NEXT UP item: the office's `nextUp.autoStart` while it starts stories by itself (0010).
+    autoStart: z.literal("no-overlap").optional(),
     // The one-line row form, cut for the list (DIPO-483). `fullDetail` is the whole cleaned text,
     // never cut, with its line breaks; an item sent without it reads as its row form.
     detail: z.string(),

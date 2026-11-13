@@ -35,9 +35,11 @@ import { createHash } from "node:crypto";
 
 import {
   type Clock,
+  type IdSource,
   nextUpConfirm,
   nextUpDecline,
   type OfficeId,
+  type RequestId,
   type RunId,
   StoryId,
   StoryKey,
@@ -46,7 +48,7 @@ import {
 import type { z } from "zod";
 
 import { baseRefOf, overlappingPaths, storyChangedFiles } from "../box/collisions";
-import { appendEntries } from "../changelog/log";
+import { appendEntries, type NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type {
   AsyncCommandContext,
@@ -71,6 +73,12 @@ export const NOT_OFFERED = "nextUp.notOffered";
 
 /** The `engine.notice` code of a newly offered story. */
 export const NEXT_UP_NOTICE = "run.nextUp";
+
+/** The `engine.notice` code of a story dipo started by itself (`nextUp.autoStart`). */
+export const NEXT_UP_STARTED_NOTICE = "run.nextUpStarted";
+
+/** Why an offer is started by itself: the one rule. */
+export const AUTO_START_WHY = "it shares no files with the running stories";
 
 /** The office load step that works out the offers. */
 export const NEXT_UP_STEP = "next-up/refresh";
@@ -141,8 +149,29 @@ export interface NextUpDeps {
     office: OfficeId,
     runs: readonly RunningStory[],
   ) => Promise<ReadonlyMap<string, string>>;
+  /** `nextUp.autoStart` of the office's configuration; `none` without it. */
+  readonly autoStart?: (office: OfficeId) => "none" | "no-overlap";
+  /** True while dipo updates itself or the desk offers `dipo update`: nothing starts by itself. */
+  readonly updatePending?: (office: OfficeId) => boolean;
+  /** A new request id for a start dipo makes itself (`autoStart`). */
+  readonly requestId?: () => RequestId;
+  readonly ids?: IdSource;
   readonly onChanged?: (office: OfficeId) => void;
+  readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+}
+
+/** What one read of the base found: the offers, and what the auto start decides from. */
+interface Found {
+  readonly offers: NextUpOffer[];
+  readonly running: readonly RunningStory[];
+  /** The changed files of each running story; null when they are not all known. */
+  readonly changed: ReadonlyMap<string, readonly string[]> | null;
+  /** The references of each story on the base, by key. */
+  readonly references: ReadonlyMap<
+    string,
+    { readonly story: string; readonly paths: readonly string[] }
+  >;
 }
 
 interface OfficeOffers {
@@ -152,6 +181,17 @@ interface OfficeOffers {
   again: boolean;
   /** The running branches' tips as last read, the runs they were read for, and when. */
   tips: { readonly runs: string; readonly tips: string; readonly at: number } | null;
+  /**
+   * The offers dipo tried to start by itself, by key: the story's hash and the next-up signature
+   * at the try, and why it did not go on. Such an offer is not tried again until either changes.
+   */
+  tried: Map<
+    string,
+    { readonly hash: string; readonly signature: string | null; readonly why: string }
+  >;
+  /** True after a pass that could not tell whether the offers overlap; tried again after a while. */
+  retryAuto: boolean;
+  autoAt: number;
 }
 
 /** The running branches' tips are read again at most this often while the same stories run. */
@@ -279,9 +319,18 @@ function messageOf(error: unknown): string {
 export class NextUp {
   readonly #deps: NextUpDeps;
   readonly #offices = new Map<OfficeId, OfficeOffers>();
+  #updateOffer: ((office: OfficeId) => unknown) | null = null;
 
   constructor(deps: NextUpDeps) {
     this.#deps = deps;
+  }
+
+  /**
+   * The update the desk offers (`SelfUpdate.offer`): while one is offered nothing starts by itself,
+   * so an idle office can update. Set once the update service exists.
+   */
+  holdForUpdate(offer: (office: OfficeId) => unknown): void {
+    this.#updateOffer = offer;
   }
 
   /** The office's NEXT UP items now, in order. */
@@ -338,13 +387,20 @@ export class NextUp {
     const officeId = ctx.office.officeId;
     const state = this.#state(officeId);
     const offer = this.#offered(ctx, args.story);
+    return this.#launch(ctx, state, offer.key);
+  }
+
+  /**
+   * The one start of an offered story, for the confirm and for `nextUp.autoStart`: through
+   * `work.run`, then worked out again from the base, so a story it skipped, or whose start fails
+   * later, is offered again.
+   */
+  #launch(ctx: CommandContext, state: OfficeOffers, key: StoryKey): CommandOutcome<RunResult> {
     try {
-      return this.#deps.start(ctx, offer.key);
+      return this.#deps.start(ctx, key);
     } finally {
-      // Worked out again from the base after this command: a story `work.run` skipped, or whose
-      // start fails later, is offered again.
       state.signature = null;
-      void this.refresh(officeId);
+      void this.refresh(ctx.office.officeId);
     }
   }
 
@@ -418,6 +474,9 @@ export class NextUp {
         running: null,
         again: false,
         tips: null,
+        tried: new Map(),
+        retryAuto: false,
+        autoAt: 0,
       };
       this.#offices.set(officeId, state);
     }
@@ -488,23 +547,198 @@ export class NextUp {
     }
     const tips = await this.#tips(officeId, office, state);
     const signature = this.#signature(office, free, tips);
-    if (signature === state.signature) return;
-    const offers = await this.#offersFor(officeId, office, state, free);
+    // A pass that could not read the running stories' changed files is tried again, not too soon.
+    const retry = state.retryAuto && this.#deps.clock.now() - state.autoAt >= TIP_READ_MS;
+    if (signature === state.signature && !retry) return;
+    const found = await this.#offersFor(officeId, office, state, free);
     state.signature = signature;
     // A confirm or decline that came in while the base or git was read wins over this read.
     const now = this.#slots(officeId);
     const merged = new Set(mergedStoryKeys(office));
     const starting = this.#starting(officeId);
-    this.#publish(
-      officeId,
-      state,
-      offers
-        .filter((offer) => !starting.has(offer.key))
-        .filter((offer) => liveClaimOf(office, offer.key) === null)
-        .filter((offer) => !merged.has(offer.key))
-        .filter((offer) => !declined(office, offer.key, offer.hash))
-        .slice(0, now),
-    );
+    const offers = found.offers
+      .filter((offer) => !starting.has(offer.key))
+      .filter((offer) => liveClaimOf(office, offer.key) === null)
+      .filter((offer) => !merged.has(offer.key))
+      .filter((offer) => !declined(office, offer.key, offer.hash))
+      .slice(0, now);
+    // Before the publish: a story dipo starts at once is never announced as offered.
+    const left =
+      this.#deps.autoStart?.(officeId) === "no-overlap"
+        ? this.#autoStart(officeId, office, state, offers, found)
+        : offers;
+    this.#publish(officeId, state, left);
+  }
+
+  /**
+   * `nextUp.autoStart: no-overlap`: starts the offers, in order and one at a time while slots stay
+   * free, that share no files with the running stories, the stories still starting and the ones
+   * started in this pass. Anything unknown (a changed-files read that failed, references that are
+   * missing) starts nothing. An offer it does not start keeps its reason in its why; one it tried
+   * is not tried again until its task file or the next-up signature changes. Returns the offers
+   * left on the desk.
+   */
+  #autoStart(
+    officeId: OfficeId,
+    office: OfficeHandle,
+    state: OfficeOffers,
+    offers: readonly NextUpOffer[],
+    found: Found,
+  ): NextUpOffer[] {
+    const deps = this.#deps;
+    state.retryAuto = false;
+    // A start nulls `state.signature` (`#launch`); the tries are compared with this pass's.
+    const signature = state.signature;
+    if (offers.length === 0) return [...offers];
+    const held = (offer: NextUpOffer, why: string): NextUpOffer => ({
+      ...offer,
+      why: `${offer.why}; not started by itself: ${why}`,
+    });
+    if (
+      deps.updatePending?.(officeId) === true ||
+      (this.#updateOffer?.(officeId) ?? null) !== null
+    ) {
+      return [...offers];
+    }
+    if (found.changed === null) {
+      state.retryAuto = true;
+      state.autoAt = deps.clock.now();
+      return offers.map((offer) =>
+        held(offer, "the changed files of the running stories could not be read"),
+      );
+    }
+    const changed = found.changed;
+    const others: RunningStory[] = [];
+    for (const key of this.#starting(officeId)) {
+      const mine = found.references.get(key);
+      if (mine === undefined) {
+        return offers.map((offer) =>
+          held(offer, `the references of ${key}, which is starting, are not known`),
+        );
+      }
+      others.push({
+        runId: `starting:${key}` as RunId,
+        story: mine.story,
+        branch: "",
+        startSha: "",
+        scope: mine.paths,
+      });
+    }
+    const left: NextUpOffer[] = [];
+    for (const offer of offers) {
+      const tried = state.tried.get(offer.key);
+      if (tried?.hash === offer.hash && tried.signature === signature) {
+        left.push(held(offer, tried.why));
+        continue;
+      }
+      if (this.#slots(officeId) <= 0) {
+        left.push(offer);
+        continue;
+      }
+      const references = found.references.get(offer.key)?.paths ?? [];
+      if (references.length === 0) {
+        left.push(held(offer, "it has no references, so what it touches is not known"));
+        continue;
+      }
+      const shared = sharedFiles(references, [...found.running, ...others], changed);
+      if (shared.length > 0) {
+        const each = shared.map((other) => `${other.paths.join(", ")} with ${other.story}`);
+        left.push({ ...held(offer, `shares ${each.join("; ")}`), shared });
+        continue;
+      }
+      const why = this.#startByItself(officeId, office, state, offer, signature);
+      if (why === null) {
+        others.push({
+          runId: `started:${offer.key}` as RunId,
+          story: offer.story,
+          branch: "",
+          startSha: "",
+          scope: references,
+        });
+        continue;
+      }
+      state.tried.set(offer.key, { hash: offer.hash, signature, why });
+      left.push(held(offer, why));
+    }
+    return left;
+  }
+
+  /**
+   * Starts `offer` through the confirm's start, in a request dipo makes itself (origin `other`, as
+   * `resumeLifted` makes one), and puts the notice. Null when it started, else why it did not.
+   */
+  #startByItself(
+    officeId: OfficeId,
+    office: OfficeHandle,
+    state: OfficeOffers,
+    offer: NextUpOffer,
+    signature: string | null,
+  ): string | null {
+    const deps = this.#deps;
+    const { ids, requestId } = deps;
+    if (ids === undefined || requestId === undefined)
+      return "dipo has no way to make its own request";
+    const attempt = {
+      hash: offer.hash,
+      signature,
+      why: "dipo started it by itself and the start did not go on",
+    };
+    // Set first: a start that fails after its decision must not be tried again.
+    state.tried.set(offer.key, attempt);
+    try {
+      const outcome = office.immediate((): RunResult => {
+        const entries: NewEntry[] = [];
+        const now = deps.clock.now();
+        const id = requestId();
+        const ctx: CommandContext = {
+          office,
+          clock: deps.clock,
+          ids,
+          requestId: id,
+          origin: "other",
+          now,
+          stories: new Map([[offer.key, { key: offer.key, story: offer.story }]]),
+          emit: (entry) => {
+            entries.push(entry);
+          },
+        };
+        const result = this.#launch(ctx, state, offer.key).result;
+        if (result.started.some((started) => started.key === offer.key)) {
+          entries.push({
+            type: "engine.notice",
+            key: offer.key,
+            delta: {
+              level: "info",
+              code: NEXT_UP_STARTED_NOTICE,
+              text: `started ${offer.story} by itself: it shares no files with the running stories`,
+            },
+          });
+        }
+        appendEntries(office, entries, { at: now, causedBy: id });
+        return result;
+      });
+      const skipped = outcome.skipped.find((skip) => skip.key === offer.key);
+      if (skipped !== undefined) {
+        return `work.run skipped it: ${[skipped.reason, ...(skipped.detail ?? [])].join(": ")}`;
+      }
+      if (!outcome.started.some((started) => started.key === offer.key)) {
+        return "work.run started nothing";
+      }
+      deps.info?.("started a story by itself", {
+        office: officeId,
+        story: offer.story,
+        why: `${offer.why}; ${AUTO_START_WHY}`,
+      });
+      return null;
+    } catch (error) {
+      const why = `its start failed: ${messageOf(error)}`;
+      deps.warn?.("starting a next-up story by itself failed", {
+        office: officeId,
+        story: offer.story,
+        reason: messageOf(error),
+      });
+      return why;
+    }
   }
 
   /** The running branches' tips, read through git at most every `TIP_READ_MS` for the same runs. */
@@ -532,7 +766,7 @@ export class NextUp {
     office: OfficeHandle,
     state: OfficeOffers,
     free: number,
-  ): Promise<NextUpOffer[]> {
+  ): Promise<Found> {
     const read = await this.#deps.base.read(officeId, null);
     const merged = new Set(mergedStoryKeys(office));
     const starting = this.#starting(officeId);
@@ -546,18 +780,23 @@ export class NextUp {
       if (this.#deps.base.planningHold(office, resolved.key) !== null) return false;
       return !declined(office, resolved.key, storyHash(view));
     });
-    const chosen = nextUpOrder(startable).slice(0, free);
-    if (chosen.length === 0) return [];
     const running = runningStories(office);
-    const changed =
-      running.length === 0 || this.#deps.changedFiles === undefined
-        ? new Map<string, readonly string[]>()
-        : await this.#deps
-            .changedFiles(officeId, running)
-            .catch(() => new Map<string, readonly string[]>());
+    const references = new Map<string, { story: string; paths: readonly string[] }>();
+    for (const view of read.views) {
+      const resolved = resolveStoryRef(office, view.id);
+      if (resolved.ok) {
+        references.set(resolved.key, { story: view.id, paths: view.references });
+      }
+    }
+    const chosen = nextUpOrder(startable).slice(0, free);
+    if (chosen.length === 0) return { offers: [], running, changed: null, references };
+    // Null: not every running story's changed files were read, so overlap is not known.
+    const reading = await this.#readChanged(officeId, running);
+    const shownChanged = reading.files;
+    const changed = reading.known ? reading.files : null;
     const before = new Map(state.offers.map((offer) => [offer.key, offer.since]));
     const now = this.#deps.clock.now();
-    return chosen.flatMap((view, at): NextUpOffer[] => {
+    const offers = chosen.flatMap((view, at): NextUpOffer[] => {
       const resolved = resolveStoryRef(office, view.id);
       if (!resolved.ok) return [];
       return [
@@ -566,12 +805,33 @@ export class NextUp {
           key: StoryKey.parse(resolved.key),
           title: view.title,
           why: whyNext(view, at === 0),
-          shared: sharedFiles(view.references, running, changed),
+          shared: sharedFiles(view.references, running, shownChanged),
           hash: storyHash(view),
           since: before.get(resolved.key) ?? now,
         },
       ];
     });
+    return { offers, running, changed, references };
+  }
+
+  /**
+   * The changed files of the running stories as far as they were read, and whether every one was:
+   * a read that failed, or left a story out, leaves the overlap unknown.
+   */
+  async #readChanged(
+    officeId: OfficeId,
+    running: readonly RunningStory[],
+  ): Promise<{ files: ReadonlyMap<string, readonly string[]>; known: boolean }> {
+    const none = new Map<string, readonly string[]>();
+    if (running.length === 0) return { files: none, known: true };
+    const read = this.#deps.changedFiles;
+    if (read === undefined) return { files: none, known: false };
+    try {
+      const files = await read(officeId, running);
+      return { files, known: running.every((run) => files.has(run.runId)) };
+    } catch {
+      return { files: none, known: false };
+    }
   }
 
   /**

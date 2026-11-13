@@ -3303,6 +3303,10 @@
             }
           ]
         },
+        "autoStart": {
+          "type": "string",
+          "const": "no-overlap"
+        },
         "detail": {
           "type": "string"
         },

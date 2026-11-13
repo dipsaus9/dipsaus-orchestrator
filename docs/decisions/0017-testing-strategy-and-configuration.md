@@ -106,6 +106,7 @@ tiers:            # 0008
 review: { model: opus, effort: high, maxRounds: 3, maxTurns: 60, maxMinutes: 30, budgetTokens: 200000 }  # 0002
 caps: { parallelRuns: 3, ciAttempts: 2, conflictAttempts: 2 }      # 0002
 merge: { autoMerge: true, waitLabels: [], checksWaitMinutes: 30 }  # 0002
+nextUp: { autoStart: none }                                        # 0010
 box: { files: [], localPorts: [] }                                 # 0008
 scan: { model: sonnet, effort: low, budgetTokens: 100000, maxMinutes: 5 }  # 0013
 story: { bannedPhrases: [...], securityPhrases: [...] }            # 0012

@@ -105,6 +105,7 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
   const { story, commands, office } = services;
   const selfUpdate = selfUpdateOf(core, office);
   const { runs } = commands;
+  commands.nextUp.holdForUpdate((id) => selfUpdate?.offer(id) ?? null);
   return [
     // The desk shows the office's starts paused first (0020), and a stuck planning lane among
     // its hand actions (DIPO-401).
@@ -121,6 +122,8 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
         ],
         // The stories offered for free run slots (DIPO-440, 0010).
         nextUp: (handle) => commands.nextUp.offers(handle.officeId as OfficeId),
+        nextUpAutoStart: (handle) =>
+          core.offices.config(handle.officeId as OfficeId)?.nextUp.autoStart ?? "none",
         // A merge gate's required checks and change stats (DIPO-459).
         prFacts: (handle, run) => story.storyPrs.deskFacts(handle.officeId as OfficeId, run),
       },

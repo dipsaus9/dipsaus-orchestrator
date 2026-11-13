@@ -254,6 +254,18 @@
       "additionalProperties": false,
       "description": "How a story PR merges (0002)."
     },
+    "nextUp": {
+      "type": "object",
+      "properties": {
+        "autoStart": {
+          "type": "string",
+          "enum": ["none", "no-overlap"],
+          "description": "Whether dipo starts the next Ready story itself when a run slot is free: `none` starts nothing without `dipo next confirm`; `no-overlap` starts the first offer whose references share no files with the running stories, and leaves the others for the maintainer."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Next up: how a free run slot gets its story (0010)."
+    },
     "box": {
       "type": "object",
       "properties": {

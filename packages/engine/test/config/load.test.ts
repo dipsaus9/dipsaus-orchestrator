@@ -69,6 +69,7 @@ describe("version 16", () => {
       "review",
       "caps",
       "merge",
+      "nextUp",
       "box",
       "scan",
       "planning",
@@ -91,6 +92,35 @@ describe("version 16", () => {
       waitLabels: [],
       checksWaitMinutes: 30,
     });
+  });
+
+  it("nextUp.autoStart is none or no-overlap, none by default, and refuses any other value or key", () => {
+    expect(OFFICE_DEFAULTS.nextUp).toEqual({ autoStart: "none" });
+    for (const value of ["none", "no-overlap"] as const) {
+      const result = ok(
+        resolveOfficeConfig({ office: `version: 16\nnextUp: { autoStart: ${value} }\n` }),
+      );
+      expect(result.config.nextUp.autoStart).toBe(value);
+    }
+    expect(ok(resolveOfficeConfig({ office: "version: 16\n" })).config.nextUp.autoStart).toBe(
+      "none",
+    );
+    const [bad] = errors(
+      resolveOfficeConfig({ office: "version: 16\nnextUp: { autoStart: always }\n" }),
+    );
+    expect(bad?.path).toBe("nextUp.autoStart");
+    const [unknown] = errors(
+      resolveOfficeConfig({ office: "version: 16\nnextUp: { autoStartz: none }\n" }),
+    );
+    expect(unknown?.path).toBe("nextUp.autoStartz");
+    // Not allowed in office.local.yaml.
+    const [local] = errors(
+      resolveOfficeConfig({
+        office: "version: 16\n",
+        local: "version: 16\nnextUp: { autoStart: none }\n",
+      }),
+    );
+    expect(local?.file).toBe(".dipo/office.local.yaml");
   });
 
   it("gives every key a default: an empty file loads as the defaults", () => {
