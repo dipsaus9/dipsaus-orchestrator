@@ -1,10 +1,10 @@
 ---
 id: DIPO-497
 title: Ending a planning session lists the stories that stayed Refined
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-13 09:28'
-updated_date: '2026-11-13 12:38'
+updated_date: '2026-11-13 12:43'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -61,6 +61,10 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository, in a planning session confirm one story that passes and one that lacks a test plan, then type /end and answer y"
       expect: "The session ends and lists the second story as Refined with the reason and how to set it Ready; no Ready step opens"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "no part handed; turn cap (--max-turns) after 91 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -71,3 +75,16 @@ test_plan:
 - [ ] #3 story.ready still sets a Refined story Ready through readyStories
 - [ ] #4 ADR 0009's Planning line describes /end without the Ready step, with one Replaced line
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-13 12:43 UTC: budget-exceeded
+- Detail: no part handed; turn cap (--max-turns) after 91 turns
+- Run: run_01M7AENFG02Q9Q7CWQANPG0JER
+- Criteria met: 0 of 4 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 200,786 of 300,000 tokens; 91 of 90 turns; 5 of 45 minutes
+- Last good commit: e70969b10fc8ed5f22705f1e88565478bafb1c36
+<!-- SECTION:NOTES:END -->
