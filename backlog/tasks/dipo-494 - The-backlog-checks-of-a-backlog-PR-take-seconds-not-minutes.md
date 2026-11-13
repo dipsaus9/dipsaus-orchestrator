@@ -1,10 +1,10 @@
 ---
 id: DIPO-494
 title: 'The backlog checks of a backlog PR take seconds, not minutes'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 11:06'
+updated_date: '2026-11-13 11:08'
 labels:
   - 'tier:M'
 milestone: m-3
