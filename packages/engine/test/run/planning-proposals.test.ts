@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { PlanningView } from "@dipsaus-orchestrator/contract";
+import { PLANNING_PROPOSAL_CAPS, PlanningView } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { revisedDescription, storyDescription } from "../../src/backlog/lane";
@@ -96,6 +96,29 @@ describe("reading proposal blocks (DIPO-450)", () => {
     expect(problems[2]).toContain("an edit changes at least one field");
   });
 
+  it("takes an edit or split with only dependencies, and an empty list, and refuses too many", () => {
+    const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
+    const reads = readProposals(
+      blocksOf(
+        { kind: "edit", id: "TASK-2", dependencies: ["TASK-1"], why: "Order." },
+        { kind: "edit", id: "TASK-2", dependencies: [], why: "Clear." },
+        { kind: "split", id: "TASK-2", edit: { dependencies: ["TASK-1"] }, story, why: "Split." },
+        {
+          kind: "edit",
+          id: "TASK-2",
+          dependencies: Array.from(
+            { length: PLANNING_PROPOSAL_CAPS.dependencies + 1 },
+            (_, i) => `TASK-${i + 1}`,
+          ),
+          why: "Too many.",
+        },
+      ),
+    );
+    expect(reads.map((read) => read.ok)).toEqual([true, true, true, false]);
+    const problems = reads[3]?.ok === false ? reads[3].problems : [];
+    expect(problems[0]).toContain("dependencies");
+  });
+
   it("tells the session which blocks were refused and why", () => {
     const text = refusalMessage([
       ["tier: Invalid option"],
@@ -141,6 +164,15 @@ describe("a proposal as planning-lane targets (DIPO-450)", () => {
       title: "New title",
       criteria: ["Exactly this one"],
     });
+  });
+
+  it("carries an edit's dependencies, upper-cased, into the revise target", () => {
+    expect(
+      reviseTargetOf("run_1", 2, { dependencies: ["task-1", "TASK-1", "TASK-3"] }),
+    ).toMatchObject({
+      dependencies: ["TASK-1", "TASK-3"],
+    });
+    expect(reviseTargetOf("run_1", 2, { dependencies: [] })).toMatchObject({ dependencies: [] });
   });
 
   it("replaces the Story line or the context of a description and keeps the field block", () => {

@@ -22,7 +22,7 @@ The rituals of M3 (0003) are one kind of session, the **planning session**: the 
 Claude proposes in a structured block the engine validates; the maintainer confirms, edits or declines in the TUI; code files, through the planning lane (0010), on backlog PRs dipo opens itself.
 
 - **A new story** is filed `Refined` to the story standard (0012), with a proposed tier and one line of why.
-- **An edit** to an existing story (wording, criteria, references, a split, a resolved unknown) is applied as confirmed.
+- **An edit** to an existing story (wording, criteria, references, dependencies, a split, a resolved unknown) is applied as confirmed.
 - **Ready.** At the end the maintainer confirms which stories go `Ready`; dipo checks the gate (0012) and sets them Ready in a second backlog PR, never in the PR that filed them.
 - **An aside**, an idea that comes up but is not for now, goes to the audit (section 3). The session sends it as an aside block in its answer, a fenced `dipo-aside` block whose schema is in the contract; the engine validates it, holds a valid one as an idea, and refuses an invalid one with a notice that says why.
 

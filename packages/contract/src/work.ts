@@ -434,7 +434,7 @@ export type PlanningEndReason = z.infer<typeof PlanningEndReason>;
 // answer as a fenced block whose info string is `dipo-proposal`, holding one JSON object; the
 // engine validates it against `PlanningProposal` and refuses an invalid one with a message to
 // the session that lists its problems. `story` is a new story, filed Refined to the story standard
-// (0012); `edit` changes an existing task's title, Story line, context, criteria or references;
+// (0012); `edit` changes an existing task's title, Story line, context, criteria, references or dependencies;
 // `split` files a new story and edits the existing one; `refine` turns a draft into a Refined story
 // to the story standard, with its new id and a branch named for it, and `drop` archives a draft
 // (DIPO-454, triage). Every text is one line unless it is the
@@ -615,6 +615,13 @@ const editShape = {
   references: storyShape.references
     .optional()
     .describe("the whole list of references, replacing the old one"),
+  dependencies: z
+    .array(ProposalTaskId)
+    .max(proposalCaps.dependencies)
+    .optional()
+    .describe(
+      "the whole list of stories that must be Done first, replacing the old one; an empty list clears them",
+    ),
 };
 
 type EditShape = z.infer<z.ZodObject<typeof editShape>>;
