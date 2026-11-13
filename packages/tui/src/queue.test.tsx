@@ -619,6 +619,7 @@ describe("setting Refined stories Ready from the Queue (DIPO-482)", () => {
             result: {
               queued: ["DIPO-501", "DIPO-503"],
               refused: [{ story: "DIPO-502", messages: ["R09: no test plan"] }],
+              flush: { state: "opened", branch: "dipo/backlog-1", pr: PR },
             },
             cursor: { stream: STREAM, seq: 9 },
           }
@@ -629,33 +630,12 @@ describe("setting Refined stories Ready from the Queue (DIPO-482)", () => {
     expect(asked).toContain("Set DIPO-501, DIPO-502, DIPO-503 Ready?");
     expect(session.commands.filter((sent) => sent.name === "story.ready")).toEqual([]);
     await ui.press("y");
-    // The lane flushes after the answer: the backlog PR is in its progress, not in the result.
-    session.active(STREAM)?.options.onEvent({
-      cursor: { stream: STREAM, seq: 10 },
-      at: "2026-10-14T10:05:00.000Z",
-      type: "lane.progress",
-      data: {
-        lane: {
-          ops: [
-            {
-              op: 1,
-              what: "a story set Ready",
-              subject: "DIPO-501",
-              state: "queued",
-              since: "2026-10-14T10:05:00.000Z",
-            },
-          ],
-          pr: { number: 8, url: PR, ci: "running", autoMerge: true, merged: false },
-        },
-      },
-    } as Event);
-    await ui.waitFor("SET READY");
-    const shown = await ui.waitFor("waiting for the backlog PR #8");
+    const shown = await ui.waitFor("SET READY");
     expect(session.commands.find((sent) => sent.name === "story.ready")).toMatchObject({
       args: { stories: ["DIPO-501", "DIPO-502", "DIPO-503"] },
     });
-    expect(shown).toContain(`DIPO-501  waiting for the backlog PR #8`);
-    expect(shown).toContain(`DIPO-503  waiting for the backlog PR #8`);
+    expect(shown).toContain(`DIPO-501  waiting for the backlog PR ${PR}`);
+    expect(shown).toContain(`DIPO-503  waiting for the backlog PR ${PR}`);
     expect(shown).toContain("DIPO-502  refused: R09: no test plan");
     // The marks were used up.
     expect(shown).not.toMatch(/●[✓✗] DIPO/);

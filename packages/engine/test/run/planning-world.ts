@@ -8,7 +8,6 @@ import { dirname, join } from "node:path";
 
 import {
   type DeskItem,
-  type LaneFlush,
   OfficeId,
   type PlanningProposal,
   RequestId,
@@ -178,10 +177,6 @@ export interface PlanningWorld {
     readonly message: string;
     readonly fields: Readonly<Record<string, unknown>>;
   }[];
-  /** What each background flush of a confirm or Ready step answered, in order (DIPO-492). */
-  readonly flushes: (LaneFlush | null)[];
-  /** Waits until the background flushes started so far have ended (DIPO-492). */
-  flushed(): Promise<void>;
 }
 
 /** What a test may give the world instead of its defaults. */
@@ -238,8 +233,6 @@ export function planningWorld(
     answerText: (n: number) => `Answer ${n}.`,
     answerUsage: () => undefined,
     before: () => "",
-    flushes: [] as (LaneFlush | null)[],
-    flushed: () => w.sessions.flushed(officeId),
     ideas: [],
     infos: [],
   } as unknown as PlanningWorld;
@@ -344,23 +337,7 @@ export function planningWorld(
       },
     },
     desk: () => w.desk,
-    ...(options.lane === undefined
-      ? {}
-      : {
-          lane: (id) => {
-            const lane = options.lane?.(id);
-            if (lane === undefined) return undefined;
-            // Records what each background flush of a confirm answered (DIPO-492).
-            return {
-              ...lane,
-              flush: async (change) => {
-                const flush = await lane.flush(change);
-                w.flushes.push(flush);
-                return flush;
-              },
-            };
-          },
-        }),
+    ...(options.lane === undefined ? {} : { lane: options.lane }),
     ...(options.gate === undefined ? {} : { gate: options.gate }),
     onIdea: (id) => w.ideas.push(id),
     info: (message, fields) => w.infos.push({ message, fields }),
@@ -444,17 +421,3 @@ export const blocksOf = (...values: unknown[]): string =>
     ...values.map((value) => `\`\`\`dipo-proposal\n${JSON.stringify(value, null, 2)}\n\`\`\``),
     "Confirm, edit or decline each.",
   ].join("\n\n");
-
-/** The backlog branch the newest background flush that names one answered (DIPO-492); "" before any. */
-export function flushBranch(w: PlanningWorld): string {
-  for (const flush of w.flushes.toReversed()) {
-    if (flush !== null && "branch" in flush && flush.branch !== undefined) return flush.branch;
-  }
-  return "";
-}
-
-/** Proposal `n` of the open session's view (DIPO-492). */
-export function proposalView(w: PlanningWorld, n: number) {
-  const view = w.sessions.view(OfficeId.parse(w.office.officeId));
-  return view?.proposals?.find((proposal) => proposal.n === n);
-}

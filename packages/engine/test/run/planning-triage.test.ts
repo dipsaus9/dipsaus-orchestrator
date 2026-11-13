@@ -33,14 +33,7 @@ import { planningDrafts, planningFirstMessage } from "../../src/run/planning-ses
 import { DEFAULT_CONFIG } from "../gate/fixtures";
 import { BACKLOG_FIXTURE, inRemote, laneSetup, publish, subjects } from "../backlog/lane/helpers";
 import { draft, entriesAfter, keyOf, lastSeq, pass, task } from "../stories/helpers";
-import {
-  blocksOf,
-  commandContext,
-  flushBranch,
-  planningWorld,
-  proposalView,
-  until,
-} from "./planning-world";
+import { blocksOf, commandContext, planningWorld, until } from "./planning-world";
 
 const STORY_LINE =
   "As maintainer I want a story list exported as CSV so that I can sort it in a spreadsheet.";
@@ -181,9 +174,13 @@ describe("a triage session (DIPO-454)", () => {
         const draftKey = keyOf(s.office, "DRAFT-1") as StoryKey;
 
         // A confirmed refine: the draft becomes TASK-4, Refined to the standard, with its branch.
-        await w.sessions.confirm(ctx, { proposal: 1 });
-        await w.flushed();
-        expect(proposalView(w, 1)).toMatchObject({ state: "filed", stories: ["TASK-4"] });
+        const refined = await w.sessions.confirm(ctx, { proposal: 1 });
+        expect(refined.result).toMatchObject({
+          run,
+          proposal: 1,
+          state: "filed",
+          stories: ["TASK-4"],
+        });
         const worktree = lane.worktreePath();
         const text = fileOf(worktree, "TASK-4");
         expect(text).toContain("title: Export the story list as CSV");
@@ -216,9 +213,8 @@ describe("a triage session (DIPO-454)", () => {
         ).toEqual({ promoted_to: "TASK-4" });
 
         // A confirmed drop archives DRAFT-2.
-        await w.sessions.confirm(ctx, { proposal: 2 });
-        await w.flushed();
-        expect(proposalView(w, 2)?.state).toBe("filed");
+        const dropped = await w.sessions.confirm(ctx, { proposal: 2 });
+        expect(dropped.result.state).toBe("filed");
         expect(
           readdirSync(join(worktree, "backlog", "drafts")).filter((n) => n.startsWith("draft-2")),
         ).toEqual([]);
@@ -228,7 +224,7 @@ describe("a triage session (DIPO-454)", () => {
             .filter((entry) => entry.kind === "story")
             .map((entry) => [entry.proposal, entry.text, entry.subject]),
         ).toEqual([[1, "filed", "TASK-4"]]);
-        const branch = flushBranch(w);
+        const branch = refined.result.flush?.state === "pushed" ? refined.result.flush.branch : "";
         expect(await subjects(repo.remote, repo.home, branch, "main")).toEqual([
           "backlog: refine DRAFT-1",
           "backlog: drop DRAFT-2",
