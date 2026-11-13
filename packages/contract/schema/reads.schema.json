@@ -4765,6 +4765,65 @@
       },
       "required": ["office", "groups", "origins", "rework", "rejected", "dismissed", "lines"]
     },
+    "office.roles.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["office"]
+    },
+    "office.roles.result": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "instructions": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string"
+              }
+            },
+            "required": ["name", "purpose", "instructions"]
+          }
+        },
+        "invalid": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "problem": {
+                "type": "string"
+              }
+            },
+            "required": ["path", "problem"]
+          }
+        }
+      },
+      "required": ["office", "roles", "invalid"]
+    },
     "office.profile.args": {
       "type": "object",
       "properties": {

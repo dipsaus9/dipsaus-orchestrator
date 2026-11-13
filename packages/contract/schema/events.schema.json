@@ -8901,6 +8901,10 @@
         }
       },
       "required": ["lane"]
+    },
+    "roles.changed.data": {
+      "type": "object",
+      "properties": {}
     }
   }
 }

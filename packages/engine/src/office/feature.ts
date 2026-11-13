@@ -6,6 +6,7 @@ import {
   officeForget,
   officeOpen,
   officeReloadConfig,
+  officeRoles,
   officeSetPrivacy,
 } from "@dipsaus-orchestrator/contract";
 
@@ -32,6 +33,11 @@ export function officeFeature(manager: OfficeManager): FeatureModule {
       registry.addSoftwareCommand({
         definition: officeSetPrivacy,
         handle: (_ctx, args) => manager.setPrivacy(args.office, args.key, args.value),
+      });
+      // `office.roles` (DIPO-473): the roster the office holds, no git read.
+      registry.addRead({
+        definition: officeRoles,
+        handle: (_ctx, args) => manager.rolesView(args.office),
       });
     },
   };

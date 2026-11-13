@@ -1165,6 +1165,31 @@ export const officeRetro = defineRead({
   }),
 });
 
+// The roles of the office (DIPO-473, 0017): each role file on the base that loaded, and each that
+// did not, with its problem, both in path order. The engine reads the roster it holds and does no
+// git read of its own.
+export const RoleView = z.object({
+  name: z.string(),
+  purpose: z.string(),
+  instructions: z.string(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+});
+export type RoleView = z.infer<typeof RoleView>;
+
+export const InvalidRoleFile = z.object({ path: z.string(), problem: z.string() });
+export type InvalidRoleFile = z.infer<typeof InvalidRoleFile>;
+
+export const officeRoles = defineRead({
+  name: "office.roles",
+  args: OfficeArgs,
+  result: z.object({
+    office: OfficeId,
+    roles: z.array(RoleView),
+    invalid: z.array(InvalidRoleFile),
+  }),
+});
+
 // Events (office stream, 0005)
 
 // `detail` holds gate failure messages, for example a failed pickup re-check.
@@ -1295,6 +1320,15 @@ export const laneProgress = defineEvent({
   stream: "office",
   derived: false,
   data: z.object({ lane: LaneProgress }),
+});
+
+// The role files on the base changed (DIPO-473): one was added, changed or removed. A client that
+// shows the roles reads `office.roles` again.
+export const rolesChanged = defineEvent({
+  type: "roles.changed",
+  stream: "office",
+  derived: false,
+  data: z.object({}),
 });
 
 // A planning session continued in a fresh model session (DIPO-448): `run` is the fresh one,
@@ -1545,6 +1579,7 @@ export const officeReads = [
   officeDesk,
   officeIdeas,
   officeRetro,
+  officeRoles,
 ] as const;
 
 export const officeEvents = [
@@ -1577,4 +1612,5 @@ export const officeEvents = [
   planningContinued,
   planningEnded,
   laneProgress,
+  rolesChanged,
 ] as const;
