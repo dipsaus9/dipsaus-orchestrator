@@ -1,10 +1,10 @@
 ---
 id: DIPO-500
 title: 'Role files name their kind: code, design or docs'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 12:49'
-updated_date: '2026-11-13 15:07'
+updated_date: '2026-11-13 15:10'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -58,11 +58,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A role file with kind: design or kind: docs loads with that kind.
-- [ ] #2 A role file without a kind key loads as a code role.
-- [ ] #3 A role file with any other kind value is refused, and its problem names the file, the key and the values code, design and docs.
-- [ ] #4 The gate's roster marks a design or docs role as not code and a code role as code, and carries each role's kind.
-- [ ] #5 office.roles returns each role's kind.
-- [ ] #6 The Roles room shows each role's kind beside its model and effort.
-- [ ] #7 Decision 0017 describes the kind key and its three values, and 0001 Roles names the three kinds.
+- [x] #1 A role file with kind: design or kind: docs loads with that kind.
+- [x] #2 A role file without a kind key loads as a code role.
+- [x] #3 A role file with any other kind value is refused, and its problem names the file, the key and the values code, design and docs.
+- [x] #4 The gate's roster marks a design or docs role as not code and a code role as code, and carries each role's kind.
+- [x] #5 office.roles returns each role's kind.
+- [x] #6 The Roles room shows each role's kind beside its model and effort.
+- [x] #7 Decision 0017 describes the kind key and its three values, and 0001 Roles names the three kinds.
 <!-- AC:END -->
