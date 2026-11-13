@@ -1,10 +1,10 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 15:07'
+updated_date: '2026-11-13 15:14'
 labels:
   - 'tier:L'
 milestone: m-4
