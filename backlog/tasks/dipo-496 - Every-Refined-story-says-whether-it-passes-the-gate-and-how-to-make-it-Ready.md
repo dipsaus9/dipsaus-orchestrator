@@ -4,11 +4,12 @@ title: Every Refined story says whether it passes the gate and how to make it Re
 status: Refined
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 09:18'
+updated_date: '2026-11-13 09:30'
 labels:
   - 'tier:M'
 milestone: m-3
-dependencies: []
+dependencies:
+  - DIPO-497
 references:
   - packages/tui/src/queue.tsx
   - packages/tui/src/queue.test.tsx
@@ -40,6 +41,8 @@ What is missing, and what this story adds (reads only, no new status logic):
 3. The desk says it once. When N > 0 Refined stories have a passing decision for their current content, the desk shows one item `READY TO SET`: "N stories Refined but passing the gate: space and Y in the Queue (3)", with the stories' ids and the command `dipo ready <ID>...`. It goes when N is 0. The kind joins `KNOWN_DESK_KINDS` (packages/contract/src/office.ts:996-1016) after `NEXT UP`, and the engine's desk (packages/engine/src/overview/desk.ts) builds it from the story views; `dipo desk` prints it as any item.
 
 Replaces: the stale-pass read of `latestGate` for the Queue row. Nothing else is replaced; the item is new and has no older mechanism.
+
+Needs DIPO-497: both edit ADR 0009 section 3 and the planning end's "how to set it Ready later" line names the same step this story words, so this story follows it.
 
 Not a guard: it reads gate decisions and changes no rule, no deny rule and no permission (R30 does not apply). Who may set Ready is unchanged.
 

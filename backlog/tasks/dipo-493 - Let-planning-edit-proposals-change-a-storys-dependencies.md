@@ -4,7 +4,7 @@ title: A planning edit or split can set a story's dependencies
 status: Refined
 assignee: []
 created_date: '2026-11-12 13:49'
-updated_date: '2026-11-13 09:18'
+updated_date: '2026-11-13 09:29'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -40,7 +40,7 @@ The fix:
 - Lane: `ReviseTarget` gains `dependencies`; when the set differs from the task's, `revisionCalls` writes it in one `task edit` call with a `--dep` per id (`--dep ""` for an empty list; the Backlog CLI 1.53 replaces the whole list), and `differences`, the read-back check, covers it. The same set writes nothing.
 - Prompts: planning-box.md says an edit or split may set dependencies, as a whole list, and that the session never tells the maintainer to set dependencies by hand; the first message (packages/engine/src/prompts/task/planning.md) says the same where it lists what a session may propose.
 
-DIPO-478 (m-4, Refined) adds a role field to the same edit, in the same places (editShape, ReviseTarget, revisionCalls, the read-back check). The two do not overlap in fields: whichever builds second follows the first's shape for an optional edit field, its confirm check and its revision call.
+DIPO-478 (m-4, Ready on main) adds a role field to the same edit, in the same places (editShape, ReviseTarget, revisionCalls, the read-back check). The two do not overlap in fields: whichever builds second follows the first's shape for an optional edit field, its confirm check and its revision call.
 
 The draft's evidence lines: packages/contract/src/work.ts:606 "const editShape = {"; packages/engine/src/story-store/planning.ts:124 "export const ReviseTarget = z"; packages/engine/src/story-store/planning.ts:132 "references: z.array(z.string().min(1)).min(1).optional(),"; packages/engine/src/backlog/lane/stories.ts:204 "...target.dependencies.flatMap((dep) => [\"--dep\", dep]),". Origin: a planning session's aside; dipo idea: c722e358bfb50f49b6322fe3b4492edfd6e8f073a46559911a115028e95bb96e.
 
