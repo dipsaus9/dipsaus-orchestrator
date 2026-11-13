@@ -200,7 +200,7 @@ describe("the palette in the TUI", () => {
     await ui.press("y");
     await ui.waitFor("stop note for");
     await ui.press("not needed now");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     const limit = performance.now() + 2_000;
     while (!session.commands.some((command) => command.name === "story.park")) {
       if (performance.now() > limit) throw new Error("no story.park was sent");

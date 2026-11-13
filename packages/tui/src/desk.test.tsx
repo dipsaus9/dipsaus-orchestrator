@@ -607,7 +607,7 @@ describe("the key table on desk items", () => {
     await ui.press("i");
     await ui.waitFor("idea (its first words are its title)");
     await ui.press("Show the spend per tier");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "idea.add");
     expect(sent(session)).toEqual([
       { name: "idea.add", args: { text: "Show the spend per tier" } },
@@ -621,7 +621,7 @@ describe("the key table on desk items", () => {
     await ui.press("r");
     await Bun.sleep(50);
     expect(session.commands).toEqual([]);
-    expect(ui.frame()).not.toContain("ctrl-s send");
+    expect(ui.frame()).not.toContain("⏎ send");
   });
 
   it("shows the office's starts paused first, what lifts it and the command line of the lift (0020)", async () => {
@@ -665,10 +665,10 @@ describe("the key table on desk items", () => {
     await until(() => session.commands.length === 1, "gate.approve");
     await selectRow(ui, "DIPO-26");
     await ui.press("r");
-    await ui.waitFor("ctrl-s send");
+    await ui.waitFor("⏎ send");
     expect(boxText(ui.frame())).toContain("answer");
     await ui.press("allow");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 2, "the answer");
     // An answer that reads "allow" is text, never a decision (0020).
     expect(sent(session)).toEqual([
@@ -688,11 +688,11 @@ describe("the key table on desk items", () => {
 });
 
 describe("prompts", () => {
-  it("answers a question in the Composer under it: Enter adds a line, ctrl-s sends, Esc cancels", async () => {
+  it("answers a question in the Composer under it: Enter sends, Option+Enter adds a line, Ctrl-S does nothing, Esc cancels", async () => {
     const { ui, session } = await openDesk();
     await ui.press("a");
-    await ui.waitFor("ctrl-s send");
-    expect(lines(ui.frame()).at(-1)).toContain("⏎ new line   ctrl-s send   esc cancel");
+    await ui.waitFor("⏎ send");
+    expect(lines(ui.frame()).at(-1)).toContain("⏎ send   ⌥⏎ new line   esc cancel");
     // The Composer is in the preview, under the question.
     const preview = previewSide(ui.frame());
     expect(preview.findIndex((line) => line.startsWith("┌"))).toBeGreaterThan(
@@ -701,17 +701,22 @@ describe("prompts", () => {
     await ui.press("escape");
     await ui.waitFor("answer DIPO-19: nothing sent");
     await ui.press("a");
-    await ui.waitFor("ctrl-s send");
-    // A paste goes in whole; Enter adds a line.
+    await ui.waitFor("⏎ send");
+    // A paste goes in whole; Option+Enter and a trailing backslash add a line; Ctrl-S sends nothing.
     await ui.press("Yes, a 404 is fine");
+    await ui.press("\u001b\r");
+    await ui.press("for now\\");
     await ui.press("enter");
-    await ui.press("for now");
-    await ui.waitFor("for now▍");
-    expect(boxText(ui.frame())).toContain("answer\nYes, a 404 is fine\nfor now▍");
+    await ui.press("ok");
+    await ui.waitFor("ok▍");
+    expect(boxText(ui.frame())).toContain("answer\nYes, a 404 is fine\nfor now\nok▍");
     await ui.press("ctrl-s");
+    await Bun.sleep(50);
+    expect(session.commands).toHaveLength(0);
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "work.answer");
     expect(sent(session)).toEqual([
-      { name: "work.answer", args: { question: Q19, text: "Yes, a 404 is fine\nfor now" } },
+      { name: "work.answer", args: { question: Q19, text: "Yes, a 404 is fine\nfor now\nok" } },
     ]);
   });
 
@@ -721,13 +726,13 @@ describe("prompts", () => {
     await ui.press("later");
     session.setState("reconnecting");
     await ui.waitFor("offline since");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await ui.waitFor("offline: the prompt is kept");
     expect(ui.frame()).toContain("later▍");
     expect(session.commands).toEqual([]);
     session.setState("open");
     await until(() => !ui.frame().includes("offline since"), "back online");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "work.answer");
     expect(sent(session)).toEqual([
       { name: "work.answer", args: { question: Q19, text: "later" } },
@@ -745,7 +750,7 @@ describe("prompts", () => {
     await ui.press("y");
     await ui.waitFor("reject note");
     await ui.press("Handle the empty office");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "gate.reject");
     expect(session.commands[0]).toMatchObject({
       name: "gate.reject",
@@ -761,15 +766,15 @@ describe("prompts", () => {
     await ui.press("y");
     await ui.waitFor("approve note");
     await ui.press("Ship it");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "gate.approve");
     await ui.press("r");
     await ui.waitFor("direction");
     // A required note: an empty one is not sent.
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await ui.waitFor("the direction is empty");
     await ui.press("Try the other parser");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 2, "work.resume");
     expect(sent(session)).toEqual([
       { name: "gate.approve", args: { gate: GATE_24, note: "Ship it" } },
@@ -788,13 +793,13 @@ describe("prompts", () => {
     const { ui, session } = await openDesk({ desk: [failed] });
     await ui.press("r");
     await ui.waitFor("bun run verify → 2 shards failed▍");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "work.resume");
     await ui.press("s");
-    await ui.waitFor("ctrl-s send");
+    await ui.waitFor("⏎ send");
     expect(ui.frame()).not.toContain("2 shards failed▍");
     await ui.press("Skip the flaky shard");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 2, "the resume with a hint");
     expect(sent(session)).toEqual([
       { name: "work.resume", args: { story: "DIPO-29", note: "bun run verify → 2 shards failed" } },
@@ -816,7 +821,7 @@ describe("prompts", () => {
     await ui.press("r");
     await ui.waitFor("direction");
     await ui.press("It runs already");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     const frame = await ui.waitFor("resume DIPO-24: already so; nothing changed");
     expect(frame).not.toContain("resume DIPO-24: done");
   });
@@ -862,18 +867,32 @@ describe("prompts", () => {
     await ui.waitFor("⟦ +100% ⟧");
     await ui.press("tab");
     await ui.press("More room");
-    await ui.press("ctrl-s");
-    // The first ctrl-s asks the engine for the caps; seeing them is the confirmation.
+    await ui.press("enter");
+    // The first Enter asks the engine for the caps; seeing them is the confirmation.
     const frame = await ui.waitFor("2.0M → 4.0M tokens · 400 → 800 turns");
-    expect(lines(frame).at(-1)).toContain("ctrl-s resume");
+    expect(lines(frame).at(-1)).toContain("⏎ resume");
     expect(session.commands).toHaveLength(1);
-    await ui.press("ctrl-s");
-    await until(() => session.commands.length === 2, "the confirmed resume");
+    // A changed share asks for its caps again: Enter sends unconfirmed once more.
+    await ui.press("tab");
+    await ui.press("left");
+    await ui.waitFor("⟦ +50% ⟧");
+    await ui.press("enter");
+    await until(() => session.commands.length === 2, "the caps of the other share");
+    expect(session.commands[1]?.options).toMatchObject({ confirmed: false });
+    await ui.press("right");
+    await ui.waitFor("⟦ +100% ⟧");
+    await ui.press("enter");
+    await until(() => session.commands.length === 3, "the caps of the first share again");
+    expect(session.commands[2]?.options).toMatchObject({ confirmed: false });
+    await ui.press("enter");
+    await until(() => session.commands.length === 4, "the confirmed resume");
     expect(session.commands.map((command) => command.options)).toMatchObject([
+      { confirmed: false },
+      { confirmed: false },
       { confirmed: false },
       { confirmed: true },
     ]);
-    expect(session.commands[1]?.args).toEqual({
+    expect(session.commands[3]?.args).toEqual({
       story: "DIPO-22",
       note: "More room",
       budget: { share: 100 },
@@ -890,7 +909,7 @@ describe("prompts", () => {
     await ui.press("D");
     await ui.waitFor("Discard DIPO-22?");
     await ui.press("Wrong approach");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     const frame = await ui.waitFor("to confirm");
     const box = boxText(frame);
     expect(box).toContain("✗ Discard DIPO-22?");
@@ -924,7 +943,7 @@ describe("the queue and the detail use the same table", () => {
     await ui.press("p");
     await ui.waitFor("park note for DIPO-30");
     await ui.press("after M2");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "story.park");
     expect(sent(session)).toEqual([
       { name: "story.park", args: { story: "DIPO-30", note: "after M2" } },
@@ -1000,14 +1019,14 @@ describe("the queue and the detail use the same table", () => {
     await ui.press("s");
     await ui.waitFor("steer DIPO-21 · arrives at its next turn");
     await ui.press("Keep the old flag");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "work.steer");
     await ui.waitFor("Keep the old flag · delivered next turn");
     expect(ui.frame()).not.toContain("steer DIPO-21");
     await ui.press("p");
     await ui.waitFor("park note for DIPO-21");
     await ui.press("after the release");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 2, "story.park");
     expect(sent(session)).toEqual([
       { name: "work.steer", args: { story: "DIPO-21", text: "Keep the old flag" } },
@@ -1032,14 +1051,14 @@ describe("answers, pending rows, closed prompts, read-your-writes and retry", ()
     // Outside the Desk the Composer sits under the body, with what it answers above it.
     await ui.waitFor('answer DIPO-19: "Is a 404 ok?"');
     await ui.press("yes");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 1, "the overview answer");
     await ui.press("enter");
     await ui.waitFor("following");
     await ui.press("a");
-    await ui.waitFor("ctrl-s send");
+    await ui.waitFor("⏎ send");
     await ui.press("still yes");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await until(() => session.commands.length === 2, "the detail answer");
     expect(sent(session)).toEqual([
       { name: "work.answer", args: { question: Q19, text: "yes" } },
@@ -1062,7 +1081,7 @@ describe("answers, pending rows, closed prompts, read-your-writes and retry", ()
         : undefined;
     await ui.press("a");
     await ui.press("yes");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     const frame = await ui.waitFor(
       "answer DIPO-19: question.closed: This question is no longer waiting.",
     );

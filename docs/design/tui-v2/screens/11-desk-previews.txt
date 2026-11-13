@@ -11,7 +11,7 @@ session showed, or let Backlog assign it?”
 [acc]│[/] [hi]Keep the session's order. Only new drafts[/]                   [acc]│[/]
 [acc]│[/] [hi]get a fresh ordinal.[acc]▍[/][/]                                       [acc]│[/]
 [acc]└─────────────────────────────────────────────────────────────┘[/]
-[dim][acc]⏎[/] new line   [acc]ctrl-s[/] send   [acc]esc[/] cancel[/]
+[dim][acc]⏎[/] send   [acc]⌥⏎[/] new line   [acc]esc[/] cancel[/]
 
 [dim]The worker gets it on resume, and the run continues.[/]
 [dim]$ dipo answer q_7f2c "…"[/]
@@ -26,7 +26,7 @@ session showed, or let Backlog assign it?”
 [acc]│[/] [dim]caps    [/]2.0M → [hi]3.0M[/] tokens · 400 → [hi]600[/] turns                [acc]│[/]
 [acc]│[/] [dim]note    [/][hi]Only the two reattach shards.[/][acc]▍[/]                      [acc]│[/]
 [acc]└─────────────────────────────────────────────────────────────┘[/]
-[dim][acc]ctrl-s[/] resume   [acc]tab[/] field   [acc]esc[/] cancel[/]
+[dim][acc]⏎[/] resume   [acc]tab[/] field   [acc]esc[/] cancel[/]
 
 [dim]A fresh session starts with a handoff. The box and branch are[/]
 [dim]kept.[/]

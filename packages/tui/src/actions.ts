@@ -2,7 +2,7 @@
 // DIPO-308). Each key of the table in `keys.ts` starts a flow: the prompts it needs, then one
 // command with `origin: "tui"` and a fresh request id.
 //
-// - Text prompts are the Composer (DIPO-459): Enter adds a line, Ctrl-S sends, Esc cancels. The
+// - Text prompts are the Composer (DIPO-459): Enter sends, Option+Enter (or a trailing backslash, or kitty's Shift+Enter) adds a line, Esc cancels. The
 //   answer, the park, reject and discard notes, the steer text and the resume note: required where
 //   the engine's command line names `--note`, else optional and prefilled with the park's detail
 //   (the failing check, the conflicted paths). A text prompt keeps its draft while offline and sends
@@ -15,9 +15,9 @@
 //   or no, and ticking it asks for the typed id.
 // - A resume with a budget (the engine's line names `--budget`, which `work.resume` declares in
 //   `confirmWhen`) is the top-up prompt: +25%, +50% or +100% (←→, the choices of `dipo resume
-//   --budget`) and its note (Tab). Its first Ctrl-S sends it unconfirmed, and the engine answers with
+//   --budget`) and its note (Tab). Its first Enter sends it unconfirmed, and the engine answers with
 //   the caps before and after, which the prompt shows; seeing them is the confirmation, so the next
-//   Ctrl-S sends it confirmed (spec.md, PARKED). A change of the top-up asks for its caps again.
+//   Enter sends it confirmed (spec.md, PARKED). A change of the top-up asks for its caps again.
 // - Every other action is one key.
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes), when
@@ -565,7 +565,7 @@ export function useActions(deps: ActionDeps) {
           share
         ) {
           // `confirmWhen`: the engine named the caps before and after; the top-up prompt shows
-          // them, and its next Ctrl-S sends it confirmed.
+          // them, and its next Enter sends it confirmed.
           setAction(null);
           setFlow({
             ...sent,
@@ -666,7 +666,7 @@ export function useActions(deps: ActionDeps) {
   };
 
   /**
-   * Ctrl-S on the top-up prompt: the resume unconfirmed, for the caps of the chosen share; once they
+   * Enter on the top-up prompt: the resume unconfirmed, for the caps of the chosen share; once they
    * show, the resume confirmed.
    */
   const sendTopUp = (open: Flow, required: boolean) => {
@@ -710,7 +710,7 @@ export function useActions(deps: ActionDeps) {
     }
     switch (step.kind) {
       case "text": {
-        // The Composer: Enter adds a line, Ctrl-S sends, Esc cancels.
+        // The Composer: Enter sends, Option+Enter adds a line, Esc cancels.
         const event = composerKey(flow.draft, input, pressed);
         if (event.kind === "cancel") {
           cancel(flow);
@@ -782,22 +782,22 @@ export function useActions(deps: ActionDeps) {
     }
   };
 
-  /** A key on the top-up prompt: ←→ the share, Tab the field, the note's Composer, Ctrl-S. */
+  /** A key on the top-up prompt: ←→ the share, Tab the field, the note's Composer, Enter. */
   const topUpKey = (open: Flow, required: boolean, input: string, pressed: Key): boolean => {
     if (pressed.escape) {
       cancel(open);
       return true;
     }
     if (open.reading) return true;
-    if (pressed.ctrl && input === "s") {
-      sendTopUp(open, required);
-      return true;
-    }
     if (pressed.tab) {
       setFlow({ ...open, field: open.field === "choice" ? "note" : "choice" });
       return true;
     }
     if (open.field === "choice") {
+      if (pressed.return) {
+        sendTopUp(open, required);
+        return true;
+      }
       if (!pressed.leftArrow && !pressed.rightArrow) return true;
       const share = shareChosen(open);
       const at = Math.max(0, TOP_UPS.indexOf(share));
@@ -806,8 +806,9 @@ export function useActions(deps: ActionDeps) {
       setFlow({ ...open, values: { ...open.values, budget: { share: next ?? share } } });
       return true;
     }
-    const draft = editDraft(open.draft, input, pressed);
-    if (draft !== null) setFlow({ ...open, draft });
+    const event = composerKey(open.draft, input, pressed);
+    if (event.kind === "send") sendTopUp(open, required);
+    else if (event.kind === "edit") setFlow({ ...open, draft: event.draft });
     return true;
   };
 
@@ -858,10 +859,10 @@ export function useActions(deps: ActionDeps) {
     if (step === undefined || flow.reading) return [escCancel];
     switch (step.kind) {
       case "text":
-        return [promptHint("⏎", "new line"), promptHint("ctrl-s", "send"), escCancel];
+        return [promptHint("⏎", "send"), promptHint("⌥⏎", "new line"), escCancel];
       case "topup":
         return [
-          promptHint("ctrl-s", flow.caps?.share === shareChosen(flow) ? "resume" : "show the caps"),
+          promptHint("⏎", flow.caps?.share === shareChosen(flow) ? "resume" : "show the caps"),
           promptHint("←→", "top-up"),
           promptHint("tab", "field"),
           escCancel,

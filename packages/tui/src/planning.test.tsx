@@ -162,7 +162,7 @@ describe("the planning view", () => {
     expect(message?.args).toEqual({ text: "Why two?\nAnd the order?" });
     // The message shows once the engine's view lists it, never as a line of the TUI's own.
     await Bun.sleep(50);
-    expect(ui.frame()).not.toContain("you> ");
+    expect(ui.frame()).not.toContain("> Why two?");
     stream?.options.onEvent(
       officeEvent(11, "planning.updated", {
         run: RUN,
@@ -173,8 +173,8 @@ describe("the planning view", () => {
         }),
       }),
     );
-    const asked = await ui.waitFor("you> And the order?");
-    expect(asked).toContain("you> Why two?");
+    const asked = await ui.waitFor("> And the order?");
+    expect(asked).toContain("> Why two?");
 
     // Ending asks first; Ctrl-E does nothing, /end then Enter asks.
     await ui.press("ctrl-e");
@@ -437,11 +437,13 @@ describe("the planning view", () => {
     expect(frame).toContain("▌ 1. No (recommended)");
     expect(frame).toContain("     Only active stories.");
     expect(frame).toContain("3. Something else: write your own answer");
-    expect(frame).toContain("ctrl-s send (when all answered)");
+    expect(frame).toContain("esc write a message instead");
+    expect(frame).not.toContain("ctrl-");
 
-    // Sending before every question has an answer sends nothing.
+    // Ctrl-S and Ctrl-N do nothing in the dialog.
     await ui.press("ctrl-s");
-    await ui.waitFor("answer every question first");
+    await ui.press("ctrl-n");
+    await Bun.sleep(50);
     expect(session.commands.some((c) => c.name === "planning.answer")).toBe(false);
 
     // Enter takes the recommended option; the next question takes a free answer.
@@ -454,21 +456,31 @@ describe("the planning view", () => {
     expect(typing).toContain("esc back to the options");
     await ui.press("A tab.");
     await ui.press("enter");
-    const done = await ui.waitFor("Scope: No ✓");
+    // The last answer moves to the Submit row, which lists both answers.
+    const done = await ui.waitFor("Submit");
+    expect(done).toContain("Scope: No ✓");
     expect(done).toContain("Format: free: A tab. ✓");
-    expect(done).toContain("ctrl-s send the answers");
+    expect(done).toContain("⏎ send the answers");
+    // Left goes back; a changed answer shows on Submit.
+    await ui.press("left");
+    await ui.waitFor("question 2 of 2");
+    await ui.press("up");
+    await ui.press("enter");
+    const changed = await ui.waitFor("Submit");
+    expect(changed).toContain("Format: Semicolon ✓");
+    expect(changed).not.toContain("free: A tab.");
 
     session.commandReply = (name) =>
       name === "planning.answer"
         ? { ok: true, result: { run: RUN, block: 1, delivered: "next-turn" }, changed: true }
         : undefined;
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.answer"); i++) {
       await Bun.sleep(5);
     }
     const sent = session.commands.filter((c) => c.name === "planning.answer");
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.args).toEqual({ block: 1, answers: [{ option: 0 }, { free: "A tab." }] });
+    expect(sent[0]?.args).toEqual({ block: 1, answers: [{ option: 0 }, { option: 1 }] });
     expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
   });
 
@@ -928,11 +940,11 @@ describe("one conversation per planning session (DIPO-490)", () => {
     expect(frame).not.toContain("no open planning session");
     const order = [
       "First idea: split it.",
-      "you> Why two stories?",
+      "> Why two stories?",
       "It is two stories.",
       "continued in a fresh model session at",
       "(context-full)",
-      "you> Go on with the second.",
+      "> Go on with the second.",
       "Picking up: the second story.",
     ].map((text) => frame.indexOf(text));
     expect(order.every((at) => at >= 0)).toBe(true);
@@ -950,8 +962,8 @@ describe("one conversation per planning session (DIPO-490)", () => {
     await ui.press("5");
     const frame = await ui.waitFor("Picking up: the second story.");
     expect(frame).toContain("First idea: split it.");
-    expect(frame).toContain("you> Why two stories?");
-    expect(frame).toContain("you> Go on with the second.");
+    expect(frame).toContain("> Why two stories?");
+    expect(frame).toContain("> Go on with the second.");
     expect(frame).toContain("continued in a fresh model session at");
 
     // Another planning session in the office starts an empty transcript.
@@ -974,6 +986,6 @@ describe("one conversation per planning session (DIPO-490)", () => {
     );
     const fresh = await ui.waitFor("A new session's first answer.");
     expect(fresh).not.toContain("First idea: split it.");
-    expect(fresh).not.toContain("you> ");
+    expect(fresh).not.toContain("> Why two");
   });
 });

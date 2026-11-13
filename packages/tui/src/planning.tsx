@@ -447,7 +447,7 @@ function useCards(args: PlanningArgs, input: CardInput, dialogOpen: () => boolea
 
 /**
  * The dialog of the oldest unanswered question block (DIPO-455): its state is the maintainer's
- * choices so far, kept until the block is answered or left with Ctrl-N. Its keys come before the
+ * choices so far, kept until the block is answered or left with Esc. Its keys come before the
  * input's; a key the dialog does not own goes on to the rest of the view.
  */
 function useQuestions(
@@ -662,7 +662,7 @@ export function usePlanning(args: PlanningArgs): Planning {
       else setRail((open) => !open);
       return;
     }
-    const event = composerKey(draft, input, key, true);
+    const event = composerKey(draft, input, key);
     if (event.kind === "cancel") {
       // The session keeps running.
       args.setMessage(null);

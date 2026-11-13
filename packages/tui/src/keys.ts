@@ -388,9 +388,9 @@ export interface FooterContext {
     readonly cards: boolean;
     /**
      * The question dialog is open (DIPO-455): whether a free answer is being typed and whether
-     * every question has an answer; null without a dialog.
+     * the Submit row is shown; null without a dialog.
      */
-    readonly dialog: { readonly typing: boolean; readonly complete: boolean } | null;
+    readonly dialog: { readonly typing: boolean; readonly submit: boolean } | null;
   };
 }
 
@@ -646,19 +646,10 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 85,
   },
   {
-    id: "dialogSend",
-    key: "ctrl-s",
-    label: "send the answers",
-    text: (ctx) =>
-      ctx.planning.dialog?.complete === true ? "send the answers" : "send (when all answered)",
-    views: ["planning"],
-    when: choosing,
-    priority: NEVER,
-  },
-  {
     id: "dialogPick",
     key: "⏎",
     label: "pick",
+    text: (ctx) => (ctx.planning.dialog?.submit === true ? "send the answers" : "pick"),
     views: ["planning"],
     when: choosing,
     priority: 90,
@@ -681,7 +672,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   },
   {
     id: "dialogLeave",
-    key: "ctrl-n",
+    key: "esc",
     label: "write a message instead",
     views: ["planning"],
     when: choosing,

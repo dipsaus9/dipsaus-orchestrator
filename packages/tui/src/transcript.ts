@@ -152,11 +152,18 @@ export function foldCount(transcript: Transcript): number {
   return count;
 }
 
-/** The rows of a message the maintainer sent: `you>` and the text, wrapped. */
+/**
+ * The rows of a message the maintainer sent, as its own block (DIPO-491): a blank row before and
+ * after, and each line behind a `>` prefix on the shade background. The blank rows and the prefix
+ * mark it under NO_COLOR too.
+ */
 function youRows(text: string, width: number): Span[][] {
-  return splitLines(text).flatMap((line) =>
-    wrapSpans([{ text: line }], width, { prefix: [{ text: "you> ", role: "ok" }] }),
-  );
+  const lines = splitLines(text)
+    .flatMap((line) =>
+      wrapSpans([{ text: line }], width, { prefix: [{ text: "> ", role: "acc" }] }),
+    )
+    .map((spans) => spans.map((span) => ({ ...span, shade: true })));
+  return [[], ...lines, []];
 }
 
 /** The conversation `transcript` as rows `width` cells wide, with its folds numbered from 0. */
@@ -178,8 +185,38 @@ export function transcriptRows(
       );
       continue;
     }
-    fold = modelRows(part.text, width, options, rows, fold);
+    const answer: TranscriptRow[] = [];
+    fold = modelRows(part.text, Math.max(10, width - 2), options, answer, fold);
+    rows.push(...underMarker(answer, options));
   }
+  return rows;
+}
+
+/**
+ * An answer's rows under its marker (DIPO-491): `●` starts the first line, and the rest, the fold
+ * lines included, sit indented under it. An answer that opens with a fold gets the marker on a row
+ * of its own. The focus bar of a fold takes the place of its indent.
+ */
+function underMarker(
+  answer: readonly TranscriptRow[],
+  options: TranscriptOptions,
+): TranscriptRow[] {
+  const [first] = answer;
+  if (first === undefined) return [];
+  const marker: Span = { text: `${options.bullet} `, role: "acc" };
+  const rows: TranscriptRow[] = [];
+  if (first.fold !== undefined) rows.push({ spans: [{ text: options.bullet, role: "acc" }] });
+  answer.forEach((row, i) => {
+    const [head] = row.spans;
+    const bar = head?.text.startsWith(`${options.bar} `) === true && head.role === "acc";
+    const lead: Span[] =
+      i === 0 && first.fold === undefined
+        ? [marker]
+        : bar || head === undefined
+          ? []
+          : [{ text: "  " }];
+    rows.push({ ...row, spans: [...lead, ...row.spans] });
+  });
   return rows;
 }
 
@@ -212,11 +249,7 @@ function modelRows(
         const [first, ...rest] = spans;
         const marked =
           i === 0 && options.focus === fold && first !== undefined
-            ? [
-                { text: `${options.bar} `, role: "acc" as const },
-                { ...first, text: first.text.slice(2) },
-                ...rest,
-              ]
+            ? [{ text: `${options.bar} `, role: "acc" as const }, first, ...rest]
             : spans;
         rows.push({ spans: marked, fold });
       });

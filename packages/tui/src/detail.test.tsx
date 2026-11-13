@@ -325,7 +325,7 @@ describe("live agent detail", () => {
     await ui.waitFor("park note for DIPO-24");
     expect(session.commands).toEqual([]);
     await ui.press("after the release");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await ui.waitFor("park DIPO-24: ");
     expect(session.commands.map((command) => [command.name, command.args])).toEqual([
       ["story.park", { story: "DIPO-24", note: "after the release" }],
@@ -356,7 +356,7 @@ describe("live agent detail", () => {
         : undefined;
     await ui.press("p");
     await ui.press("later");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await ui.waitFor("park DIPO-24: story.notParkable: DIPO-24 is Done");
   });
 
@@ -806,10 +806,10 @@ describe("steering from the stream (DIPO-461)", () => {
     // The draft took the keys: the filter did not change, nothing quit and nothing was sent.
     expect(frame).toContain("│  all   worker");
     expect(frame).not.toContain("press q again");
-    expect(frame).toContain("ctrl-s send");
+    expect(frame).toContain("⏎ send");
     await ui.press("escape");
     await Bun.sleep(50);
-    expect(ui.frame()).not.toContain("ctrl-s send");
+    expect(ui.frame()).not.toContain("⏎ send");
     expect(session.commands.filter((command) => command.name === "work.steer")).toEqual([]);
   });
 
@@ -822,9 +822,9 @@ describe("steering from the stream (DIPO-461)", () => {
     };
     session.commandReply = (name) => (name === "work.steer" ? reply : undefined);
     await ui.press("s");
-    await ui.waitFor("ctrl-s send");
+    await ui.waitFor("⏎ send");
     await ui.press("Keep the old flag");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     const frame = await ui.waitFor("Keep the old flag · delivered on resume");
     expect(frame).toMatch(/\d\d:\d\d {2}you {4}Keep the old flag/);
     expect(
@@ -838,9 +838,9 @@ describe("steering from the stream (DIPO-461)", () => {
       error: { code: "story.notSteerable", message: "the reviewer is working", retryable: false },
     };
     await ui.press("s");
-    await ui.waitFor("ctrl-s send");
+    await ui.waitFor("⏎ send");
     await ui.press("Again");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     await ui.waitFor("not sent: story.notSteerable: the reviewer is working");
     // The earlier line stays above the new one.
     expect(ui.frame()).toContain("delivered on resume");
