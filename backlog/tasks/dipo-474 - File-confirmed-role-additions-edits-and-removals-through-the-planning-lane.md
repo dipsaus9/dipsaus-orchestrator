@@ -1,10 +1,10 @@
 ---
 id: DIPO-474
 title: 'File confirmed role additions, edits and removals through the planning lane'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 12:32'
+updated_date: '2026-11-13 12:39'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -114,11 +114,11 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-11-13 12:28 UTC
+Closed 2026-11-13 12:39 UTC
 - Criteria met: 10 of 10 (as the worker reported them)
 - Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
-- Review rounds: 1, failed 0
-- Budget used: 206,699 of 800,000 tokens
+- Review rounds: 2, failed 0
+- Budget used: 241,200 of 800,000 tokens
 - Runs: 1; resumes: 0
 - Parks: none
 - Grants: none
