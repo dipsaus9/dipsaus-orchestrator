@@ -278,9 +278,13 @@ function messageOf(entry: Pick<JournalEntry, "kind" | "subject">): string {
   return `backlog: ${entry.kind} ${entry.subject}`;
 }
 
-/** True when `path` lies under `backlog/` or is one of `extra`. */
-function inLane(path: string, extra: readonly string[]): boolean {
-  return path.startsWith("backlog/") || extra.includes(path);
+/** True when `path` lies under `backlog/`, is one of `extra` or lies under one of `dirs`. */
+function inLane(path: string, extra: readonly string[], dirs: readonly string[]): boolean {
+  return (
+    path.startsWith("backlog/") ||
+    extra.includes(path) ||
+    dirs.some((dir) => path.startsWith(dir) && !path.slice(dir.length).split("/").includes(".."))
+  );
 }
 
 export class OfficeLane {
@@ -795,7 +799,7 @@ export class OfficeLane {
         }
         continue;
       }
-      const outside = paths.filter((path) => !inLane(path, kind.paths ?? []));
+      const outside = paths.filter((path) => !inLane(path, kind.paths ?? [], kind.dirs ?? []));
       if (outside.length > 0) {
         await this.#discard(git, location);
         this.#drop(entry, `it changed paths outside backlog/: ${outside.join(", ")}`);

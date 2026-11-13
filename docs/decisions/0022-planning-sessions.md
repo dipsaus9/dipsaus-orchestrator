@@ -23,6 +23,7 @@ Claude proposes in a structured block the engine validates; the maintainer confi
 
 - **A new story** is filed `Refined` to the story standard (0012), with a proposed tier and one line of why.
 - **An edit** to an existing story (wording, criteria, references, dependencies, a split, a resolved unknown) is applied as confirmed.
+- **A role** is added, edited or removed through a `role`, `role-edit` or `role-remove` proposal (0017): the name, purpose, optional model and effort and instructions of the role file `.dipo/roles/<name>.md`, and one line of why. The engine refuses a block whose name is invalid, reserved or already a file, whose role has no file on the base, whose resulting file does not load, or, for a removal, while a story that is not Done has the role's label. A confirmed change reaches the lane as `role-add`, `role-edit` or `role-remove` (0010); an edit rewrites only the fields it names. The record and the session's next message say which role was added, edited or removed.
 - **Ready.** At the end the maintainer confirms which stories go `Ready`; dipo checks the gate (0012) and sets them Ready in a second backlog PR, never in the PR that filed them.
 - **An aside**, an idea that comes up but is not for now, goes to the audit (section 3). The session sends it as an aside block in its answer, a fenced `dipo-aside` block whose schema is in the contract; the engine validates it, holds a valid one as an idea, and refuses an invalid one with a notice that says why.
 

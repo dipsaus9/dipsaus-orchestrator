@@ -52,6 +52,10 @@ export const FILE_KIND = "file";
 export const REVISE_KIND = "revise";
 /** A draft a triage session refined into a Refined story with a new id (DIPO-454). */
 export const REFINE_KIND = "refine";
+/** A role file a planning session's confirmed proposal adds, edits or removes (DIPO-474). */
+export const ROLE_ADD_KIND = "role-add";
+export const ROLE_EDIT_KIND = "role-edit";
+export const ROLE_REMOVE_KIND = "role-remove";
 /** Sets a Refined story Ready after its Ready gate decision passed (DIPO-451). */
 export const READY_KIND = "ready";
 /**
@@ -136,6 +140,45 @@ export const ReviseTarget = z
   .strict();
 export type ReviseTarget = z.infer<typeof ReviseTarget>;
 
+/**
+ * The target state of a role addition (DIPO-474): the file `.dipo/roles/<name>.md` exists with
+ * these fields. An existing file is never overwritten: the change no longer applies.
+ */
+export const RoleAddTarget = z
+  .object({
+    ...PlanningSource,
+    name: z.string().min(1),
+    purpose: z.string().min(1),
+    model: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
+    instructions: z.string().min(1),
+  })
+  .strict();
+export type RoleAddTarget = z.infer<typeof RoleAddTarget>;
+
+/**
+ * The target state of a role edit: the file reads with each field given, every other field and
+ * line kept. A role without a file no longer applies.
+ */
+export const RoleEditTarget = z
+  .object({
+    ...PlanningSource,
+    name: z.string().min(1),
+    purpose: z.string().min(1).optional(),
+    model: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
+    instructions: z.string().min(1).optional(),
+  })
+  .strict();
+export type RoleEditTarget = z.infer<typeof RoleEditTarget>;
+
+/**
+ * The target state of a role removal: the file is gone. It no longer applies while a story that is
+ * not Done has the role's label.
+ */
+export const RoleRemoveTarget = z.object({ ...PlanningSource, name: z.string().min(1) }).strict();
+export type RoleRemoveTarget = z.infer<typeof RoleRemoveTarget>;
+
 /** The target state of a drop: the story is archived. */
 export const DropTarget = z.object({ kind: z.enum(["task", "draft"]).optional() }).strict();
 export type DropTarget = z.infer<typeof DropTarget>;
@@ -214,6 +257,10 @@ export interface PlanningLane {
   reviseStory(story: PlanningStory, target: ReviseTarget): Promise<PlannedChange>;
   /** Refines a draft into a Refined story with a new id, as a triage session confirmed (DIPO-454). */
   refineDraft(draft: PlanningStory, target: RefineTarget): Promise<PlannedChange>;
+  /** Adds, edits or removes a role file as a planning session confirmed (DIPO-474). */
+  addRole(target: RoleAddTarget): Promise<PlannedChange>;
+  editRole(target: RoleEditTarget): Promise<PlannedChange>;
+  removeRole(target: RoleRemoveTarget): Promise<PlannedChange>;
   /**
    * How far the journaled `change` got (DIPO-450): `waiting` to be applied, `applied` (committed,
    * pushed or merged, or on the open branch already), or `closed` with the notice that says why;

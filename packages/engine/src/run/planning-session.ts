@@ -171,12 +171,16 @@ import {
   fileTargetOf,
   PLANNING_REFUSALS_SHOWN,
   readProposals,
+  roleAddTargetOf,
+  roleEditTargetOf,
+  type RoleFacts,
   refineFieldsOf,
   refineTargetOf,
   refusalMessage,
   reviseTargetOf,
   storyFieldsOf,
 } from "./planning-proposals";
+import { openStoriesOfRole } from "../records/role-stories";
 import { claimHost, connectWhenBound } from "./hosts";
 import { type HostStarter, runLaunchPaths } from "./launch";
 import { sessionUuid } from "./prompts";
@@ -382,6 +386,8 @@ export interface PlanningSessionsDeps {
   readonly lane?: (office: OfficeId) => PlanningLane | undefined;
   /** The office's Ready gate, which the final confirm evaluates and stores (DIPO-451). */
   readonly gate?: (office: OfficeId) => PlanningGate | undefined;
+  /** The role files on the base of the office (0017), for the role proposals' checks (DIPO-474). */
+  readonly roleFiles?: (office: OfficeId) => ReadonlyMap<string, string | undefined> | undefined;
   readonly onChanged?: (office: OfficeId) => void;
   /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
   readonly onIdea?: (office: OfficeId) => void;
@@ -560,6 +566,22 @@ const REVISABLE_LIFECYCLES: readonly string[] = ["Refined", "Ready", "Parked"];
 /** A title as two titles compare: trimmed, NFC, one space, lower case. */
 const titleKey = (title: string): string =>
   title.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+
+/** The role a proposal adds, edits or removes, and which; null for any other proposal (DIPO-474). */
+function roleChangeOf(
+  proposal: PlanningProposal,
+): { readonly name: string; readonly change: "added" | "edited" | "removed" } | null {
+  switch (proposal.kind) {
+    case "role":
+      return { name: proposal.name, change: "added" };
+    case "role-edit":
+      return { name: proposal.name, change: "edited" };
+    case "role-remove":
+      return { name: proposal.name, change: "removed" };
+    default:
+      return null;
+  }
+}
 
 /** The title of the new story a proposal files, or null for an edit or a drop. */
 function newStoryTitle(proposal: PlanningProposal): string | null {
@@ -875,10 +897,25 @@ export class PlanningSessions {
     const flush = last === undefined ? null : await lane.flush(last);
     const view = this.#proposalView(open, item);
     const stories = view.stories ?? [];
+    const role = roleChangeOf(item.proposal);
+    if (role !== null && view.state !== "failed") {
+      // The role change is a confirmed choice of the record (DIPO-474).
+      const at = this.#deps.clock.now();
+      open.handle.immediate(() =>
+        addPlanningEntry(open.handle, open.session, {
+          kind: "choice",
+          subject: `Proposal ${item.n}: role ${role.name}`,
+          text: role.change,
+          at,
+        }),
+      );
+    }
     open.notes.push(
       view.state === "failed"
         ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
-        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
+        : role !== null
+          ? `[dipo] The maintainer confirmed proposal ${item.n}: role \`${role.name}\` ${role.change} in dipo's backlog PR. Do not propose it again.`
+          : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
     );
     this.#append(open, () => [this.#updated(open)]);
     return {
@@ -1005,7 +1042,7 @@ export class PlanningSessions {
         { proposal: item.n },
       );
     }
-    const checked = checkProposal(args.edited);
+    const checked = checkProposal(args.edited, this.#roleFacts(open));
     if (!checked.ok) {
       throw new CommandError(
         "planning.invalid",
@@ -1112,7 +1149,23 @@ export class PlanningSessions {
         const draft = this.#openDraft(handle, proposal.draft);
         return [await lane.drop({ key: draft.key, story: draft.story }, "draft")];
       }
+      case "role":
+        return [await lane.addRole(roleAddTargetOf(run, item.n, proposal))];
+      case "role-edit":
+        return [await lane.editRole(roleEditTargetOf(run, item.n, proposal))];
+      case "role-remove":
+        return [await lane.removeRole({ run, proposal: item.n, name: proposal.name })];
     }
+  }
+
+  /** What the role proposals are checked against; none while the office's roles are not loaded. */
+  #roleFacts(open: Open): RoleFacts | undefined {
+    const files = this.#deps.roleFiles?.(open.office);
+    if (files === undefined) return undefined;
+    return {
+      files,
+      openStories: (name) => open.handle.deferred(() => openStoriesOfRole(open.handle, name)),
+    };
   }
 
   /** The open draft a refine or drop names, with its title (DIPO-454). */
@@ -1392,7 +1445,7 @@ export class PlanningSessions {
         open.refusals.push({ at, problems: read.problems });
       }
     }
-    for (const read of readProposals(text)) {
+    for (const read of readProposals(text, this.#roleFacts(open))) {
       if (read.ok) {
         open.proposals.push({
           n: open.proposals.length + 1,

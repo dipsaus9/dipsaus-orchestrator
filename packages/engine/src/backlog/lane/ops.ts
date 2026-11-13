@@ -60,6 +60,8 @@ export interface LaneOpKind {
   readonly kind: string;
   /** Paths outside `backlog/` the kind may change, relative to the repository root. */
   readonly paths?: readonly string[];
+  /** Folders outside `backlog/` the kind may change, each ending in `/` (DIPO-474). */
+  readonly dirs?: readonly string[];
   apply(ctx: ApplyContext, target: unknown): Promise<ApplyOutcome>;
 }
 

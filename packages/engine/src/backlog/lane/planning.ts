@@ -26,6 +26,9 @@ import {
   RESUME_KIND,
   REVISE_KIND,
   ReviseTarget,
+  ROLE_ADD_KIND,
+  ROLE_EDIT_KIND,
+  ROLE_REMOVE_KIND,
   type PlannedChange,
   type PlannedFiling,
   type PlannedOutcome,
@@ -297,6 +300,9 @@ export function planningLane(lane: OfficeLane): PlanningLane {
       lane.journal({ kind: REVISE_KIND, key, subject: story, target }),
     refineDraft: ({ key, story }, target) =>
       lane.journal({ kind: REFINE_KIND, key, subject: story, target }),
+    addRole: (target) => lane.journal({ kind: ROLE_ADD_KIND, subject: target.name, target }),
+    editRole: (target) => lane.journal({ kind: ROLE_EDIT_KIND, subject: target.name, target }),
+    removeRole: (target) => lane.journal({ kind: ROLE_REMOVE_KIND, subject: target.name, target }),
     outcomeOf(change) {
       const entry = findEntry(lane.office, change.opId);
       return entry === null ? undefined : outcomeOfEntry(entry);

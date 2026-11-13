@@ -144,9 +144,18 @@ describe("checkBacklogPr", () => {
       {
         rule: "backlog-only",
         message:
-          "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): src/index.ts",
+          "the PR changes paths that are not Backlog files (a .md file under backlog/, backlog/config.yml, or a role file .dipo/roles/<name>.md): src/index.ts",
       },
     ]);
+  });
+
+  it("passes role files under .dipo/roles/ and fails other files under .dipo/ (DIPO-474)", () => {
+    const roles = [".dipo/roles/tester.md", ".dipo/roles/old-role.md"];
+    expect(checkBacklogPr({ paths: roles, tasks: [] }, NO_FACTS).passed).toBe(true);
+    const others = [".dipo/office.yaml", ".dipo/roles/Bad Name.md", ".dipo/roles/sub/x.md"];
+    expect(checkBacklogPr({ paths: others, tasks: [] }, NO_FACTS).failures[0]?.message).toContain(
+      others.join(", "),
+    );
   });
 
   it("fails a file under backlog/ that is not a .md file or backlog/config.yml (DIPO-341)", () => {
@@ -155,7 +164,7 @@ describe("checkBacklogPr", () => {
       {
         rule: "backlog-only",
         message:
-          "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): backlog/x.test.ts, backlog/config.yaml",
+          "the PR changes paths that are not Backlog files (a .md file under backlog/, backlog/config.yml, or a role file .dipo/roles/<name>.md): backlog/x.test.ts, backlog/config.yaml",
       },
     ]);
   });
@@ -183,7 +192,7 @@ describe("checkBacklogPr", () => {
       {
         rule: "backlog-only",
         message:
-          "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): .dipo/.gitignore",
+          "the PR changes paths that are not Backlog files (a .md file under backlog/, backlog/config.yml, or a role file .dipo/roles/<name>.md): .dipo/.gitignore",
       },
     ]);
     // Only that one file may be added outside backlog/.

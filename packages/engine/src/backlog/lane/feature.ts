@@ -34,6 +34,7 @@ import {
 } from "./ops";
 import { planningLane } from "./planning";
 import { proposeKind } from "./propose";
+import { roleAddKind, roleEditKind, roleRemoveKind } from "./roles";
 import { fileKind, refineKind, reviseKind } from "./stories";
 
 export class BacklogLane {
@@ -61,6 +62,10 @@ export class BacklogLane {
     this.register(reviseKind);
     // A draft a triage session refines into a story (0022, DIPO-454).
     this.register(refineKind);
+    // The role files a planning session adds, edits and removes (0022, DIPO-474).
+    this.register(roleAddKind);
+    this.register(roleEditKind);
+    this.register(roleRemoveKind);
     for (const kind of deps.kinds ?? []) this.register(kind);
   }
 
