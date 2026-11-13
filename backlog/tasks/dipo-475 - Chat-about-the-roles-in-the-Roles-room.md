@@ -1,10 +1,10 @@
 ---
 id: DIPO-475
 title: Chat about the roles in the Roles room
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 13:23'
+updated_date: '2026-11-13 13:34'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -76,11 +76,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Starting a roles session from the Roles room opens a planning session of kind roles, and starting one while another planning session is open is refused.
-- [ ] #2 The first message of a roles session holds every roster role with its purpose, model, effort and instructions, and every invalid role file with its problem.
-- [ ] #3 The first message holds, per role, its recent runs: how they ended, parks by reason, review rounds failed, CI attempts and cost, counted from the state database.
-- [ ] #4 A roles session refuses a story proposal, and a plan, refine or triage session refuses a role proposal.
-- [ ] #5 The Roles room shows the chat beside the list, with questions, proposals and confirm working as in the planning view.
-- [ ] #6 The planning view's kind choice does not offer roles.
-- [ ] #7 Decision 0022 describes the roles kind, what its first message holds and which proposals it takes.
+- [x] #1 Starting a roles session from the Roles room opens a planning session of kind roles, and starting one while another planning session is open is refused.
+- [x] #2 The first message of a roles session holds every roster role with its purpose, model, effort and instructions, and every invalid role file with its problem.
+- [x] #3 The first message holds, per role, its recent runs: how they ended, parks by reason, review rounds failed, CI attempts and cost, counted from the state database.
+- [x] #4 A roles session refuses a story proposal, and a plan, refine or triage session refuses a role proposal.
+- [x] #5 The Roles room shows the chat beside the list, with questions, proposals and confirm working as in the planning view.
+- [x] #6 The planning view's kind choice does not offer roles.
+- [x] #7 Decision 0022 describes the roles kind, what its first message holds and which proposals it takes.
 <!-- AC:END -->
