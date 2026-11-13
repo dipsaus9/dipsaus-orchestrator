@@ -47,9 +47,12 @@
 //
 // - `planning.confirm` journals it in the office's planning lane (0010): a new story as a `file`
 //   change, an edit as a `revise` change, a split as both, a refined draft as a `refine` change
-//   (promoted to a Refined story with a new id and a branch named for it) and a dropped draft as a
+//   (promoted to a story with a new id and a branch named for it) and a dropped draft as a
 //   `drop` of the draft (DIPO-454, triage), then flushes the lane, which opens or updates dipo's
-//   backlog PR. Each filed or edited story's id goes into the session's record once
+//   backlog PR. The confirm is the Ready choice (DIPO-495): the lane gates each story it files or
+//   refines as filed and files it Ready when it passes, Refined otherwise, and gates an edited
+//   Ready story again; the view shows the gate's answer per story (`PlanningProposalView.gate`) and
+//   the session's next message says it. Each filed or edited story's id goes into the session's record once
 //   the lane applied its change (`planning_record`). A new story whose title an active story or
 //   another confirmed proposal has, a dependency the office does not know, an edit of a task that
 //   is not Refined, Ready or Parked, or a refine or drop of anything but an open draft is refused
