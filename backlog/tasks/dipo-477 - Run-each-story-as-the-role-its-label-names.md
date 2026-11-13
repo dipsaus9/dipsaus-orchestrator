@@ -1,10 +1,10 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 15:04'
+updated_date: '2026-11-13 15:07'
 labels:
   - 'tier:L'
 milestone: m-4
@@ -76,16 +76,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 R17 fails a story with no role label, saying a role label is needed and listing the roster's roles.
-- [ ] #2 R17 passes a story with exactly one role label naming a roster role, and fails one with two role labels or a role not in the roster.
-- [ ] #3 A run started for a story labelled role:<name> records <name> as the role of its run row, its agents and its work.assigned entry.
-- [ ] #4 The system file of the run's first session is the implement-box contract followed by the instructions of the labelled role file.
-- [ ] #5 A role file with a model and an effort runs its sessions with them; one without them runs with the tier's model and effort, and the tier's caps apply in both cases.
-- [ ] #6 After the role file changes on the base, a resumed or fix-round session of a run started earlier uses the instructions, model and effort the run started with.
-- [ ] #7 A run started before this change has no stored role, and its next session uses the bundled developer instructions and the tier's model and effort.
-- [ ] #8 The bundled developer text is no longer a run role: the developer role template is removed from the run's system file path.
-- [ ] #9 The work preview names the role and the model a story would run with.
-- [ ] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
+- [x] #1 R17 fails a story with no role label, saying a role label is needed and listing the roster's roles.
+- [x] #2 R17 passes a story with exactly one role label naming a roster role, and fails one with two role labels or a role not in the roster.
+- [x] #3 A run started for a story labelled role:<name> records <name> as the role of its run row, its agents and its work.assigned entry.
+- [x] #4 The system file of the run's first session is the implement-box contract followed by the instructions of the labelled role file.
+- [x] #5 A role file with a model and an effort runs its sessions with them; one without them runs with the tier's model and effort, and the tier's caps apply in both cases.
+- [x] #6 After the role file changes on the base, a resumed or fix-round session of a run started earlier uses the instructions, model and effort the run started with.
+- [x] #7 A run started before this change has no stored role, and its next session uses the bundled developer instructions and the tier's model and effort.
+- [x] #8 The bundled developer text is no longer a run role: the developer role template is removed from the run's system file path.
+- [x] #9 The work preview names the role and the model a story would run with.
+- [x] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
 <!-- AC:END -->
 
 ## Implementation Notes
