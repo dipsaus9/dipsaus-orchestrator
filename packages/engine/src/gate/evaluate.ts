@@ -12,7 +12,7 @@ import {
   SHARED_RULES,
   warningRulesFor,
 } from "./rules";
-import { BUILT_IN_ROSTER, type GateInput, type GateMode, type GateResult } from "./types";
+import type { GateInput, GateMode, GateResult } from "./types";
 
 /**
  * The rules a mode fails on: R01a or R01b, then R02 to R30 but R29, which only warns; R31 only at
@@ -48,7 +48,7 @@ export function evaluateGate(input: GateInput, mode: GateMode): GateResult {
     story: input.story,
     ...readFields(input.story.description),
     labels: readLabels(input.story.labels),
-    roster: input.roster ?? BUILT_IN_ROSTER,
+    roster: input.roster ?? [],
   };
   const failures = rulesFor(mode).flatMap((rule) => rule(context));
   const warnings = warningRulesFor(mode).flatMap((rule) => rule(context));

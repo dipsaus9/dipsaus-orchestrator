@@ -12,7 +12,7 @@ A worker gets a short prompt that code builds from structured data. It does not 
 |---|---|---|---|
 | L0 | Claude Code's default system prompt and tools | Default, with `--exclude-dynamic-system-prompt-sections` | Claude Code |
 | L1 | The worker contract: what dipo does, what the worker sends back through the door (0008), and "facts are pre-fetched, do not re-fetch" | `--append-system-prompt-file`, first part | `engine/src/prompts/contract/<kind>.md` (`box`, `review`) |
-| L2 | Role instructions | The same file, after L1 | `.dipo/roles/<name>.md` (M4); the built-in `developer` and `reviewer` until then |
+| L2 | Role instructions | The same file, after L1 | `.dipo/roles/<name>.md` (0017); runs use the bundled `developer` and `reviewer` instructions until a later story reads the file |
 | L3 | Project rules | Claude Code's own `CLAUDE.md` and `AGENTS.md` loading | The repository |
 | L4 | The task message: story data, context, handoff, feedback | First user message | `engine/src/prompts/task/` |
 | L5 | Later messages: feedback, answers, steers | New user messages | `engine/src/prompts/feedback/` |

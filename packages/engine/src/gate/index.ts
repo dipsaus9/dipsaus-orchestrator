@@ -54,7 +54,7 @@ export {
 } from "./rules";
 export type { GateContext, RuleCheck } from "./rules";
 export { characters, clean, wordMatch } from "./text";
-export { BUILT_IN_ROSTER, GATE_RULES } from "./types";
+export { GATE_RULES } from "./types";
 export type {
   GateConfig,
   GateCriterion,

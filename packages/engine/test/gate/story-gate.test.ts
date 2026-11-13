@@ -70,6 +70,7 @@ describe("the Ready gate on the Backlog CLI", () => {
         const offices = {
           get: (id: OfficeId) => s.manager.get(id),
           config: (id: OfficeId) => s.manager.config(id),
+          roster: (id: OfficeId) => s.manager.roster(id),
         };
         const deps = { git: engineGit, index, offices, clock: s.clock, ids: s.ids };
         const story = StoryId.parse("TASK-1");

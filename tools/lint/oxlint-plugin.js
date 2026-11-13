@@ -713,7 +713,7 @@ export const ENGINE_LAYERS = [
   },
   { band: 2, entries: ["gate", "scan/detect"] },
   { band: 2, entries: ["prompts"] },
-  { band: 3, entries: ["box", "db", "records"] },
+  { band: 3, entries: ["box", "db", "records", "roles"] },
   { band: 4, entries: ["commands", "review", "views"] },
   { band: 4, entries: ["ingest", "office", "reads", "scan"] },
   { band: 4, entries: ["run-state", "workers/claude-cli"] },

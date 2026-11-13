@@ -251,6 +251,7 @@ export async function withRunOffice(
       const offices = {
         get: (office: OfficeId) => setup?.manager.get(office),
         config: (office: OfficeId) => setup?.manager.config(office),
+        roster: (office: OfficeId) => setup?.manager.roster(office) ?? [],
       };
       const engineGit = new EngineGit({ spawn: CLI(repo).spawn, env: repo.env });
       const index = new StoryIndex({

@@ -257,8 +257,16 @@ const CASES: readonly Case[] = [
   },
   {
     name: "R17 role not in the roster",
-    input: input({ labels: ["tier:M", "role:designer"] }),
+    input: input(
+      { labels: ["tier:M", "role:designer"] },
+      { roster: [{ name: "developer", code: true }] },
+    ),
     expected: [`${prefix("R17")}role designer is not in the roster`],
+  },
+  {
+    name: "R17 role label with an empty roster",
+    input: input({ labels: ["tier:M", "role:developer"] }),
+    expected: [`${prefix("R17")}role developer is not in the roster`],
   },
   {
     name: "R18 branch of another id",
@@ -433,6 +441,15 @@ describe("evaluateGate", () => {
     covered.add("R29"); // warns only, never fails: its own block below
     covered.add("R32"); // warns only, in ready mode: its own block below
     expect([...covered].toSorted()).toEqual([...GATE_RULES].toSorted());
+  });
+
+  it("passes R17 for a role label naming a roster role", () => {
+    const roster = [{ name: "developer", code: true }];
+    const result = evaluateGate(
+      input({ labels: ["tier:M", "role:developer"] }, { roster }),
+      "ready",
+    );
+    expect(messages(result)).toEqual([]);
   });
 
   for (const c of CASES) {

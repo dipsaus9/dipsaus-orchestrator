@@ -72,7 +72,7 @@ Losing the database loses history, never the project. At daemon start dipo recon
 
 ## Roles
 
-An agent is created from a role: purpose, instructions, allowed tools, default model and effort. A role is a versioned file in the office's repository, and hiring adds it to the office's roster. Code chooses the role per story without asking a model. Every role works the same way: all work is a story, and all output lives in the repository on a branch, is reviewed against the story's criteria and is merged. Until M4 there is one built-in developer role and the reviewer (0003).
+An agent is created from a role: purpose, instructions, and an optional model and effort. The adapter names the tools (0008). A role is a versioned file in the office's repository (0017), and adding the file adds the role to the office's roster, which the Ready gate reads (0012). The reviewer, planner, auditor and scanner stay engine code. Code chooses the role per story without asking a model. Every role works the same way: all work is a story, and all output lives in the repository on a branch, is reviewed against the story's criteria and is merged.
 
 ## Build our own
 

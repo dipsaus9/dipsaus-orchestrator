@@ -96,9 +96,6 @@ export interface GateRole {
   readonly code: boolean;
 }
 
-/** Until M4 the only role is the built-in `developer` (0012 F12). */
-export const BUILT_IN_ROSTER: readonly GateRole[] = [{ name: "developer", code: true }];
-
 /** The office configuration keys the gate reads. */
 export interface GateConfig {
   readonly story: OfficeConfig["story"];
@@ -114,7 +111,7 @@ export interface GateInput {
   /** The folders the story store keeps its stories in (`StoryStore.storyFolders`), for R12. */
   readonly storyFolders: readonly string[];
   readonly config: GateConfig;
-  /** Defaults to `BUILT_IN_ROSTER`. */
+  /** The roles of the office's role files (0017); none when absent. */
   readonly roster?: readonly GateRole[];
   /**
    * Every file path of the base tree, repo-relative (`git ls-tree -r` at the base commit), for

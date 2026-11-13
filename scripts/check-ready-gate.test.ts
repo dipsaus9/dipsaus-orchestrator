@@ -6,6 +6,8 @@
 // never a pipe (DIPO-333).
 
 import { describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { BacklogListIncompleteError } from "../packages/engine/src/backlog/list";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
@@ -17,6 +19,8 @@ interface FixtureStory {
   readonly id: string;
   readonly status: "Ready" | "Refined";
   readonly testPlan: readonly string[];
+  /** A `role:` label on the story. */
+  readonly role?: string;
 }
 
 const RULE = "-".repeat(50);
@@ -58,7 +62,7 @@ function viewOf(story: FixtureStory): string {
     `Status: ○ ${story.status}`,
     "Created: 2026-10-12 11:28 (UTC)",
     "Type: feature",
-    "Labels: tier:M",
+    `Labels: tier:M${story.role === undefined ? "" : `, role:${story.role}`}`,
     "Milestone: m-0",
     "References: packages/export/",
     "",
@@ -120,6 +124,33 @@ function fakeCli(
 const NO_OFFICE = "/nonexistent/dipo-ready-gate-fixture";
 
 describe("the Ready gate over the backlog", () => {
+  it("fails a Ready story whose role has no role file in the checkout, and passes it once added (DIPO-471)", async () => {
+    const dir = mkdtempSync(join(process.env.DIPO_TMP ?? "/tmp", "rg-"));
+    try {
+      mkdirSync(join(dir, "backlog", "tasks"), { recursive: true });
+      writeFileSync(join(dir, "backlog", "config.yml"), "project_name: Fixture\n");
+      const { cli } = fakeCli([
+        { id: "DIPO-5", status: "Ready", testPlan: CLEAN, role: "developer" },
+      ]);
+      const before = await checkReadyGate(dir, cli);
+      expect(before.failures).toEqual([
+        expect.stringContaining("ready DIPO-5 failed R17: role developer is not in the roster"),
+      ]);
+      mkdirSync(join(dir, ".dipo", "roles"), { recursive: true });
+      writeFileSync(
+        join(dir, ".dipo", "roles", "developer.md"),
+        "---\nversion: 1\npurpose: Builds the story\n---\nDo the work.\n",
+      );
+      expect(await checkReadyGate(dir, cli)).toEqual({
+        checked: 1,
+        passed: ["DIPO-5"],
+        failures: [],
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("fails a Ready story whose manual entry has no expect, and passes a clean one", async () => {
     const { cli } = fakeCli([
       { id: "DIPO-1", status: "Ready", testPlan: MISSING_EXPECT },

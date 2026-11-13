@@ -42,8 +42,10 @@ import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import { type GitSettings, OfficeGit } from "../git/office";
 import { clockSleep, spawnGitExec } from "../git/runner";
+import type { GateRole } from "../gate/types";
 import type { Logger } from "../log/logger";
 import type { MountReader } from "../platform/sqlite";
+import { type BaseRoles, readBaseRoles, rosterOf } from "../roles/base";
 import type { SoftwareStream } from "../software-stream";
 import { checkoutFiles } from "../story-store/folder";
 import type { StoryStore } from "../story-store/store";
@@ -123,6 +125,8 @@ class OfficeInstance {
   seenOnBase: BaseOfficeFile | null = null;
   /** True while no `<remote>/<base>` ref exists, so the configuration came from the checkout. */
   fromCheckout = false;
+  /** The role files last read from the base (DIPO-471); empty until the base has a commit. */
+  roles: BaseRoles = { roles: [], problems: [], files: new Map() };
 
   constructor(
     readonly officeId: OfficeId,
@@ -333,6 +337,7 @@ export class OfficeManager implements OfficeDirectory {
     const git = this.#committedReader(officeId, row.path, commonDir);
     const instance = new OfficeInstance(officeId, db.office(officeId), row.path, commonDir, git);
     await this.#readConfig(instance);
+    await this.#readRoles(instance, git);
     for (const step of this.#deps.registry().loadSteps()) {
       const outcome = await runStep(step.run, {
         officeId,
@@ -502,6 +507,7 @@ export class OfficeManager implements OfficeDirectory {
     return this.#serialised(async () => {
       const instance = this.#instances.get(office);
       if (instance === undefined || git === undefined) return;
+      await this.#readRoles(instance, git);
       const onBase = await readBaseOfficeFile(git);
       if (onBase === null) return;
       const seen = instance.seenOnBase;
@@ -517,6 +523,32 @@ export class OfficeManager implements OfficeDirectory {
       });
       if (changed) this.#listenConfigReload(instance);
     });
+  }
+
+  /**
+   * Reads the role files on the base again and keeps the roster they make (DIPO-471). A refused
+   * file that is new or changed since the last read raises one notice naming it, and is left out
+   * of the roster; nothing else changes. No base yet keeps the roster as it is.
+   */
+  async #readRoles(instance: OfficeInstance, git: OfficeGit): Promise<void> {
+    const read = await readBaseRoles(git);
+    if (read === null) return;
+    const before = instance.roles.files;
+    instance.roles = read;
+    for (const problem of read.problems) {
+      const path = problem.slice(0, problem.indexOf(":"));
+      if (before.has(path) && before.get(path) === read.files.get(path)) continue;
+      this.#officeNotice(instance, {
+        level: "warn",
+        code: "role.invalid",
+        text: `Role file ${problem}. The role is left out of the roster until the file is fixed on the base.`,
+      });
+    }
+  }
+
+  /** The roster of the role files on the base of `office` (0017); empty when it is not loaded. */
+  roster(office: OfficeId): readonly GateRole[] {
+    return rosterOf(this.#instances.get(office)?.roles.roles ?? []);
   }
 
   /** Tells every config-reload listener the configuration in force, when it is valid. */

@@ -666,6 +666,7 @@ async function buildDaemon(
   const offices = {
     get: (office: OfficeId) => setup?.manager.get(office),
     config: (office: OfficeId) => setup?.manager.config(office),
+    roster: (office: OfficeId) => setup?.manager.roster(office) ?? [],
   };
   const cli = CLI(repo);
   // dipo's temp root: each reviewer session's read-only copy is made in it.

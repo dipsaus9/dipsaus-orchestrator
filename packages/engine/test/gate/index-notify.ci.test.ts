@@ -107,7 +107,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const gates = new GateStore({
           git: engineGit,
           index,
-          offices: { get: (id) => s.manager.get(id), config: (id) => s.manager.config(id) },
+          offices: {
+            get: (id) => s.manager.get(id),
+            config: (id) => s.manager.config(id),
+            roster: (id) => s.manager.roster(id),
+          },
           clock: s.clock,
           ids: s.ids,
           stories: backlogStoryStore({

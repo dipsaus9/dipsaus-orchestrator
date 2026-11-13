@@ -10,6 +10,7 @@
 //
 // Usage: bun scripts/check-ready-gate.ts [repository]   (the repository defaults to the current directory)
 
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadOfficeConfig } from "../packages/engine/src/config/load";
@@ -24,6 +25,8 @@ import {
   viewListedTasks,
 } from "../packages/engine/src/gate-decisions/read";
 import { treePaths } from "../packages/engine/src/gate-decisions/tree";
+import { loadRoleFiles, rosterOf } from "../packages/engine/src/roles/base";
+import { ROLES_DIR } from "../packages/engine/src/roles/parse";
 import { systemSpawn } from "../packages/engine/src/platform/process";
 import { checkoutFiles } from "../packages/engine/src/story-store/folder";
 
@@ -44,6 +47,21 @@ function treeFiles(repo: string): string[] | undefined {
   const args = ["ls-tree", "-r", "-z", "--name-only", "--full-tree", "HEAD"];
   const listed = Bun.spawnSync(["git", "-C", repo, ...args], { stderr: "ignore" });
   return listed.exitCode === 0 ? treePaths(listed.stdout.toString()) : undefined;
+}
+
+/** The role files of the checked-out commit, as the daemon reads them from the base (DIPO-471). */
+function checkoutRoles(repo: string) {
+  const dir = join(repo, ROLES_DIR);
+  const names = (() => {
+    try {
+      return readdirSync(dir).filter((name) => name.endsWith(".md"));
+    } catch {
+      return [];
+    }
+  })();
+  return loadRoleFiles(
+    new Map(names.map((name) => [`${ROLES_DIR}/${name}`, readFileSync(join(dir, name), "utf8")])),
+  );
 }
 
 export interface ReadyGateReport {
@@ -81,9 +99,11 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
   const folders = await stories.storyFolders(checkoutFiles(repo));
   const others = gateTasksOf(views);
   const files = treeFiles(repo);
+  const roles = checkoutRoles(repo);
+  const roster = rosterOf(roles.roles);
   const ready = entries.filter((entry) => entry.group === READY);
   const failures: string[] = [];
-  const warnings: string[] = [];
+  const warnings: string[] = roles.problems.map((problem) => `role file ${problem}`);
   const passed: string[] = [];
   for (const entry of ready) {
     const view = views.get(entry.id);
@@ -91,7 +111,7 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
       throw new Error(`${entry.id} is Ready but its Backlog view does not parse`);
     }
     const input = gateInputOf(view, others, milestones, folders, config, files);
-    const result = evaluateGate(input, "pickup");
+    const result = evaluateGate({ ...input, roster }, "pickup");
     if (result.passed) passed.push(entry.id);
     failures.push(...result.failures.map((failure) => failure.message));
     warnings.push(...(result.warnings ?? []).map((warning) => warning.message));

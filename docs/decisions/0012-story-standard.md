@@ -21,7 +21,7 @@ A story has a fixed set of fields, stored natively in Backlog.md where possible 
 | F9 | Inputs | Files or URLs the worker reads but does not change | Optional | Native documentation |
 | F10 | Unknowns | Questions to answer before Ready, each `open` or `resolved` with its answer | From Refined on; none `open` at Ready | Field block |
 | F11 | Tier | `S`, `M` or `L`; chooses model and caps (0008) | Exactly one | Label `tier:<t>` |
-| F12 | Role | The role that does the work; until M4 always `developer` | Optional | Label `role:<name>` |
+| F12 | Role | The role that does the work, naming a role file of the office (0017); a story with no label has no role | Optional | Label `role:<name>` |
 | F13 | Test before merge | The maintainer tests before merge (0002); set only by the maintainer | Optional | Label `test-before-merge` |
 | F14 | Test plan | Automated entries (tests the worker writes) and manual entries (steps with an expected result), or "not applicable" with a reason | Every non-spike story; a manual entry when F13 is set | Field block |
 | F15 | Branch | `<ID>/<slug>`, frozen when the story gets its id | Yes | Field block |
