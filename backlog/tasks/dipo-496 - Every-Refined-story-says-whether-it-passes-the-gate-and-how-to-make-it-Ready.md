@@ -4,9 +4,10 @@ title: Every Refined story says whether it passes the gate and how to make it Re
 status: Ready
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 09:40'
+updated_date: '2026-11-13 15:06'
 labels:
   - 'tier:M'
+  - 'role:developer'
 milestone: m-3
 dependencies:
   - DIPO-497
