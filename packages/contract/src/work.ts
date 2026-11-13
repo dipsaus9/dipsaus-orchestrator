@@ -405,7 +405,9 @@ export type TestEndReason = z.infer<typeof TestEndReason>;
 // goal, talked to turn by turn. It has no story, so its events carry the planning view, never a
 // `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the drafts with
 // their origin and refines each into a story or drops it (DIPO-454).
-export const PLANNING_KINDS = ["plan", "refine", "triage"] as const;
+// `roles` talks through the office's roles and takes only role proposals (DIPO-475); the Roles room
+// starts it, so the planning view's kind choice does not offer it.
+export const PLANNING_KINDS = ["plan", "refine", "triage", "roles"] as const;
 export const PlanningKind = openEnum(PLANNING_KINDS);
 export type PlanningKind = z.infer<typeof PlanningKind>;
 

@@ -59,8 +59,10 @@ export function useRoles(options: {
   readonly state: OfficeStoreState;
   readonly active: boolean;
   readonly leave: () => void;
+  /** The chat key: starts a roles session (DIPO-475). */
+  readonly chat: () => void;
 }): Roles {
-  const { store, actions, state: current, active, leave } = options;
+  const { store, actions, state: current, active, leave, chat } = options;
   const { office } = current;
   const { rows, columns } = useWindowSize();
   const height = Math.max(1, rows - 7);
@@ -112,6 +114,7 @@ export function useRoles(options: {
     top: Math.min(top, last),
     onKey: (input, key) => {
       if (key.escape) leave();
+      else if (input === "c") chat();
       else if (key.downArrow || input === "j") {
         setSelected(Math.min(Math.max(0, roles.length - 1), at + 1));
         setTop(0);
@@ -207,6 +210,8 @@ function listRows(
 
 export interface RolesModeProps {
   readonly roles: Roles;
+  /** The chat shown beside the list while a roles session is open (DIPO-475); it fills the right column. */
+  readonly chat?: (width: number) => ReactNode;
   readonly display: Display;
   readonly columns: number;
   /** Rows for the view. */
@@ -245,6 +250,7 @@ export function RolesMode(props: RolesModeProps) {
   const first = Math.max(0, Math.min(roles.selected * 3, roles.selected * 3 + 3 - rows));
   const role = result.roles[roles.selected];
   const instructions = instructionLines(role, columns).slice(roles.top, roles.top + rows);
+  const chat = props.chat?.(Math.max(10, columns - left - GAP));
   return (
     <Box flexDirection="column">
       {head}
@@ -255,11 +261,12 @@ export function RolesMode(props: RolesModeProps) {
           ))}
         </Box>
         <Box flexDirection="column" marginLeft={GAP} flexGrow={1}>
-          {instructions.map((line, i) => (
-            <Text key={`${roles.top + i}`} wrap="truncate-end">
-              {line}
-            </Text>
-          ))}
+          {chat ??
+            instructions.map((line, i) => (
+              <Text key={`${roles.top + i}`} wrap="truncate-end">
+                {line}
+              </Text>
+            ))}
         </Box>
       </Box>
     </Box>

@@ -110,8 +110,9 @@ function inRoom(mode: Mode): boolean {
 }
 
 /** True in the modes that take typed text, whole: a path, a planning message, an overlay's query. */
-export function typesText(mode: Mode): boolean {
+export function typesText(mode: Mode, planning?: { readonly chatting: boolean }): boolean {
   return (
+    (mode.kind === "roles" && planning?.chatting === true) ||
     mode.kind === "path" ||
     mode.kind === "planning" ||
     mode.kind === "palette" ||

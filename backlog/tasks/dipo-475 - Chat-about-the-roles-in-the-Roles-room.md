@@ -1,10 +1,10 @@
 ---
 id: DIPO-475
 title: Chat about the roles in the Roles room
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 09:13'
+updated_date: '2026-11-13 13:43'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -23,6 +23,29 @@ references:
   - packages/tui/src/roles.tsx
   - packages/tui/src/planning.tsx
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0022-planning-sessions.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/engine/src/prompts/task/planning-roles.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/retro.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-roles-session.test.ts
+  - packages/engine/test/run/planning-roles.test.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/keys.ts
+  - packages/tui/src/mode.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/roles.test.tsx
+  - packages/tui/src/roles.tsx
+  - packages/tui/src/screen.tsx
 type: feature
 ordinal: 448000
 ---
@@ -76,11 +99,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Starting a roles session from the Roles room opens a planning session of kind roles, and starting one while another planning session is open is refused.
-- [ ] #2 The first message of a roles session holds every roster role with its purpose, model, effort and instructions, and every invalid role file with its problem.
-- [ ] #3 The first message holds, per role, its recent runs: how they ended, parks by reason, review rounds failed, CI attempts and cost, counted from the state database.
-- [ ] #4 A roles session refuses a story proposal, and a plan, refine or triage session refuses a role proposal.
-- [ ] #5 The Roles room shows the chat beside the list, with questions, proposals and confirm working as in the planning view.
-- [ ] #6 The planning view's kind choice does not offer roles.
-- [ ] #7 Decision 0022 describes the roles kind, what its first message holds and which proposals it takes.
+- [x] #1 Starting a roles session from the Roles room opens a planning session of kind roles, and starting one while another planning session is open is refused.
+- [x] #2 The first message of a roles session holds every roster role with its purpose, model, effort and instructions, and every invalid role file with its problem.
+- [x] #3 The first message holds, per role, its recent runs: how they ended, parks by reason, review rounds failed, CI attempts and cost, counted from the state database.
+- [x] #4 A roles session refuses a story proposal, and a plan, refine or triage session refuses a role proposal.
+- [x] #5 The Roles room shows the chat beside the list, with questions, proposals and confirm working as in the planning view.
+- [x] #6 The planning view's kind choice does not offer roles.
+- [x] #7 Decision 0022 describes the roles kind, what its first message holds and which proposals it takes.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 13:43 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 194,212 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

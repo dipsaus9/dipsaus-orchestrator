@@ -18,6 +18,7 @@ import { ModeScreen, promptHeight } from "./modes";
 import { OverlayOver } from "./overlays";
 import { promptRows } from "./prompt-box";
 import type { SegLine } from "./segments";
+import type { LaneProgress } from "@dipsaus-orchestrator/contract";
 import { endingKind, type Planning, PlanningMode } from "./planning";
 import { dialogOnSubmit } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
@@ -73,7 +74,9 @@ function screenKeys(props: ScreenProps, columns: number): Hint[] {
   const { mode, state, display, home, acts, planning } = props;
   const screen = daemonScreen(state);
   if (screen !== null) return daemonScreenKeys(screen, state.database?.backup !== undefined);
-  return footerKeys(mode, home.footerView, state, isOffline(state), home.run, columns - 1, {
+  // The Roles room's chat takes the planning view's keys (DIPO-475).
+  const shown: Mode = mode.kind === "roles" && planning.chatting ? { kind: "planning" } : mode;
+  return footerKeys(shown, home.footerView, state, isOffline(state), home.run, columns - 1, {
     prompt: acts.promptHints(),
     row: home.rowHintList,
     retry: acts.retryable,
@@ -133,8 +136,35 @@ function panelRows(props: ScreenProps, columns: number): SegLine[] {
   return promptRows(acts.flow, { width: columns - 1, ascii: display.ascii, context: true });
 }
 
+/** The Roles room's chat: the planning view in the right column of the room (DIPO-475). */
+function chatOf(planning: Planning, display: Display, height: number, lane: LaneProgress | null) {
+  return (width: number) => (
+    <PlanningMode
+      planning={planning}
+      display={display}
+      columns={width}
+      height={Math.max(1, height - 1)}
+      lane={lane}
+    />
+  );
+}
+
+function RolesRoom(props: { props: ScreenProps; columns: number; height: number }) {
+  const { planning, display, state } = props.props;
+  const { columns, height } = props;
+  return (
+    <RolesMode
+      roles={props.props.roles}
+      display={display}
+      columns={columns}
+      height={height}
+      {...(planning.chatting ? { chat: chatOf(planning, display, height, state.lane) } : {})}
+    />
+  );
+}
+
 export function Screen(props: ScreenProps) {
-  const { mode, state, clock, display, home, acts, planning, retro, roles } = props;
+  const { mode, state, clock, display, home, acts, planning, retro } = props;
   const { columns, rows } = useWindowSize();
   const offline = isOffline(state);
   const inSwitcher = inSwitcherMode(mode);
@@ -161,7 +191,7 @@ export function Screen(props: ScreenProps) {
       (offline && screen === null ? OFFLINE_LINES : 0);
 
   const retroBody = <RetroMode retro={retro} height={height} />;
-  const rolesBody = <RolesMode roles={roles} display={display} columns={columns} height={height} />;
+  const rolesBody = <RolesRoom props={props} columns={columns} height={height} />;
   const homeBody = (
     <HomeMode
       home={home}

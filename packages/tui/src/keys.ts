@@ -678,6 +678,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "retroDiscuss", key: "d", label: "discuss in a plan", views: ["retro"], priority: 50 },
   { id: "rolesMove", key: "↑↓", label: "move", views: ["roles"], priority: 30 },
   { id: "rolesScroll", key: "PgUp PgDn", label: "scroll", views: ["roles"], priority: 25 },
+  { id: "rolesChat", key: "c", label: "chat", views: ["roles"], priority: 50 },
   {
     id: "switcherMove",
     key: "↑↓",
