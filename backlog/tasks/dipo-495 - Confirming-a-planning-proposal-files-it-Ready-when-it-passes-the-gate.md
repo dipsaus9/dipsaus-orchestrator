@@ -1,10 +1,10 @@
 ---
 id: DIPO-495
 title: Confirming a planning proposal files it Ready when it passes the gate
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 11:36'
+updated_date: '2026-11-13 12:06'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -98,13 +98,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A confirmed new story, new story of a split or refined draft that passes the Ready gate as filed is filed Ready in the same backlog PR, with a stored passing decision for its content; one that fails is filed Refined and the card and view show the gate's messages
-- [ ] #2 A confirmed edit of a Ready story is gated again in the same operation: it stays Ready when it passes and returns to Refined with the gate's messages when it fails; an edit of a Refined or Parked story keeps its status
-- [ ] #3 The structural check accepts a new task at Ready and a draft promoted to Ready only with a passing decision for their content, in dipo and in CI, on a backlog-only PR
-- [ ] #4 A PR that also changes code and adds a task at Ready or promotes a draft to Ready is refused in CI, with a test
-- [ ] #5 A backlog-only PR adding a task at Ready that fails the gate is refused, one adding a passing task is accepted, and a task at Ready without a passing decision for its content is refused by dipo's check, each with a test
-- [ ] #6 No planning path sets Ready without the maintainer's planning.confirm, and a proposal with a status field is refused by the schema
-- [ ] #7 The bypass forms (a split with one part passing, a refine of a draft, an edit breaking a gated field, content changed in the read-back, a mixed PR adding or promoting a Ready task) are tested, and a fail-closed test runs the real lane, Backlog CLI and gate on a temporary backlog
-- [ ] #8 story.ready and the Queue's Y still set a Refined story Ready through readyStories with their old refusals
-- [ ] #9 ADR 0012's new-task line, its new (none) to Ready and Draft to Ready rows, its Refined to Ready and Ready to Refined rows, ADR 0022's new story and Ready lines and ADR 0010's structural check line describe filing Ready at confirm, with Replaced lines in 0012 and 0022
+- [x] #1 A confirmed new story, new story of a split or refined draft that passes the Ready gate as filed is filed Ready in the same backlog PR, with a stored passing decision for its content; one that fails is filed Refined and the card and view show the gate's messages
+- [x] #2 A confirmed edit of a Ready story is gated again in the same operation: it stays Ready when it passes and returns to Refined with the gate's messages when it fails; an edit of a Refined or Parked story keeps its status
+- [x] #3 The structural check accepts a new task at Ready and a draft promoted to Ready only with a passing decision for their content, in dipo and in CI, on a backlog-only PR
+- [x] #4 A PR that also changes code and adds a task at Ready or promotes a draft to Ready is refused in CI, with a test
+- [x] #5 A backlog-only PR adding a task at Ready that fails the gate is refused, one adding a passing task is accepted, and a task at Ready without a passing decision for its content is refused by dipo's check, each with a test
+- [x] #6 No planning path sets Ready without the maintainer's planning.confirm, and a proposal with a status field is refused by the schema
+- [x] #7 The bypass forms (a split with one part passing, a refine of a draft, an edit breaking a gated field, content changed in the read-back, a mixed PR adding or promoting a Ready task) are tested, and a fail-closed test runs the real lane, Backlog CLI and gate on a temporary backlog
+- [x] #8 story.ready and the Queue's Y still set a Refined story Ready through readyStories with their old refusals
+- [x] #9 ADR 0012's new-task line, its new (none) to Ready and Draft to Ready rows, its Refined to Ready and Ready to Refined rows, ADR 0022's new story and Ready lines and ADR 0010's structural check line describe filing Ready at confirm, with Replaced lines in 0012 and 0022
 <!-- AC:END -->
