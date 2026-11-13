@@ -1,10 +1,10 @@
 ---
 id: DIPO-497
 title: Ending a planning session lists the stories that stayed Refined
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-13 09:28'
-updated_date: '2026-11-13 12:49'
+updated_date: '2026-11-13 13:01'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -49,7 +49,10 @@ Tier S: one TUI step replaced by a list, one command and one view field removed.
 
 ```dipo
 branch: "DIPO-497/end-lists-refined-stories"
-unknowns: []
+unknowns:
+  - q: "May the ADR 0009 change go in as proposed: the Planning line in section 3. Views describes /end as ending the session with the list of stories that stayed Refined, and one Replaced line dated 2026-11-13 records the Ready step on /end as replaced (DIPO-497)?"
+    status: "resolved"
+    answer: "Yes, as proposed."
 test_plan:
   entries:
     - kind: "automated"
@@ -61,10 +64,6 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository, in a planning session confirm one story that passes and one that lacks a test plan, then type /end and answer y"
       expect: "The session ends and lists the second story as Refined with the reason and how to set it Ready; no Ready step opens"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "May the ADR 0009 change go in as proposed: the Planning line in section 3. Views describes /end as ending the session with the list of stories that stayed Refined, and one Replaced line dated 2026-11-13 records the Ready step on /end as replaced (DIPO-497)?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -98,4 +97,6 @@ Parked 2026-11-13 12:49 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 273,121 of 450,000 tokens; 131 of 135 turns; 8 of 68 minutes
 - Last good commit: d038755350a6ac11fca819a6c0daab0023fc5cf9
+
+Resumed 2026-11-13 13:01 UTC; grants: none; note: Yes, as proposed.
 <!-- SECTION:NOTES:END -->
