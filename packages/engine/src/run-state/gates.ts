@@ -385,6 +385,33 @@ export function mergeGatesOfRun(office: OfficeHandle, runId: RunId | string): St
     .map(toGate);
 }
 
+/** Every open merge gate of the office that is not an override gate, oldest first. */
+export function openMergeGates(office: OfficeHandle): StoredMergeGate[] {
+  return office
+    .all<GateRow>(
+      `${SELECT} and d.gate_id is null and g.override_of is null order by g.opened_at, g.rowid`,
+    )
+    .map(toGate);
+}
+
+/**
+ * Closes the open merge gate `gate` as superseded by the PR head `head`: decided `rejected` by
+ * rule, with the new head in the note. Inside the caller's transaction; returns the entries.
+ */
+export function supersedeMergeGate(
+  office: OfficeHandle,
+  gate: GateId | string,
+  head: string,
+  at: number,
+): NewEntry[] {
+  return decideMergeGate(office, gate, {
+    decision: "rejected",
+    by: "rule",
+    note: `superseded: the PR head moved to ${head.slice(0, 12)}`,
+    at,
+  });
+}
+
 /** The story's open merge gate that waits for the maintainer, newest first; null when none. */
 export function openMaintainerMergeGate(
   office: OfficeHandle,

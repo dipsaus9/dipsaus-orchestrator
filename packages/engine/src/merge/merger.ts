@@ -94,6 +94,8 @@ interface OfficeState {
   timer: TimerHandle | null;
   /** The reads of the PR-state round the running round belongs to, or null. */
   reads: PrStateReads | null;
+  /** The start sweep of stale merge gates ran (DIPO-498). */
+  swept: boolean;
 }
 
 const reasonOf = (error: unknown): string =>
@@ -108,7 +110,13 @@ export class AutoMerge {
   constructor(deps: AutoMergeDeps) {
     this.#deps = deps;
     this.#stories =
-      deps.stories === undefined ? null : new StoryMerges({ ...deps.stories, host: deps.host });
+      deps.stories === undefined
+        ? null
+        : new StoryMerges({
+            ...deps.stories,
+            host: deps.host,
+            ...(deps.logger === undefined ? {} : { logger: deps.logger }),
+          });
     deps.prState?.subscribe("merge", async (office, reads) => {
       const state = this.#offices.get(office);
       if (state === undefined || this.#deps.offices.get(office) === undefined) return;
@@ -160,6 +168,16 @@ export class AutoMerge {
     if (gate.head === head) return true;
     if (this.#stories === null) return false;
     return this.#stories.gateHolds(office.officeId as OfficeId, office, gate, head);
+  }
+
+  /**
+   * The open non-override merge gates of the run that do not hold for the PR head `head`
+   * (`StoryMerges.staleGates`); none without story PRs.
+   */
+  async staleGates(office: OfficeHandle, runId: RunId, head: string): Promise<StoredMergeGate[]> {
+    return (
+      (await this.#stories?.staleGates(office.officeId as OfficeId, office, runId, head)) ?? []
+    );
   }
 
   /**
@@ -272,6 +290,7 @@ export class AutoMerge {
         seconds: 0,
         timer: null,
         reads: null,
+        swept: false,
       };
       this.#offices.set(office, state);
     }
@@ -291,7 +310,14 @@ export class AutoMerge {
     }
     const ctx = this.#context(office, state, handle);
     try {
-      if (this.#stories !== null) await this.#stories.tick(ctx);
+      if (this.#stories !== null) {
+        // The start sweep (DIPO-498): once per office, before its first round, so git is loaded.
+        if (!state.swept) {
+          state.swept = true;
+          await this.#stories.sweep(ctx);
+        }
+        await this.#stories.tick(ctx);
+      }
       await this.#deps.backlog?.tick({
         ...ctx,
         now: () => this.#deps.clock.now(),

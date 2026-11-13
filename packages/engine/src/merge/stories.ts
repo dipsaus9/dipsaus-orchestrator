@@ -117,11 +117,13 @@ import {
   type MergeWait,
   mergeGatesOfRun,
   mergeGateSummary,
+  openMergeGates,
   mergeWaits,
   mirrorFlagged,
   openMergeGate,
   overrideGateOf,
   overrideGateSummary,
+  supersedeMergeGate,
   releasePathList,
   type StoredMergeGate,
 } from "../run-state/gates";
@@ -144,6 +146,9 @@ export const STORY_MERGE_NOTICES = {
   /** A merge of the base dipo made could not be recorded. */
   unrecorded: "merge.unrecorded",
 } as const;
+
+/** The answer of `StoryMerges.holdOf` (DIPO-498). */
+export type GateHold = "holds" | "stale" | "unknown";
 
 /** What the story PRs' auto-merge needs besides the poll's own reads and clock. */
 export interface StoryMergeDeps {
@@ -186,6 +191,8 @@ export interface StoryMergeDeps {
     readonly implemented: (name: CommandName) => boolean;
   };
   /** The conflict item's character budget of the run. */
+  /** Where a failed code tree key read is logged. */
+  readonly logger?: Logger;
   readonly itemMax?: (office: OfficeId, run: StoredRun) => number;
 }
 
@@ -586,23 +593,54 @@ export class StoryMerges {
   }
 
   /**
-   * True when `gate` holds for `head`: its own head, or a head whose verdict is the one of the
-   * gate's head (task-file-only commits such as the close-out share its code tree key).
+   * The one hold answer (DIPO-498) for `gate` and the PR head `head`: `holds` for its own head, or
+   * a head with the code tree key of the gate's head (task-file-only commits such as the close-out
+   * share it); `stale` only when both keys were read and differ; `unknown` when either read
+   * failed, which is logged. Never closes anything: the caller decides what unknown means.
    */
+  async holdOf(
+    officeId: OfficeId,
+    office: OfficeHandle,
+    gate: StoredMergeGate,
+    head: string,
+  ): Promise<GateHold> {
+    if (gate.head === head) return "holds";
+    if (gate.head === "" || head === "") return "unknown";
+    const run = findRun(office, gate.runId);
+    if (run === null) return "unknown";
+    const [atGate, atHead] = await Promise.all([
+      this.#treeOf(officeId, run, gate.head),
+      this.#treeOf(officeId, run, head),
+    ]);
+    if (atGate === null || atHead === null) return "unknown";
+    return atGate === atHead ? "holds" : "stale";
+  }
+
+  /** The code tree key of `head`, or null (logged) when it cannot be read. */
+  async #treeOf(officeId: OfficeId, run: StoredRun, head: string): Promise<string | null> {
+    try {
+      const tree = await (this.#deps.treeKey?.(officeId, run, head) ??
+        this.#deps.git.treeKey(officeId, run.story ?? "", head));
+      if (tree !== null) return tree;
+      this.#deps.logger?.warn("reading a code tree key found none", { run: run.runId, head });
+    } catch (error) {
+      this.#deps.logger?.warn("reading a code tree key failed", {
+        run: run.runId,
+        head,
+        reason: messageOf(error),
+      });
+    }
+    return null;
+  }
+
+  /** True when `gate` holds for `head` (`holdOf`, unknown as false). */
   async #holds(
     officeId: OfficeId,
     office: OfficeHandle,
-    run: StoredRun,
     gate: StoredMergeGate,
     head: string,
   ): Promise<boolean> {
-    if (gate.head === head) return true;
-    if (gate.head === "") return false;
-    const verdict = await this.#verdictFor(officeId, office, run, head);
-    if (verdict === null) return false;
-    const atGate = await this.#verdictFor(officeId, office, run, gate.head);
-    if (atGate === null) return false;
-    return atGate.gate === verdict.gate;
+    return (await this.holdOf(officeId, office, gate, head)) === "holds";
   }
 
   /**
@@ -616,15 +654,14 @@ export class StoryMerges {
     if (adr === null) return false;
     for (const gate of mergeGatesOfRun(ctx.office, run.runId).toReversed()) {
       if (gate.decision?.decision !== "approved" || !coversAdr(gate, adr)) continue;
-      if (await this.#holds(ctx.officeId, ctx.office, run, gate, head)) return true;
+      if (await this.#holds(ctx.officeId, ctx.office, gate, head)) return true;
     }
     return false;
   }
 
   /**
-   * True when the merge gate `gate` holds for `head` (its own head, or a head whose verdict is the
-   * gate head's, as task-file-only commits share its code tree key): `gate.approve` and
-   * `gate.reject` decide only such a gate.
+   * True when the merge gate `gate` holds for `head` (`holdOf`, unknown as false): `gate.approve`
+   * and `gate.reject` decide only such a gate.
    */
   async gateHolds(
     officeId: OfficeId,
@@ -632,10 +669,42 @@ export class StoryMerges {
     gate: StoredMergeGate,
     head: string,
   ): Promise<boolean> {
-    if (gate.head === head) return true;
-    const run = findRun(office, gate.runId);
-    if (run === null) return false;
-    return this.#holds(officeId, office, run, gate, head);
+    return (await this.holdOf(officeId, office, gate, head)) === "holds";
+  }
+
+  /**
+   * The open non-override merge gates of the run that do not hold for `head` (`holdOf` is
+   * `stale`); a gate whose read failed is left out. `StoryPrs` closes them with the new head.
+   */
+  async staleGates(
+    officeId: OfficeId,
+    office: OfficeHandle,
+    runId: RunId,
+    head: string,
+  ): Promise<StoredMergeGate[]> {
+    const stale: StoredMergeGate[] = [];
+    for (const gate of mergeGatesOfRun(office, runId)) {
+      if (gate.decision !== null || gate.overrideOf !== null) continue;
+      if ((await this.holdOf(officeId, office, gate, head)) === "stale") stale.push(gate);
+    }
+    return stale;
+  }
+
+  /**
+   * The start sweep (DIPO-498): closes each open non-override merge gate of the office that does
+   * not hold for its run's PR head, as `StoryPrs` does when it records a head. A gate whose read
+   * failed stays open.
+   */
+  async sweep(ctx: StoryMergeContext): Promise<void> {
+    for (const gate of openMergeGates(ctx.office)) {
+      const head = findStoryPr(ctx.office, gate.runId)?.headSha ?? "";
+      if (head === "") continue;
+      if ((await this.holdOf(ctx.officeId, ctx.office, gate, head)) !== "stale") continue;
+      ctx.write(() => {
+        const entries = supersedeMergeGate(ctx.office, gate.gate, head, ctx.clock.now());
+        return withWorkViews(ctx.office, entries);
+      });
+    }
   }
 
   /**
@@ -658,7 +727,7 @@ export class StoryMerges {
     const { run } = pr;
     let found: StoredMergeGate | null = null;
     for (const gate of mergeGatesOfRun(ctx.office, run.runId).toReversed()) {
-      if (await this.#holds(ctx.officeId, ctx.office, run, gate, input.head)) {
+      if (await this.#holds(ctx.officeId, ctx.office, gate, input.head)) {
         found = gate;
         break;
       }

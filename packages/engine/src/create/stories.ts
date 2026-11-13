@@ -96,6 +96,8 @@ function storyPrsOf(core: Core, partners: EnginePartners, guard: AutoMergeGuard)
       implemented: core.implemented,
     },
     boxRun: (office, stored) => partners.runs.get().isBoxRun(office, stored),
+    // A new PR head closes the merge gates that no longer hold for it (DIPO-498).
+    staleGates: (office, runId, head) => partners.autoMerge.get().staleGates(office, runId, head),
     // The auto-merge merges story PRs, with the base's required checks from GitHub (0002).
     mergesStories: true,
     required: host,

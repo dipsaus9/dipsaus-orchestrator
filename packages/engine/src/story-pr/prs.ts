@@ -146,6 +146,7 @@ import {
   type StoryPrRecord,
   updateStoryPr,
 } from "../records/story-prs";
+import { supersedeMergeGate } from "../run-state/gates";
 import { withWorkViews } from "../views/work";
 
 import { type PrBodyReview, type PrBodyTest, storyPrBodyHash, storyPrBody } from "./body";
@@ -213,6 +214,16 @@ export interface StoryPrsDeps {
    * failures (DIPO-465); without it such a head is red like any other.
    */
   readonly rerun?: CiRerunHost;
+  /**
+   * The open non-override merge gates of a run that do not hold for the PR head it is about to
+   * record (`AutoMerge.staleGates`, DIPO-498); they close as superseded with that head. Without
+   * it no gate closes here.
+   */
+  readonly staleGates?: (
+    office: OfficeHandle,
+    runId: RunId,
+    head: string,
+  ) => Promise<readonly { readonly gate: string }[]>;
   /** What a red head at the CI cap parks through; without it that story is not parked. */
   readonly park?: {
     readonly writer: ParkWriter;
@@ -819,6 +830,7 @@ export class StoryPrs {
     if (pr !== null && pr.number === input.replaces) {
       // The closed PR is open again on the host: it is the run's PR, never its own replacement.
       // Its record is open with no stored body, so the next sync writes the body it should have.
+      const stale = await this.#stale(state, input.runId, input.facts.head);
       this.#write(officeId, state, () => {
         setStoryPrState(state.office, input.runId, { state: "open", closedAt: null });
         updateStoryPr(state.office, input.runId, {
@@ -826,7 +838,7 @@ export class StoryPrs {
           title: input.title,
           bodyHash: "",
         });
-        return [];
+        return this.#supersede(state, stale, input.facts.head);
       });
       return;
     }
@@ -901,6 +913,8 @@ export class StoryPrs {
     ) {
       return;
     }
+    const stale =
+      stored.headSha === input.head ? [] : await this.#stale(state, stored.runId, input.head);
     const next: StoryPrRecord = {
       ...stored,
       headSha: input.head,
@@ -914,8 +928,33 @@ export class StoryPrs {
         bodyHash: input.hash,
       });
       // A new head is a change `story.pr` reports; a new body on the same head is not.
-      return stored.headSha === input.head ? [] : [prEntry(next, input.story)];
+      return stored.headSha === input.head
+        ? []
+        : [prEntry(next, input.story), ...this.#supersede(state, stale, input.head)];
     });
+  }
+
+  /** The gates of the run that do not hold for the head about to be recorded; none when unread. */
+  async #stale(state: Polled, runId: RunId, head: string): Promise<string[]> {
+    try {
+      const gates = (await this.#deps.staleGates?.(state.office, runId, head)) ?? [];
+      return gates.map((gate) => gate.gate);
+    } catch (error) {
+      this.#deps.logger?.warn("finding the merge gates a new PR head supersedes failed", {
+        run: runId,
+        head,
+        reason: messageOf(error),
+      });
+      return [];
+    }
+  }
+
+  /** Closes `gates` as superseded by `head`, inside a write. */
+  #supersede(state: Polled, gates: readonly string[], head: string): NewEntry[] {
+    if (gates.length === 0) return [];
+    const at = this.#deps.clock.now();
+    const entries = gates.flatMap((gate) => supersedeMergeGate(state.office, gate, head, at));
+    return withWorkViews(state.office, entries);
   }
 
   /**

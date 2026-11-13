@@ -1,10 +1,10 @@
 ---
 id: DIPO-498
 title: The desk never offers a merge gate that no longer holds for the PR's head
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 10:20'
-updated_date: '2026-11-13 10:35'
+updated_date: '2026-11-13 11:10'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -19,6 +19,14 @@ references:
   - packages/engine/src/worktree/done.ts
   - packages/engine/test/overview/desk.test.ts
   - packages/cli/src/desk-command.test.ts
+modified_files:
+  - packages/cli/src/desk-command.test.ts
+  - packages/engine/src/create/stories.ts
+  - packages/engine/src/merge/merger.ts
+  - packages/engine/src/merge/stories.ts
+  - packages/engine/src/run-state/gates.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/test/story-pr/prs.test.ts
 priority: high
 type: bug
 ordinal: 469000
@@ -83,11 +91,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 StoryMerges has one hold answer (holds, does not hold, unknown): does not hold only when both heads' code tree keys were read and differ; gateHolds for approve and reject is that answer with unknown as false
-- [ ] #2 When dipo records a new head for a story PR (the sync after a push and a reopened PR), every open non-override merge gate of the run that does not hold for it closes as superseded with the new head in its note; the check is injected into StoryPrs and runs before its #write
-- [ ] #3 A gate that still holds (its own head, or a task-file-only commit on top) stays open and shows as MERGE with dipo approve and dipo reject
-- [ ] #4 An unknown answer leaves the gate open and logs the failed read; once git recovers the gate still holds and merges
-- [ ] #5 Override gates never close on a moved head, and the PARKED row keeps dipo approve --note
-- [ ] #6 At daemon start one sweep closes the open non-override merge gates that do not hold for their run's PR head, under the same rule
-- [ ] #7 The desk offers no MERGE item for a closed gate; when the new head's gate opens the MERGE item shows with it; dipo desk and the TUI show the same items from office.desk
+- [x] #1 StoryMerges has one hold answer (holds, does not hold, unknown): does not hold only when both heads' code tree keys were read and differ; gateHolds for approve and reject is that answer with unknown as false
+- [x] #2 When dipo records a new head for a story PR (the sync after a push and a reopened PR), every open non-override merge gate of the run that does not hold for it closes as superseded with the new head in its note; the check is injected into StoryPrs and runs before its #write
+- [x] #3 A gate that still holds (its own head, or a task-file-only commit on top) stays open and shows as MERGE with dipo approve and dipo reject
+- [x] #4 An unknown answer leaves the gate open and logs the failed read; once git recovers the gate still holds and merges
+- [x] #5 Override gates never close on a moved head, and the PARKED row keeps dipo approve --note
+- [x] #6 At daemon start one sweep closes the open non-override merge gates that do not hold for their run's PR head, under the same rule
+- [x] #7 The desk offers no MERGE item for a closed gate; when the new head's gate opens the MERGE item shows with it; dipo desk and the TUI show the same items from office.desk
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 11:10 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 152,674 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
