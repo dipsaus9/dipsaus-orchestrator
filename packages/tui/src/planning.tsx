@@ -848,6 +848,11 @@ export function proposalBlocks(
             ),
             role: item.state === "filed" ? "ok" : "dim",
           },
+          // What the Ready gate decided as each story was filed: Ready, or Refined and why (DIPO-495).
+          ...(item.gate ?? []).map((line): Row => ({
+            text: truncate(`    ${line}`, width, ellipsis),
+            role: "dim",
+          })),
         ],
       });
     } else if (decidable(item)) {

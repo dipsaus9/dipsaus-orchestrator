@@ -197,13 +197,18 @@ function flushOf(
   return { state: before.has(branch) ? "updated" : "opened", branch, pr };
 }
 
+/** The kinds that run the Ready gate when they apply (DIPO-495). */
+const GATED_KINDS: readonly string[] = [FILE_KIND, REFINE_KIND, REVISE_KIND];
+
 /** How far a journaled change got, as `PlanningLane.outcomeOf` says it (DIPO-450). */
 function outcomeOfEntry(entry: JournalEntry): PlannedOutcome {
   const { state, notice } = entry;
   const merged = state === "merged";
   if (state === "pending" || state === "applied") return { outcome: "waiting", notice, merged };
   if (state === "committed" || state === "pushed" || state === "merged") {
-    return { outcome: "applied", notice, merged };
+    // A filing's, refinement's or revision's notice at its commit is the Ready gate's answer.
+    const gated = notice !== null && GATED_KINDS.includes(entry.kind);
+    return { outcome: "applied", notice, merged, ...(gated ? { gate: notice } : {}) };
   }
   // Dropped because the open branch holds its target state already: what it asks for holds.
   if (state === "dropped" && notice?.startsWith(ALREADY_ON_BRANCH) === true) {

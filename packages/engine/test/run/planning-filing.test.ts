@@ -5,13 +5,17 @@
 // context, criteria and references and keeps its field block; a split files the new story and
 // edits the old one; a decline files nothing. Every change is one `backlog:` commit on dipo's
 // backlog branch, which the backlog PR's structural check passes.
+// With the real Ready gate in the lane (DIPO-495, fail closed): a confirmed story that passes the
+// gate as filed is filed Ready in the same backlog PR with a passing decision for its content, one
+// that fails is filed Refined with the gate's messages in the view and on its card once indexed,
+// dipo's structural check passes that PR and refuses a task set Ready by hand on it.
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type OfficeId, PlanningView } from "@dipsaus-orchestrator/contract";
-import { withBareRemote } from "@dipsaus-orchestrator/testkit";
+import { git, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import {
   allEntries,
@@ -23,22 +27,34 @@ import {
 } from "../../src/backlog/lane";
 import { checkBacklogPr } from "../../src/backlog/pr/check";
 import { collectPrDiff } from "../../src/backlog/pr/diff";
+import { factsFor } from "../../src/backlog/pr/feature";
 import { backlogStoryStore } from "../../src/backlog/store";
 import { CommandError } from "../../src/commands/errors";
 import { evaluateGate } from "../../src/gate";
-import { readGateInput } from "../../src/gate-decisions";
+import { gateDecisionsOf, readGateInput } from "../../src/gate-decisions";
+import { gateContentHash } from "../../src/gate/hash";
+import { resolveStoryRef } from "../../src/records/story-keys";
+import { storyView } from "../../src/views/story";
 import { readPlanningRecord } from "../../src/records/planning-record";
 import { DEFAULT_CONFIG } from "../gate/fixtures";
 import {
   BACKLOG_FIXTURE,
   inRemote,
   laneSetup,
+  otherClone,
   publish,
   subjects,
   taskFile,
 } from "../backlog/lane/helpers";
 import { pass, task } from "../stories/helpers";
-import { blocksOf, commandContext, planningWorld, STORY_PROPOSAL, until } from "./planning-world";
+import {
+  blocksOf,
+  commandContext,
+  laneGate,
+  planningWorld,
+  STORY_PROPOSAL,
+  until,
+} from "./planning-world";
 
 const EDIT = {
   kind: "edit",
@@ -227,10 +243,10 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         ]);
         const base = (await inRemote(repo, "rev-parse", "main")).trim();
         const head = (await inRemote(repo, "rev-parse", branch)).trim();
-        const diff = await s.git.run(async (git) => {
+        const diff = await s.git.run(async (session) => {
           const location = s.git.worktreeLocation(worktree);
           if (location.kind !== "worktree") throw new Error("expected the backlog worktree");
-          return collectPrDiff({ git, worktree: location, cli: s.cli, base, head });
+          return collectPrDiff({ git: session, worktree: location, cli: s.cli, base, head });
         });
         expect(checkBacklogPr(diff, { keys: {}, claimed: [], passing: {} })).toMatchObject({
           passed: true,
@@ -298,4 +314,137 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
       { fixture: BACKLOG_FIXTURE },
     );
   }, 30_000);
+});
+
+// ---- Confirm = Ready (DIPO-495) -----------------------------------------------------------------
+
+/** A story the gate fails as filed: a criterion holds a vague phrase (R10). */
+const VAGUE = {
+  ...STORY_PROPOSAL,
+  title: "Export the stories as XML",
+  criteria: ["The XML export handles every story properly"],
+} as const;
+
+describe("a confirm files a story Ready when the gate passes it as filed (DIPO-495)", () => {
+  // Fail closed against the real path: the real planning lane, Backlog CLI and Ready gate.
+  it("files a passing story Ready with a stored passing decision, a failing one Refined with the gate's messages", async () => {
+    await withBareRemote(
+      async (repo) => {
+        mkdirSync(join(repo.dir, "backlog", "milestones"), { recursive: true });
+        writeFileSync(
+          join(repo.dir, "backlog", "milestones", "m-3 - rituals.md"),
+          '---\nid: m-3\ntitle: "M3 Rituals"\n---\n',
+        );
+        await publish(repo);
+        const s = await laneSetup(repo);
+        s.kinds.set(FILE_KIND, fileKind);
+        s.kinds.set(REVISE_KIND, reviseKind);
+        const lane = s.lane({ gate: laneGate(s) });
+        pass(s.t, s.office, [task("TASK-1", { title: "Add the CSV export command" })]);
+        const w = planningWorld(s.t, repo.root, {
+          office: s.office,
+          lane: () => planningLane(lane),
+        });
+        w.answerText = (n) => (n === 1 ? blocksOf(STORY_PROPOSAL, VAGUE) : "Noted.");
+        await w.sessions.start(commandContext(w), { kind: "plan", goal: "Export" });
+        const officeId = s.office.officeId as OfficeId;
+        await until(() => w.sessions.view(officeId)?.state === "waiting");
+        const ctx = commandContext(w);
+
+        const passing = await w.sessions.confirm(ctx, { proposal: 1 });
+        expect(passing.result).toMatchObject({ state: "filed", stories: ["TASK-4"] });
+        const failing = await w.sessions.confirm(ctx, { proposal: 2 });
+        expect(failing.result).toMatchObject({ state: "filed", stories: ["TASK-5"] });
+        const worktree = lane.worktreePath();
+        expect(fileOf(worktree, "TASK-4")).toContain("status: Ready");
+        expect(fileOf(worktree, "TASK-5")).toContain("status: Refined");
+
+        // One decision each, stored with no key for the content as filed: passing and failing.
+        const store = backlogStoryStore(s.cli);
+        const hashOf = async (id: string) =>
+          gateContentHash((await readGateInput(store, worktree, id, DEFAULT_CONFIG)).story);
+        const decided = s.office.all<{ key: string | null; decision: string; hash: string }>(
+          `select g.key as key, d.decision as decision, d.content_hash as hash
+             from gates g join gate_decisions d on d.office_id = g.office_id and d.gate_id = g.gate_id
+            where g.office_id = $office_id order by d.decided_at, d.rowid`,
+        );
+        expect(decided).toEqual([
+          { key: null, decision: "approved", hash: await hashOf("TASK-4") },
+          { key: null, decision: "rejected", hash: await hashOf("TASK-5") },
+        ]);
+
+        // The view and the session's next message say what the gate decided.
+        const view = PlanningView.parse(w.sessions.view(officeId));
+        expect(view.proposals?.map((p) => p.gate)).toEqual([
+          ["TASK-4 is Ready: the Ready gate passed it"],
+          [expect.stringContaining("TASK-5 is Refined: ready TASK-5 failed R10: ")],
+        ]);
+        await w.sessions.message(ctx, { text: "Next." });
+        const sent =
+          w.sent
+            .at(-1)
+            ?.flatMap((op) => ("write" in op ? [op.write] : []))
+            .join("") ?? "";
+        expect(sent).toContain("TASK-4 in dipo's backlog PR. TASK-4 is Ready");
+        expect(sent).toContain("TASK-5 is Refined: ready TASK-5 failed R10");
+
+        // dipo's own structural check passes the one backlog PR with TASK-4 at Ready.
+        const branch = passing.result.flush?.state === "pushed" ? passing.result.flush.branch : "";
+        expect(await subjects(repo.remote, repo.home, branch, "main")).toEqual([
+          "backlog: file a new story",
+          "backlog: file a new story",
+        ]);
+        const base = (await inRemote(repo, "rev-parse", "main")).trim();
+        const diffTo = (head: string) =>
+          s.git.run(async (session) => {
+            const location = s.git.worktreeLocation(worktree);
+            if (location.kind !== "worktree") throw new Error("expected the backlog worktree");
+            return collectPrDiff({ git: session, worktree: location, cli: s.cli, base, head });
+          });
+        const diff = await diffTo((await inRemote(repo, "rev-parse", branch)).trim());
+        expect(checkBacklogPr(diff, factsFor(s.office, diff))).toMatchObject({
+          passed: true,
+          failures: [],
+        });
+
+        // TASK-5 set Ready by hand on the branch has no passing decision for its content: refused.
+        const other = await otherClone(repo);
+        await git(other, repo.home, "checkout", "--quiet", branch);
+        const name = readdirSync(join(other, "backlog", "tasks")).find((file) =>
+          file.startsWith("task-5 - "),
+        );
+        const path = join(other, "backlog", "tasks", name ?? "");
+        writeFileSync(path, readFileSync(path, "utf8").replace("status: Refined", "status: Ready"));
+        await git(other, repo.home, "commit", "--quiet", "-am", "TASK-5 Ready by hand");
+        await git(other, repo.home, "push", "--quiet", "origin", `HEAD:${branch}`);
+        await repo.git("fetch", "--quiet", "origin");
+        const handMade = await diffTo((await inRemote(repo, "rev-parse", branch)).trim());
+        expect(
+          checkBacklogPr(handMade, factsFor(s.office, handMade)).failures.map((f) => [
+            f.rule,
+            f.task,
+          ]),
+        ).toEqual([["ready-decision", "TASK-5"]]);
+
+        // Once the base holds them, the index gives each its key and the decision for its content:
+        // TASK-5's card shows the gate's messages.
+        pass(s.t, s.office, [
+          task("TASK-1", { title: "Add the CSV export command" }),
+          task("TASK-4", { status: "Ready", gateHash: await hashOf("TASK-4") }),
+          task("TASK-5", { status: "Refined", gateHash: await hashOf("TASK-5") }),
+        ]);
+        const keyOf = (id: string) => {
+          const found = resolveStoryRef(s.office, id);
+          if (!found.ok) throw new Error(`no key for ${id}`);
+          return found.key;
+        };
+        expect(gateDecisionsOf(s.office, keyOf("TASK-4")).map((d) => d.passed)).toEqual([true]);
+        expect(gateDecisionsOf(s.office, keyOf("TASK-5")).map((d) => d.passed)).toEqual([false]);
+        expect(storyView(s.office, keyOf("TASK-5"))?.gateMessages?.join(" ")).toContain(
+          'vague phrase "properly"',
+        );
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  }, 60_000);
 });

@@ -9,7 +9,13 @@ import { join } from "node:path";
 import { type OfficeId, type Spawn, StoryKey } from "@dipsaus-orchestrator/contract";
 import { git, type TempRepo, type TempRepoWithRemote } from "@dipsaus-orchestrator/testkit";
 
-import { OfficeLane, type LaneOpKind, editKind, EDIT_KIND } from "../../../src/backlog/lane";
+import {
+  OfficeLane,
+  type LaneOpKind,
+  editKind,
+  EDIT_KIND,
+  type OfficeLaneOptions,
+} from "../../../src/backlog/lane";
 import type { BacklogCli } from "../../../src/backlog/runner";
 import { readLogState } from "../../../src/changelog/log";
 import type { OfficeHandle } from "../../../src/db/office";
@@ -34,7 +40,8 @@ export interface LaneSetup {
     /** Called on each engine git call before it starts. */
     onGit?: (args: readonly string[]) => void;
   };
-  lane(): OfficeLane;
+  /** The office's lane; with `gate`, the Ready gate its planning kinds run (DIPO-495). */
+  lane(options?: { readonly gate?: OfficeLaneOptions["gate"] }): OfficeLane;
 }
 
 /** Commits the fixture and, with a remote, pushes `main`. */
@@ -83,7 +90,7 @@ export async function laneSetup(
     kinds: new Map([[EDIT_KIND, editKind(EDIT_KIND)]]),
     log,
     hooks,
-    lane: () =>
+    lane: (options = {}) =>
       new OfficeLane({
         officeId: office.officeId,
         office,
@@ -91,6 +98,7 @@ export async function laneSetup(
         cli: setup.cli,
         clock: t.clock,
         kinds: setup.kinds,
+        ...(options.gate === undefined ? {} : { gate: options.gate }),
       }),
   };
   return setup;

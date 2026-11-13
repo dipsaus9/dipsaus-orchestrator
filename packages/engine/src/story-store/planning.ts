@@ -208,11 +208,20 @@ export interface PlanningLane {
   toRefined(story: PlanningStory): Promise<PlannedChange>;
   /** Files an accepted idea as a draft; `subject` names it in the commit. */
   fileDraft(subject: string, draft: ProposedDraft): Promise<PlannedChange>;
-  /** Files a new story a planning session confirmed (DIPO-450). */
+  /**
+   * Files a new story a planning session confirmed (DIPO-450): Ready when the lane's Ready gate
+   * passes it as filed, else Refined (DIPO-495).
+   */
   fileStory(target: FileTarget): Promise<PlannedChange>;
-  /** Changes a story's wording, criteria or references as a planning session confirmed. */
+  /**
+   * Changes a story's wording, criteria or references as a planning session confirmed; a Ready
+   * story is gated again on its revised content and stays Ready only when it passes (DIPO-495).
+   */
   reviseStory(story: PlanningStory, target: ReviseTarget): Promise<PlannedChange>;
-  /** Refines a draft into a Refined story with a new id, as a triage session confirmed (DIPO-454). */
+  /**
+   * Refines a draft into a story with a new id, as a triage session confirmed (DIPO-454): Ready
+   * when the lane's Ready gate passes it as filed, else Refined (DIPO-495).
+   */
   refineDraft(draft: PlanningStory, target: RefineTarget): Promise<PlannedChange>;
   /**
    * How far the journaled `change` got (DIPO-450): `waiting` to be applied, `applied` (committed,
@@ -267,6 +276,12 @@ export interface PlannedOutcome {
   readonly notice: string | null;
   /** True once the change's backlog PR merged: the base holds it. */
   readonly merged: boolean;
+  /**
+   * What the Ready gate decided when the lane applied a filing, a refinement or a revision of a
+   * Ready story (DIPO-495): the story is Ready, or Refined with the gate's messages. Absent before
+   * it applied, and for every other change.
+   */
+  readonly gate?: string;
 }
 
 /** A change a planning session's proposal journaled, with its target (DIPO-480). */

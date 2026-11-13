@@ -4,8 +4,9 @@
 // both sides with the Backlog CLI in a temporary worktree of this script's, removed afterwards.
 //
 // CI has no dipo database, so two facts come from here instead:
-// - the Ready gate decision of a task the PR makes Ready is the gate run on the head's backlog
-//   (`checkReadyGate`): it passes only when the gate passes that very content;
+// - the Ready gate decision of a task the PR makes Ready, or adds at Ready (DIPO-495), is the gate
+//   run on the head's backlog (`checkReadyGate`): it passes only when the gate passes that very
+//   content;
 // - no task has a live claim. Claims live in the maintainer's dipo database, and dipo checks them
 //   with its own run of this check before it merges a backlog PR.
 //
