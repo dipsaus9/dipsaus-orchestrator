@@ -984,23 +984,40 @@ export function preparedFrontMatter(block: string): string {
     .join("\n");
 }
 
+/** A Markdown file split at its front matter, found as Backlog.md finds it. */
+type FrontMatterSplit =
+  | { readonly kind: "none" }
+  /** The opening line names a language (`---js`). */
+  | { readonly kind: "language" }
+  | { readonly kind: "block"; readonly block: string; readonly rest: string };
+
 /**
  * Pure: the front matter of the Markdown `text`, found as Backlog.md finds it (a first line that
  * starts with `---`, up to the next line that starts with `---`), after every leading byte order
- * mark. A file that does not open with `---` has none.
+ * mark, and the text after the closing line. A file that does not open with `---` has none.
  */
-function frontMatterVerdict(text: string): FrontMatterVerdict {
+function splitFrontMatter(text: string): FrontMatterSplit {
   const body = text.replace(/^\ufeff+/, "");
-  if (!body.startsWith("---")) return { refusal: null, statusCommand: false };
+  if (!body.startsWith("---")) return { kind: "none" };
   const firstEnd = body.indexOf("\n");
   const first = (firstEnd < 0 ? body : body.slice(0, firstEnd)).replace(/\r$/, "");
-  if (first.slice(3).trim() !== "") return { refusal: NOT_PLAIN_YAML, statusCommand: false };
-  if (firstEnd < 0) return { refusal: null, statusCommand: false };
+  if (first.slice(3).trim() !== "") return { kind: "language" };
+  if (firstEnd < 0) return { kind: "none" };
   const close = body.indexOf("\n---", firstEnd);
   const block = (close < 0 ? body.slice(firstEnd + 1) : body.slice(firstEnd + 1, close)).replace(
     /\r$/,
     "",
   );
+  const after = close < 0 ? "" : body.slice(close + 1);
+  const lineEnd = after.indexOf("\n");
+  return { kind: "block", block, rest: lineEnd < 0 ? "" : after.slice(lineEnd + 1) };
+}
+
+function frontMatterVerdict(text: string): FrontMatterVerdict {
+  const split = splitFrontMatter(text);
+  if (split.kind === "none") return { refusal: null, statusCommand: false };
+  if (split.kind === "language") return { refusal: NOT_PLAIN_YAML, statusCommand: false };
+  const { block } = split;
   const named = namesStatusCommand(block);
   const parsed = parseYamlDocument(preparedFrontMatter(block));
   if (!parsed.ok) return { refusal: DOES_NOT_PARSE, statusCommand: named };
@@ -1011,6 +1028,28 @@ function frontMatterVerdict(text: string): FrontMatterVerdict {
     !Array.isArray(value) &&
     Object.keys(value).some((key) => key === "<<" || namesStatusCommand(key));
   return { refusal: null, statusCommand: named || keyed };
+}
+
+/** A task file's front matter as a mapping, and the text after it; or why it is neither. */
+export type TaskFrontMatter =
+  | { readonly ok: true; readonly fields: Readonly<Record<string, unknown>>; readonly body: string }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Pure: the front matter of the task file `text`, prepared and parsed as Backlog.md 1.53 does
+ * (`preparedFrontMatter`, then `parseYamlDocument`), and the Markdown body after it.
+ */
+export function parseTaskFrontMatter(text: string): TaskFrontMatter {
+  const split = splitFrontMatter(text);
+  if (split.kind === "none") return { ok: false, reason: "it has no front matter block" };
+  if (split.kind === "language") return { ok: false, reason: NOT_PLAIN_YAML };
+  const parsed = parseYamlDocument(preparedFrontMatter(split.block));
+  if (!parsed.ok) return { ok: false, reason: DOES_NOT_PARSE };
+  const { value } = parsed;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { ok: false, reason: "its front matter is not a mapping" };
+  }
+  return { ok: true, fields: value as Record<string, unknown>, body: split.rest };
 }
 
 /**

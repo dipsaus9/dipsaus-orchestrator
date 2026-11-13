@@ -28,6 +28,7 @@ import {
 } from "./runner";
 import { editInStoryBacklog, inStoryBacklog, repoPath } from "./story-copy";
 import { lastTaskFileCommit, taskFileAt, taskFileStatus } from "./task-file";
+import { readTaskFacts } from "./task-files";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -85,6 +86,7 @@ export function backlogStoryStore(cli: BacklogCli): StoryStore {
       return readBacklog(cli, checkout, pass);
     },
     read: (checkout, kind, listed) => readStory(cli, checkout, kind, listed),
+    taskFacts: async (checkout) => readTaskFacts(checkout),
     async milestones(checkout) {
       const listed = await runBacklog(cli, checkout, [
         "milestone",

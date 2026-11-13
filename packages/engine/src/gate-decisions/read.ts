@@ -1,12 +1,10 @@
 // The gate's inputs read through the StoryStore in one worktree (the office's `_base`): the story
 // (a draft for a `DRAFT-n` id), every active task with its dependencies and branch (from the
-// mirror when the caller has it for this commit, DIPO-180, else the whole task list and one read
-// each) and the milestones. The office configuration comes from the caller.
+// mirror when the caller has it for this commit, DIPO-180, else one pass over the task files,
+// DIPO-494) and the milestones. The office configuration comes from the caller.
 
 import { openDependencies } from "../records/select";
 import { isProvisionalId } from "../records/story-keys";
-import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
-import { StoryParseError } from "../story-store/errors";
 import { checkoutFiles } from "../story-store/folder";
 import type { StoryStore } from "../story-store/store";
 import type { PlainListEntry, PlainTask } from "../story-store/story";
@@ -50,33 +48,15 @@ export async function listTasks(
 }
 
 /**
- * Every listed id through its own view, once each: the slow read, one CLI call per task. The
- * result is keyed by id in the order listed. A view that does not parse is `undefined`, so the task
- * still counts as active (`gateTasksOf`). `known` is a view the caller already has, not read again.
+ * The other active tasks as the gate reads them (R13, R14, R19), from one pass over the checkout's
+ * task files (DIPO-494, `StoryStore.taskFacts`), never one view per task.
  */
-export async function viewListedTasks(
-  stories: StoryStore,
-  cwd: string,
-  ids: readonly string[],
-  known?: PlainTask,
-): Promise<Map<string, PlainTask | undefined>> {
-  const views = await mapLimited(ids, VIEW_CONCURRENCY, async (id) => {
-    if (known !== undefined && id === known.id) return known;
-    try {
-      return await view(stories, cwd, id);
-    } catch (error) {
-      if (!(error instanceof StoryParseError)) throw error;
-      return undefined;
-    }
-  });
-  return new Map(ids.map((id, i) => [id, views[i]]));
-}
-
-/** The views of `viewListedTasks` as GateTask values; a task whose view did not parse has no dependencies or branch. */
-export function gateTasksOf(views: ReadonlyMap<string, PlainTask | undefined>): GateTask[] {
-  return [...views].map(([id, task]) =>
-    task === undefined ? { id, dependencies: [] } : gateTaskFromView(task),
-  );
+export async function otherTasks(stories: StoryStore, cwd: string): Promise<GateTask[]> {
+  return (await stories.taskFacts(cwd)).map(({ id, dependencies, branch }) => ({
+    id,
+    dependencies,
+    ...(branch === undefined ? {} : { branch }),
+  }));
 }
 
 /**
@@ -109,14 +89,22 @@ export function gateInputOf(
   };
 }
 
+/** Where `readGateInput` reports how long each of its parts took, at DEBUG (DIPO-494). */
+export interface GateReadTiming {
+  now(): number;
+  debug(message: string, fields: Readonly<Record<string, unknown>>): void;
+}
+
 /**
  * Reads the gate input of `story` in the worktree `cwd`. With `others`, the active tasks the
- * mirror holds for this very commit (`cachedGateTasks`), only the story and the milestones go
- * through the store: two reads however many tasks there are. Without it, every listed task is viewed.
- * `baseFiles` are the base tree's file paths the caller listed, passed on in the input.
+ * mirror holds for this very commit (`cachedGateTasks`), they are not read again. Without it, one
+ * pass over the task files reads them (`otherTasks`). Either way the store runs the story's own
+ * view and the milestones, and the story folders are read from files: at most three CLI calls,
+ * however many tasks there are. `baseFiles` are the base tree's file paths the caller listed,
+ * passed on in the input. `timing` gets one DEBUG line with the duration of each part.
  * Throws `StoryNotFoundError` when the story is not there, and a `StoryStoreError` when the store
- * fails otherwise or a story does not parse. A failed
- * view fails the read; the input is never built from part of the backlog.
+ * fails otherwise, a story does not parse, or a task file does not. The input is never built from
+ * part of the backlog.
  */
 export async function readGateInput(
   stories: StoryStore,
@@ -125,7 +113,19 @@ export async function readGateInput(
   config: GateConfig,
   others?: readonly GateTask[],
   baseFiles?: readonly string[],
+  timing?: GateReadTiming,
 ): Promise<GateInput> {
+  const parts: Record<string, number | string> = {
+    story,
+    tasks: others === undefined ? "files" : "mirror",
+  };
+  let mark = timing?.now() ?? 0;
+  const lap = (part: string): void => {
+    if (timing === undefined) return;
+    const at = timing.now();
+    parts[`${part}Ms`] = at - mark;
+    mark = at;
+  };
   let target;
   try {
     target = await view(stories, cwd, story);
@@ -135,18 +135,14 @@ export async function readGateInput(
     }
     throw error;
   }
-  const activeTasks =
-    others ??
-    gateTasksOf(
-      await viewListedTasks(
-        stories,
-        cwd,
-        (await listTasks(stories, cwd)).map((entry) => entry.id),
-        target,
-      ),
-    );
+  lap("story");
+  const activeTasks = others ?? (await otherTasks(stories, cwd));
+  lap("tasks");
   const milestones = await stories.milestones(cwd);
+  lap("milestones");
   // The folders R12 keeps out of the References, as the store names them in this checkout.
   const folders = await stories.storyFolders(checkoutFiles(cwd));
+  lap("folders");
+  timing?.debug("gate input read", parts);
   return gateInputOf(target, activeTasks, milestones, folders, config, baseFiles);
 }
