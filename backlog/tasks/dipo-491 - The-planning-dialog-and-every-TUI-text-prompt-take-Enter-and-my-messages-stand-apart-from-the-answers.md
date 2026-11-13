@@ -1,10 +1,10 @@
 ---
 id: DIPO-491
 title: 'The planning dialog and TUI prompts take Enter, and my messages stand apart'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 11:43'
+updated_date: '2026-11-13 12:07'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -27,6 +27,34 @@ references:
   - docs/design/tui-v2/spec.md
   - docs/design/tui-v2/roles.json
   - docs/decisions/0009-tui.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/design/tui-v2/keymap.json
+  - docs/design/tui-v2/screens/03-run.txt
+  - docs/design/tui-v2/screens/07-plan.txt
+  - docs/design/tui-v2/screens/11-desk-previews.txt
+  - docs/design/tui-v2/spec.md
+  - packages/tui/src/actions.ts
+  - packages/tui/src/checklist.test.tsx
+  - packages/tui/src/colour.tsx
+  - packages/tui/src/composer.test.tsx
+  - packages/tui/src/composer.tsx
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/detail.tsx
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/keys.ts
+  - packages/tui/src/palette.test.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/prompt-box.ts
+  - packages/tui/src/question-dialog.test.ts
+  - packages/tui/src/question-dialog.ts
+  - packages/tui/src/screen.tsx
+  - packages/tui/src/spans.tsx
+  - packages/tui/src/steering.ts
+  - packages/tui/src/transcript.test.ts
+  - packages/tui/src/transcript.ts
 priority: high
 type: bug
 ordinal: 463000
@@ -86,3 +114,18 @@ test_plan:
 - [x] #6 The footer and prompt hints, keymap.json and spec.md show the new keys, and a test checks the hints name no ctrl- key
 - [x] #7 ADR 0009's Planning line names the dialog keys and the message style, with one Replaced line for Ctrl-S and Ctrl-N in the dialog and the Composer
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 12:07 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 148,352 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
