@@ -2,6 +2,8 @@
 // the story, the office's active tasks and its milestones through the Backlog CLI, and the base
 // tree's file paths through git (R29), and passes them in; the gate itself reads nothing.
 
+import type { RoleKind } from "@dipsaus-orchestrator/contract";
+
 import type { OfficeConfig } from "../config/schema";
 
 /**
@@ -94,6 +96,7 @@ export interface GateTask {
 export interface GateRole {
   readonly name: string;
   readonly code: boolean;
+  readonly kind: RoleKind;
 }
 
 /** The office configuration keys the gate reads. */

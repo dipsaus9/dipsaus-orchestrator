@@ -208,7 +208,10 @@ describe("a triage session (DIPO-454)", () => {
           DEFAULT_CONFIG,
         );
         expect(
-          evaluateGate({ ...input, roster: [{ name: "developer", code: true }] }, "ready").failures,
+          evaluateGate(
+            { ...input, roster: [{ name: "developer", code: true, kind: "code" }] },
+            "ready",
+          ).failures,
         ).toEqual([]);
         expect(
           s.office.get<{ promoted_to: string | null }>(

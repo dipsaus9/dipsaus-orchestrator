@@ -26,6 +26,7 @@ describe("parseRoleFile", () => {
         name: "developer",
         purpose: "Builds stories",
         instructions: "Build the story.",
+        kind: "code",
         model: "opus",
         effort: "high",
       },
@@ -36,9 +37,26 @@ describe("parseRoleFile", () => {
     const parsed = parseRoleFile(PATH, file("version: 1\npurpose: Builds stories"));
     expect(parsed.ok && Object.keys(parsed.role).toSorted()).toEqual([
       "instructions",
+      "kind",
       "name",
       "purpose",
     ]);
+  });
+
+  it("loads kind design and docs, and a file without kind as code", () => {
+    for (const kind of ["design", "docs"] as const) {
+      const parsed = parseRoleFile(PATH, file(`version: 1\npurpose: x\nkind: ${kind}`));
+      expect(parsed.ok && parsed.role.kind).toBe(kind);
+    }
+    const plain = parseRoleFile(PATH, file("version: 1\npurpose: x"));
+    expect(plain.ok && plain.role.kind).toBe("code");
+  });
+
+  it("refuses an unknown kind naming the file, the key and the three values", () => {
+    const message = refusal(PATH, file("version: 1\npurpose: x\nkind: writer"));
+    expect(message).toStartWith(`${PATH}: `);
+    expect(message).toContain("`kind`");
+    expect(message).toContain("code, design, docs");
   });
 
   it("refuses each fault with a message naming the file", () => {

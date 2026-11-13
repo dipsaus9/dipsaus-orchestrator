@@ -135,7 +135,7 @@ export function instructionLines(role: RoleView | undefined, columns: number): s
 
 /** What a role leaves to its tier is named so. */
 export function modelLine(role: RoleView): string {
-  return `model ${role.model ?? "tier"} · effort ${role.effort ?? "tier"}`;
+  return `kind ${role.kind} · model ${role.model ?? "tier"} · effort ${role.effort ?? "tier"}`;
 }
 
 interface ListRow {

@@ -25,10 +25,11 @@ const ROLES = {
       name: "developer",
       purpose: "Builds a story",
       instructions: "Read the story first.\nThen build it.",
+      kind: "code",
       model: "claude-sonnet-5-5",
       effort: "medium",
     },
-    { name: "tester", purpose: "Tests a story", instructions: "Run the checklist." },
+    { name: "tester", purpose: "Tests a story", instructions: "Run the checklist.", kind: "docs" },
   ],
   invalid: [{ path: ".dipo/roles/broken.md", problem: "key `purpose`: Required" }],
 };
@@ -47,10 +48,10 @@ describe("the Roles room", () => {
     await ui.press("6");
     const frame = await ui.waitFor("Builds a story");
     expect(frame).toContain("developer");
-    expect(frame).toContain("model claude-sonnet-5-5 · effort medium");
+    expect(frame).toContain("kind code · model claude-sonnet-5-5");
     expect(frame).toContain("tester");
     expect(frame).toContain("Tests a story");
-    expect(frame).toContain("model tier · effort tier");
+    expect(frame).toContain("kind docs · model tier · effort tier");
     expect(frame).toContain("failed to load");
     expect(frame).toContain(".dipo/roles/broken.md: key `purpose`:");
     expect(frame).toContain("Required");

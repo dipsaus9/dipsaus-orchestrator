@@ -150,7 +150,10 @@ function realGate(
         identity?.story ?? "",
         DEFAULT_CONFIG,
       );
-      const result = evaluateGate({ ...input, roster: [{ name: "developer", code: true }] }, mode);
+      const result = evaluateGate(
+        { ...input, roster: [{ name: "developer", code: true, kind: "code" }] },
+        mode,
+      );
       const stored = s.office.immediate(() =>
         storeGateDecision(s.office, s.t.ids, {
           key: story,
