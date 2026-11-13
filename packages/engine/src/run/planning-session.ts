@@ -95,6 +95,8 @@ import {
   type PlanningReadyView,
   planningStart,
   type PlanningState,
+  type PlanningMessageView,
+  type PlanningModelSession,
   type PlanningView,
   RunId,
   type StoryKey,
@@ -757,6 +759,8 @@ export class PlanningSessions {
       throw notOpen(`${open.run} could not be reached`);
     }
     this.#recordMessage(open, text);
+    // The view lists the message the moment it was kept (DIPO-490).
+    this.#append(open, () => [this.#updated(open)]);
     if (filing !== null) open.filedSeen = filing.signature;
     open.notes = open.notes.slice(notes.length);
     open.autoRefusals = 0;
@@ -2145,6 +2149,47 @@ export class PlanningSessions {
     };
   }
 
+  /**
+   * The session's model sessions in order and the maintainer's messages, from the record
+   * (DIPO-490). The model session of `open` is always listed; its end is not in the record yet
+   * while its `planning.ended` is being written, so it comes from `open`.
+   */
+  #conversationOf(
+    open: Open,
+    endedAt: number | undefined,
+  ): { sessions: PlanningModelSession[]; messages: PlanningMessageView[] } {
+    const entries = readPlanningRecord(open.handle, open.session);
+    const sessions: PlanningModelSession[] = entries
+      .filter((entry) => entry.kind === "started" && entry.run !== null)
+      .map((started) => {
+        const run = started.run as string;
+        const end = entries.find((entry) => entry.kind === "ended" && entry.run === run);
+        return {
+          run: RunId.parse(run),
+          startedAt: iso(started.at),
+          ...(end === undefined ? {} : { endedAt: iso(end.at), ended: end.text }),
+        };
+      });
+    const current = sessions.findIndex((item) => item.run === open.run);
+    const now: PlanningModelSession = {
+      ...(sessions[current] ?? { run: open.run, startedAt: iso(open.startedAt) }),
+      ...(endedAt === undefined || open.ending === null || open.state !== "ended"
+        ? {}
+        : { endedAt: iso(endedAt), ended: open.ending.reason }),
+    };
+    if (current === -1) sessions.push(now);
+    else sessions[current] = now;
+    const messages = entries
+      .filter((entry) => entry.kind === "message" && entry.run !== null)
+      .map((entry) => ({
+        run: RunId.parse(entry.run),
+        text: entry.text,
+        outputOffset: entry.outputOffset ?? 0,
+        at: iso(entry.at),
+      }));
+    return { sessions, messages };
+  }
+
   /** The planning view of `open`, from its state and the stored usage and signals. */
   #viewOf(open: Open, endedAt?: number): PlanningView {
     const { handle } = open;
@@ -2159,8 +2204,10 @@ export class PlanningSessions {
             budgetLimit: 0,
           }).run;
     const noOutput = activeSignals(handle, open.run).find((fact) => fact.signal === "no-output");
+    const { sessions, messages } = this.#conversationOf(open, endedAt);
     return {
       run: open.run,
+      session: open.session,
       ...(open.state === "starting" ? {} : { agent: open.agent }),
       kind: open.kind,
       goal: open.goal,
@@ -2177,6 +2224,8 @@ export class PlanningSessions {
       startedAt: iso(open.startedAt),
       ...(open.lastOutputAt === null ? {} : { lastOutputAt: iso(open.lastOutputAt) }),
       ...(open.continued === null ? {} : { continuedAt: iso(open.startedAt) }),
+      sessions,
+      ...(messages.length === 0 ? {} : { messages }),
       ...(endedAt === undefined ? {} : { endedAt: iso(endedAt) }),
       ...(open.ending === null || open.state !== "ended" ? {} : { ended: open.ending.reason }),
       ...(open.ending?.detail === undefined || open.state !== "ended"

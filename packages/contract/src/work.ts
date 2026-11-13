@@ -777,12 +777,34 @@ export type PlanningReadyView = z.infer<typeof PlanningReadyView>;
 export const PlanningRefusal = z.object({ at: Timestamp, problems: z.array(z.string()) });
 export type PlanningRefusal = z.infer<typeof PlanningRefusal>;
 
+// One model session of a planning session, in order (DIPO-490): its run, when it started and, once
+// it ended, when and why.
+export const PlanningModelSession = z.object({
+  run: RunId,
+  startedAt: Timestamp,
+  endedAt: Timestamp.optional(),
+  ended: PlanningEndReason.optional(),
+});
+export type PlanningModelSession = z.infer<typeof PlanningModelSession>;
+
+// A message the maintainer sent in a planning session, from its record (DIPO-490): the model
+// session it went to and the end of that run's stored output when it was sent.
+export const PlanningMessageView = z.object({
+  run: RunId,
+  text: z.string(),
+  outputOffset: Count,
+  at: Timestamp,
+});
+export type PlanningMessageView = z.infer<typeof PlanningMessageView>;
+
 // The view of a planning session, derived by the engine. `usage` is the session's spend so far, as
 // the model proxy counted it; `turns` the answers it finished; `health` is `quiet` or `stuck`
 // only while it works on an answer, never while it waits for the maintainer. `proposals` are the
 // session's proposals in order, `refusals` the latest refused blocks (DIPO-450).
 export const PlanningView = z.object({
   run: RunId,
+  // The planning session: the run of its first model session. `run` is the model session now.
+  session: RunId.optional(),
   agent: AgentId.optional(),
   kind: PlanningKind,
   goal: z.string(),
@@ -799,6 +821,10 @@ export const PlanningView = z.object({
   // When the session last continued in a fresh model session, after its context filled or its
   // model session ended (DIPO-448); absent while it never did.
   continuedAt: Timestamp.optional(),
+  // The session's model sessions in order, and the maintainer's messages from the record
+  // (DIPO-490).
+  sessions: z.array(PlanningModelSession).optional(),
+  messages: z.array(PlanningMessageView).optional(),
   proposals: z.array(PlanningProposalView).optional(),
   refusals: z.array(PlanningRefusal).optional(),
   // The question blocks the maintainer has not answered yet (DIPO-455).

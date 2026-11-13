@@ -8,7 +8,8 @@
 // `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55). The
 // open planning session is a view the engine sends (`planning.started`, `.updated`, `.output`
 // with a view, `.ended`); its `planning.output` text goes to `onPlanningOutput` listeners the same
-// way (DIPO-449).
+// way (DIPO-449). A `planning.ended` for a full context keeps the view, marked continuing, until
+// the fresh model session's `planning.started` or `planning.continued` replaces it (DIPO-490).
 // A stream the daemon ends with any other error than `stream.resetRequired` (such as
 // `engine.recovering` right after a daemon restart) is subscribed again after the store's last
 // cursor, so an open view keeps following (DIPO-322): while the error is retryable on a backoff
@@ -43,6 +44,7 @@ import {
   type LaneProgress,
   planningEnded,
   planningOutput,
+  planningContinued,
   planningStarted,
   planningUpdated,
   type PlanningView,
@@ -150,6 +152,11 @@ export interface OfficeStoreState {
   } | null;
   /** The selected office's open planning session (DIPO-449); null without one. */
   readonly planning: PlanningView | null;
+  /**
+   * True while the open planning session's model session ended on a full context and the fresh one
+   * has not started (DIPO-490): `planning` then keeps the session's last view, so the view goes on.
+   */
+  readonly planningContinuing: boolean;
   /** The planning lane's open changes and the backlog PR they wait on (DIPO-481); null when none. */
   readonly lane: LaneProgress | null;
   /**
@@ -224,6 +231,7 @@ const EMPTY_OFFICE = {
   tests: [],
   testEnd: null,
   planning: null,
+  planningContinuing: false,
   lane: null,
   cursor: null,
 } as const;
@@ -512,6 +520,7 @@ export class OfficeStore {
       tests: snapshot.tests,
       testEnd: null,
       planning: snapshot.planning ?? null,
+      planningContinuing: false,
       lane: snapshot.lane ?? null,
       cursor: snapshot.cursor,
       snapshots: this.#state.snapshots + 1,
@@ -870,8 +879,14 @@ export class OfficeStore {
   #applyPlanning(event: Event): boolean {
     switch (event.type) {
       case planningStarted.type:
+      case planningContinued.type:
       case planningUpdated.type: {
-        const definition = event.type === planningStarted.type ? planningStarted : planningUpdated;
+        const definition =
+          event.type === planningStarted.type
+            ? planningStarted
+            : event.type === planningContinued.type
+              ? planningContinued
+              : planningUpdated;
         const data = definition.data.safeParse(event.data);
         if (data.success) this.#putPlanning(data.data.view);
         return true;
@@ -889,7 +904,10 @@ export class OfficeStore {
       case planningEnded.type: {
         const data = planningEnded.data.safeParse(event.data);
         if (data.success && this.#state.planning?.run === data.data.run) {
-          this.#update({ planning: null });
+          // A full context continues in a fresh model session: the view stays until it starts (DIPO-490).
+          if (data.data.reason === "context-full") {
+            this.#update({ planning: data.data.view, planningContinuing: true });
+          } else this.#update({ planning: null, planningContinuing: false });
         }
         return true;
       }
@@ -929,7 +947,8 @@ export class OfficeStore {
 
   /** Replaces the planning view of its session; an ended session is no longer open. */
   #putPlanning(view: PlanningView): void {
-    this.#update({ planning: view.state === "ended" ? null : view });
+    const ended = view.state === "ended";
+    this.#update({ planning: ended ? null : view, planningContinuing: false });
   }
 
   /** Replaces the run's view by `run`. */

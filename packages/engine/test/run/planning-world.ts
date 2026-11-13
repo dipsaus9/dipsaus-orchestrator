@@ -164,6 +164,8 @@ export interface PlanningWorld {
   holdAnswers: boolean;
   /** Gives the answer to the last message it held back. */
   release(): void;
+  /** Resolves once no proposal of the open session is still being filed. */
+  flushed(): Promise<void>;
   /** The usage of answer `n` (from 1); the default one unless a test sets it (DIPO-489). */
   answerUsage: (n: number) => MessageUsage | undefined;
   /** Stream lines that go before answer `n`, such as a subagent's message or a compaction. */
@@ -236,6 +238,11 @@ export function planningWorld(
     ideas: [],
     infos: [],
   } as unknown as PlanningWorld;
+  w.flushed = () =>
+    until(() => {
+      const view = w.sessions.view(w.office.officeId as never);
+      return view?.proposals?.every((item) => item.state !== "filing") ?? true;
+    });
   let held: (() => void) | null = null;
   w.release = () => {
     held?.();

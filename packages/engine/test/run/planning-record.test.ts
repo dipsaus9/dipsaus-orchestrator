@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { RunId, StoryId } from "@dipsaus-orchestrator/contract";
+import { type PlanningView, RunId, StoryId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { CommandError } from "../../src/commands/errors";
@@ -234,6 +234,37 @@ describe("the record of a planning session (DIPO-448)", () => {
       const kinds = readPlanningRecord(w.office, run).map((entry) => entry.kind);
       expect(kinds.filter((kind) => kind !== "answer").slice(-2)).toEqual(["ended", "started"]);
       expect(w.sessions.liveRuns()).toEqual([fresh?.run ?? ""]);
+    }));
+
+  it("names the session and lists its three model sessions and the maintainer's messages in the view (DIPO-490)", () =>
+    withWorld(async (w) => {
+      const { run } = await started(w);
+      w.answerUsage = (n) => (n === 2 || n === 4 ? messageOf(100_000) : undefined);
+      const waitFresh = async (previous: string): Promise<PlanningView | null> => {
+        await until(() => {
+          w.t.clock.advance(1_000);
+          const view = w.sessions.view(officeOf(w));
+          return view?.state === "waiting" && view.run !== previous;
+        });
+        return w.sessions.view(officeOf(w));
+      };
+      await w.sessions.message(commandContext(w), { text: "First." });
+      const second = await waitFresh(run as string);
+      await w.sessions.message(commandContext(w), { text: "Second." });
+      const third = await waitFresh(second?.run ?? "");
+      expect(third?.session as string).toBe(run);
+      expect(third?.sessions?.map((item) => [item.run as string, item.ended])).toEqual([
+        [run as string, "context-full"],
+        [second?.run as string, "context-full"],
+        [third?.run as string, undefined],
+      ]);
+      expect(third?.sessions?.every((item) => item.startedAt !== undefined)).toBe(true);
+      expect(third?.sessions?.[0]?.endedAt).toBeDefined();
+      expect(third?.messages?.map((item) => [item.run as string, item.text])).toEqual([
+        [run as string, "First."],
+        [second?.run as string, "Second."],
+      ]);
+      expect(third?.messages?.every((item) => item.outputOffset > 0)).toBe(true);
     }));
 
   it("continues after an idle end in a fresh model session built from the record", () =>

@@ -277,6 +277,71 @@ describe("OfficeStore", () => {
     expect(store.state.planning).toBeNull();
   });
 
+  it("keeps the planning session through a full-context handover and clears it on the maintainer's end (DIPO-490)", async () => {
+    const { client, store, snapshots } = await setup();
+    const stream = `office:${A}`;
+    const FIRST = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0P01";
+    const SECOND = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0P02";
+    const usage = {
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheCreateTokens: 0,
+      cacheReadTokens: 0,
+      turns: 1,
+      elapsedMs: 1,
+    };
+    const view = (run: string, extra: object = {}) => ({
+      run,
+      session: FIRST,
+      kind: "plan",
+      goal: "Plan it",
+      model: "m",
+      state: "waiting",
+      turns: 1,
+      usage,
+      startedAt: AT,
+      ...extra,
+    });
+    snapshots.set(A, { ...(snapshots.get(A) as OfficeSnapshot), planning: view(FIRST) as never });
+    await store.switchTo(B);
+    await store.switchTo(A);
+
+    client.emit(
+      stream,
+      event(stream, 6, "planning.ended", {
+        run: FIRST,
+        reason: "context-full",
+        view: view(FIRST, { state: "ended", ended: "context-full" }),
+      }),
+    );
+    expect(String(store.state.planning?.run)).toBe(FIRST);
+    expect(store.state.planningContinuing).toBe(true);
+
+    client.emit(
+      stream,
+      event(stream, 7, "planning.continued", {
+        run: SECOND,
+        previous: FIRST,
+        reason: "context-full",
+        view: view(SECOND),
+      }),
+    );
+    expect(String(store.state.planning?.run)).toBe(SECOND);
+    expect(String(store.state.planning?.session)).toBe(FIRST);
+    expect(store.state.planningContinuing).toBe(false);
+
+    client.emit(
+      stream,
+      event(stream, 8, "planning.ended", {
+        run: SECOND,
+        reason: "maintainer",
+        view: view(SECOND, { state: "ended", ended: "maintainer" }),
+      }),
+    );
+    expect(store.state.planning).toBeNull();
+    expect(store.state.planningContinuing).toBe(false);
+  });
+
   it("keeps the planning lane's progress from the snapshot and the lane.progress event (DIPO-481)", async () => {
     const { client, store, snapshots } = await setup();
     const stream = `office:${A}`;
