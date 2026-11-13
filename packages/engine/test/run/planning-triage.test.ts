@@ -45,6 +45,7 @@ const REFINE = {
   type: "feature",
   milestone: "m-3",
   tier: "S",
+  role: "developer",
   storyLine: STORY_LINE,
   context: "The export reads the base, as the queue does.",
   criteria: ["The export writes one CSV row per active story"],
@@ -162,6 +163,7 @@ describe("a triage session (DIPO-454)", () => {
           drafts: planningDrafts(s.office),
           desk: [],
           runs: [],
+          roles: [],
           retro: "",
           commit: "c",
           preferences: null,
@@ -186,6 +188,7 @@ describe("a triage session (DIPO-454)", () => {
         expect(text).toContain("title: Export the story list as CSV");
         expect(text).toContain("status: Refined");
         expect(text).toContain("tier:S");
+        expect(text).toContain("role:developer");
         expect(text).toContain("type: feature");
         expect(text).toContain("milestone: m-3");
         expect(text).toContain(`Story: ${STORY_LINE}`);
@@ -204,7 +207,9 @@ describe("a triage session (DIPO-454)", () => {
           "TASK-4",
           DEFAULT_CONFIG,
         );
-        expect(evaluateGate(input, "ready").failures).toEqual([]);
+        expect(
+          evaluateGate({ ...input, roster: [{ name: "developer", code: true }] }, "ready").failures,
+        ).toEqual([]);
         expect(
           s.office.get<{ promoted_to: string | null }>(
             "select promoted_to from stories where office_id = $office_id and key = $key",

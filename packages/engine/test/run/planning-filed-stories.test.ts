@@ -79,7 +79,7 @@ async function setup(repo: TempRepoWithRemote, proposals: readonly unknown[]) {
         identity?.story ?? "",
         DEFAULT_CONFIG,
       );
-      const result = evaluateGate(input, mode);
+      const result = evaluateGate({ ...input, roster: [{ name: "developer", code: true }] }, mode);
       const stored = s.office.immediate(() =>
         storeGateDecision(s.office, s.t.ids, {
           key: story,

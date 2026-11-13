@@ -1568,6 +1568,11 @@
                             "enum": ["S", "M", "L"],
                             "description": "the proposed tier"
                           },
+                          "role": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$",
+                            "description": "the role that runs the story, one of the office's roster"
+                          },
                           "storyLine": {
                             "type": "string",
                             "minLength": 1,
@@ -1683,6 +1688,7 @@
                           "type",
                           "milestone",
                           "tier",
+                          "role",
                           "storyLine",
                           "criteria",
                           "references",
@@ -1891,6 +1897,11 @@
                                 "enum": ["S", "M", "L"],
                                 "description": "the proposed tier"
                               },
+                              "role": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$",
+                                "description": "the role that runs the story, one of the office's roster"
+                              },
                               "storyLine": {
                                 "type": "string",
                                 "minLength": 1,
@@ -1998,6 +2009,7 @@
                               "type",
                               "milestone",
                               "tier",
+                              "role",
                               "storyLine",
                               "criteria",
                               "references"
@@ -2065,6 +2077,11 @@
                             "type": "string",
                             "enum": ["S", "M", "L"],
                             "description": "the proposed tier"
+                          },
+                          "role": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$",
+                            "description": "the role that runs the story, one of the office's roster"
                           },
                           "storyLine": {
                             "type": "string",
@@ -2182,6 +2199,7 @@
                           "type",
                           "milestone",
                           "tier",
+                          "role",
                           "storyLine",
                           "criteria",
                           "references",

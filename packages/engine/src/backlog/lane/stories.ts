@@ -173,6 +173,7 @@ async function checkFiled(ctx: ApplyContext, id: string, target: FileTarget): Pr
     problems.push(`its status is ${view.status}, not Refined`);
   }
   if (!view.labels.includes(`tier:${target.tier}`)) problems.push(`it lacks tier:${target.tier}`);
+  if (!view.labels.includes(`role:${target.role}`)) problems.push(`it lacks role:${target.role}`);
   if (
     !sameList(
       criteriaOf(view),
@@ -273,7 +274,7 @@ export const fileKind: LaneOpKind = {
         "--milestone",
         target.milestone,
         "--labels",
-        `tier:${target.tier}`,
+        `tier:${target.tier},role:${target.role}`,
         "--no-dod-defaults",
         ...target.criteria.flatMap((text) => ["--ac", text]),
         ...target.references.flatMap((path) => ["--ref", path]),
@@ -488,6 +489,8 @@ function refineCalls(view: PlainTask, target: RefineTarget): string[][] {
       target.milestone,
       "--add-label",
       `tier:${target.tier}`,
+      "--add-label",
+      `role:${target.role}`,
     ],
   ];
   if (!sameList(criteriaOf(view), target.criteria)) {

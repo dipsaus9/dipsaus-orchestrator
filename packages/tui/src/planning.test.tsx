@@ -59,6 +59,7 @@ const proposal = (n: number, title: string, tier: "S" | "M") => ({
     type: "feature",
     milestone: "m-3",
     tier,
+    role: "developer",
     storyLine:
       "As maintainer I want to export the stories as a CSV file so that I can share the backlog with people outside dipo.",
     criteria: ["The export writes one CSV row per active story"],
@@ -252,7 +253,7 @@ describe("the planning view", () => {
     const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
     await ui.press("5");
     const frame = await ui.waitFor("Export as XML · S");
-    expect(frame).toContain("◆ Export as CSV · M");
+    expect(frame).toContain("◆ Export as CSV · M · developer");
     expect(frame).toContain("As maintainer I want to export the stories as a CSV file");
     expect(frame).toContain("refused a proposal at");
     expect(frame).not.toContain("c confirm");
