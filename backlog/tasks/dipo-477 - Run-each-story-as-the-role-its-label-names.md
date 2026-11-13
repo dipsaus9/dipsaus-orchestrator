@@ -1,10 +1,10 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 13:41'
+updated_date: '2026-11-13 15:04'
 labels:
   - 'tier:L'
 milestone: m-4
@@ -52,7 +52,10 @@ Amend 0012 (R17), 0014 section 1 (L2 is the run's role file) and 0001 Roles.
 
 ```dipo
 branch: "DIPO-477/run-each-story-as-role-its-label-names"
-unknowns: []
+unknowns:
+  - q: "CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 497, 501, 502, 503). Running `bun scripts/check-ready-gate.ts` here fails R17 for all 8. I can't fix this in the branch: the labels mean changing task files, including DIPO-477's own. Adding only the role file would also stop office init from labelling, because init plans both steps only while .dipo/roles/ is empty (0017). Will you run `dipo office init` on this repository before this PR merges, so main has the seed role file and role:developer on every open story and dipo can merge main into this branch? Or should I handle it another way?"
+    status: "resolved"
+    answer: "Main now has .dipo/roles/developer.md and role:developer on every open story (office init). Merge main into the branch and continue."
 test_plan:
   entries:
     - kind: "automated"
@@ -68,10 +71,6 @@ test_plan:
     - kind: "manual"
       check: "Add a role file with its own model to a test office, label a Ready story with it and start the run."
       expect: "The run view shows the new role and its model, and the run's system file holds that role's instructions."
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 497, 501, 502, 503). Running `bun scripts/check-ready-gate.ts` here fails R17 for all 8. I can't fix this in the branch: the labels mean changing task files, including DIPO-477's own. Adding only the role file would also stop office init from labelling, because init plans both steps only while .dipo/roles/ is empty (0017). Will you run `dipo office init` on this repository before this PR merges, so main has the seed role file and role:developer on every open story and dipo can merge main into this branch? Or should I handle it another way?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -100,4 +99,6 @@ Parked 2026-11-13 13:41 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 356,147 of 2,000,000 tokens; 170 of 300 turns; 18 of 180 minutes
 - Last good commit: 99d6c059fc06cb2261af49657f5ae2b51781af62
+
+Resumed 2026-11-13 15:04 UTC; grants: none; note: Main now has .dipo/roles/developer.md and role:developer on every open story (office init). Merge main into the branch and continue.
 <!-- SECTION:NOTES:END -->
