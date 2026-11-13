@@ -1,10 +1,10 @@
 ---
 id: DIPO-476
 title: Let planning proposals name the role and file it as a label
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 09:13'
+updated_date: '2026-11-13 12:53'
 labels:
   - 'tier:M'
 milestone: m-4
