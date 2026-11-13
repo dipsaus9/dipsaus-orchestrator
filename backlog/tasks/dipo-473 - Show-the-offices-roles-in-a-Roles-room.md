@@ -1,10 +1,10 @@
 ---
 id: DIPO-473
 title: Show the office's roles in a Roles room
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:04'
-updated_date: '2026-11-13 11:36'
+updated_date: '2026-11-13 11:43'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -69,14 +69,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 office.roles returns every role loaded from the base's role files with its name, purpose, instructions, and its model and effort when set.
-- [ ] #2 office.roles returns each role file that failed to load with its path and its problem.
-- [ ] #3 Key 6 opens the Roles room from home and from the retro room, and Esc goes back home.
-- [ ] #4 The command palette and the keys overlay list the Roles room with key 6.
-- [ ] #5 The rooms band reads 1 Desk, 2 Floor, 3 Queue, 4 Retro, 5 Plan and 6 Roles, and marks Roles as the current room while the Roles room is open.
-- [ ] #6 The Roles room lists each role with its purpose and its model and effort, or says it uses the tier's.
-- [ ] #7 The Roles room lists each invalid role file, marked, with its problem.
-- [ ] #8 The selected role's instructions show beside the list and scroll when they are longer than the screen.
-- [ ] #9 After a role file changes on the base, an open Roles room shows the new roster without being reopened.
-- [ ] #10 An office with no role files shows that it has no roles and names dipo office init.
+- [x] #1 office.roles returns every role loaded from the base's role files with its name, purpose, instructions, and its model and effort when set.
+- [x] #2 office.roles returns each role file that failed to load with its path and its problem.
+- [x] #3 Key 6 opens the Roles room from home and from the retro room, and Esc goes back home.
+- [x] #4 The command palette and the keys overlay list the Roles room with key 6.
+- [x] #5 The rooms band reads 1 Desk, 2 Floor, 3 Queue, 4 Retro, 5 Plan and 6 Roles, and marks Roles as the current room while the Roles room is open.
+- [x] #6 The Roles room lists each role with its purpose and its model and effort, or says it uses the tier's.
+- [x] #7 The Roles room lists each invalid role file, marked, with its problem.
+- [x] #8 The selected role's instructions show beside the list and scroll when they are longer than the screen.
+- [x] #9 After a role file changes on the base, an open Roles room shows the new roster without being reopened.
+- [x] #10 An office with no role files shows that it has no roles and names dipo office init.
 <!-- AC:END -->
