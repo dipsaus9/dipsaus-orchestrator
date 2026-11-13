@@ -1,10 +1,10 @@
 ---
 id: DIPO-497
 title: Ending a planning session lists the stories that stayed Refined
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:28'
-updated_date: '2026-11-13 13:17'
+updated_date: '2026-11-13 13:19'
 labels:
   - 'tier:S'
 milestone: m-3
