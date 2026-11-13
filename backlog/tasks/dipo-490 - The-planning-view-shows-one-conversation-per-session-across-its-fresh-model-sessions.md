@@ -3,10 +3,10 @@ id: DIPO-490
 title: >-
   The planning view shows one conversation per session across its fresh model
   sessions
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 10:56'
+updated_date: '2026-11-13 11:06'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -77,10 +77,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The planning view names the session and lists its model sessions in order, each with its run, start and how it ended, and the maintainer's messages from the record with run and output offset
-- [ ] #2 A planning.ended with reason context-full keeps the session in the client store, marked continuing, and planning.continued replaces it with the fresh view; an end by the maintainer still clears it
-- [ ] #3 The TUI keys the transcript by the session: it shows every model session's output in order, the maintainer's messages at their places and one continued line per handover, and starts over only for another session or office
-- [ ] #4 A TUI opened after a handover shows the whole conversation, the maintainer's messages included
-- [ ] #5 The TUI-only you> lines are removed; a model line that starts with you> renders as the model's text
-- [ ] #6 ADR 0022's decision-record line and ADR 0009's Planning line describe one conversation per session across its model sessions
+- [x] #1 The planning view names the session and lists its model sessions in order, each with its run, start and how it ended, and the maintainer's messages from the record with run and output offset
+- [x] #2 A planning.ended with reason context-full keeps the session in the client store, marked continuing, and planning.continued replaces it with the fresh view; an end by the maintainer still clears it
+- [x] #3 The TUI keys the transcript by the session: it shows every model session's output in order, the maintainer's messages at their places and one continued line per handover, and starts over only for another session or office
+- [x] #4 A TUI opened after a handover shows the whole conversation, the maintainer's messages included
+- [x] #5 The TUI-only you> lines are removed; a model line that starts with you> renders as the model's text
+- [x] #6 ADR 0022's decision-record line and ADR 0009's Planning line describe one conversation per session across its model sessions
 <!-- AC:END -->
