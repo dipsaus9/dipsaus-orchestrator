@@ -3,10 +3,10 @@ id: DIPO-489
 title: >-
   A planning session hands over only at a full context and continues the
   conversation
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 10:15'
+updated_date: '2026-11-13 10:23'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -24,6 +24,35 @@ references:
   - packages/engine/test/run/planning-record.test.ts
   - packages/engine/test/run/planning-session.test.ts
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0022-planning-sessions.md
+  - packages/cli/src/story-commands.test.ts
+  - packages/client/src/ready-text.ts
+  - packages/client/test/unit/ready-text.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/db/migrations/0012-planning-messages.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/records/planning-record.ts
+  - packages/engine/src/records/usage.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/planning.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/run/planning-background-flush.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-questions.test.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/planning-record.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/engine/test/run/story-ready.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/queue.test.tsx
 priority: high
 type: bug
 ordinal: 461000
@@ -80,3 +109,18 @@ test_plan:
 - [x] #5 The view of a continued session carries continuedAt, and each handover logs one INFO line with office, previous run, new run, reason and, for context-full, the measured size
 - [x] #6 ADR 0022's decision-record line says what the record keeps, how a near-full context is measured and that the fresh session continues the last exchange
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 10:23 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 3, failed 1
+- Budget used: 223,446 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
