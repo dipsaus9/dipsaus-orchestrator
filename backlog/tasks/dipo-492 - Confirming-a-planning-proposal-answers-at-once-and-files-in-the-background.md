@@ -1,10 +1,10 @@
 ---
 id: DIPO-492
 title: Confirming a planning proposal answers at once and files in the background
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:50'
+updated_date: '2026-11-13 09:58'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -67,10 +67,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 planning.confirm and story.ready answer once their operations are journaled, before the lane's flush, and their results have no flush field
-- [ ] #2 The card shows filing… from the answer and filed as DIPO-n when the background flush applied it, through a planning.updated the flush's end appends
-- [ ] #3 A background flush that fails or closes the change leaves the proposal failed with the lane's reason in the view and its operations journaled; a stuck lane reaches the desk through the existing stuck-lane item
-- [ ] #4 The session's [dipo] note naming the filed ids is added when the flush ended
-- [ ] #5 The Queue's ready result names the backlog PR a queued story waits on from the store's lane progress, not from a command result
-- [ ] #6 Confirms and ready commands flush in journal order, and a held branch still applies nothing (0010)
+- [x] #1 planning.confirm and story.ready answer once their operations are journaled, before the lane's flush, and their results have no flush field
+- [x] #2 The card shows filing… from the answer and filed as DIPO-n when the background flush applied it, through a planning.updated the flush's end appends
+- [x] #3 A background flush that fails or closes the change leaves the proposal failed with the lane's reason in the view and its operations journaled; a stuck lane reaches the desk through the existing stuck-lane item
+- [x] #4 The session's [dipo] note naming the filed ids is added when the flush ended
+- [x] #5 The Queue's ready result names the backlog PR a queued story waits on from the store's lane progress, not from a command result
+- [x] #6 Confirms and ready commands flush in journal order, and a held branch still applies nothing (0010)
 <!-- AC:END -->
