@@ -27,7 +27,7 @@ import type { Clock, OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
-import { gateDecisionsOf } from "../../gate-decisions/decisions";
+import { gateDecisionsOf, unkeyedPassingHashes } from "../../gate-decisions/decisions";
 import type { GitSession } from "../../git/office";
 import { GitError } from "../../git/runner";
 import type { Logger } from "../../log/logger";
@@ -839,16 +839,21 @@ export function factsFor(office: OfficeHandle, diff: PrDiff): PrFacts {
   const keys: Record<string, StoryKey> = {};
   const passing: Record<string, string[]> = {};
   const claimed: StoryKey[] = [];
+  let unknown = false;
   for (const task of diff.tasks) {
     const resolved = resolveStoryRef(office, task.id);
-    if (!resolved.ok) continue;
+    if (!resolved.ok) {
+      unknown = true;
+      continue;
+    }
     keys[task.id] = resolved.key;
     if (hasLiveClaim(office, resolved.key)) claimed.push(resolved.key);
     passing[resolved.key] = gateDecisionsOf(office, resolved.key)
       .filter((decision) => decision.passed)
       .map((decision) => decision.contentHash);
   }
-  return { keys, claimed, passing };
+  // A task dipo knows no key of: the planning lane filed it, maybe Ready (DIPO-495).
+  return { keys, claimed, passing, ...(unknown ? { unkeyed: unkeyedPassingHashes(office) } : {}) };
 }
 
 /**

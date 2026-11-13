@@ -27,11 +27,27 @@
 //   `promoted_to`, so the index renumbers the story to it (`story.renumbered`) once the backlog PR
 //   merged, and the story keeps its key.
 //
+// The maintainer's confirm is the Ready choice (DIPO-495, 0012, 0022): once a filed or refined
+// story reads back as asked, the same operation runs the Ready gate (`ready` mode) on it as the
+// `_backlog` worktree holds it (`ApplyContext.gate`, the evaluation and store `readyStories` uses)
+// and stores the decision for its content hash, under no key, since the base does not hold the
+// story yet. When the gate passes, the story is set Ready and read back; when it fails, or its
+// content then reads other than the content the decision was for, it stays Refined. A revision of
+// a Ready story is gated again the same way, under its key: it stays Ready when the gate passes the
+// revised content and goes back to Refined when it fails. A revision of a Refined or Parked story
+// keeps its status. What the gate decided is the operation's notice, which the planning view shows.
+// Without a gate nothing is set Ready.
+//
 // Labels are set only at `task create` or a refinement; a revision never changes them (0010).
 
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 
+import type { StoryKey } from "@dipsaus-orchestrator/contract";
+
+import { CommandError } from "../../commands/errors";
+import { gateContentHash } from "../../gate/hash";
+import { gateStoryFromView } from "../../gate/input";
 import { recordStoryEntry } from "../../records/planning-record";
 import { BLOCK_OPEN, FieldBlockError, locateBlock } from "../../story-store/fields/block";
 import {
@@ -152,7 +168,10 @@ async function fillFields(ctx: ApplyContext, id: string, target: FileTarget): Pr
 async function checkFiled(ctx: ApplyContext, id: string, target: FileTarget): Promise<void> {
   const view = await viewStory({ cli: ctx.cli, cwd: ctx.cwd, id });
   const problems: string[] = [];
-  if (view.status !== "Refined") problems.push(`its status is ${view.status}, not Refined`);
+  // Ready when an earlier apply of this target already passed the gate (DIPO-495).
+  if (view.status !== REFINED && view.status !== READY) {
+    problems.push(`its status is ${view.status}, not Refined`);
+  }
   if (!view.labels.includes(`tier:${target.tier}`)) problems.push(`it lacks tier:${target.tier}`);
   if (
     !sameList(
@@ -167,6 +186,62 @@ async function checkFiled(ctx: ApplyContext, id: string, target: FileTarget): Pr
   if (problems.length > 0) {
     throw new FieldWriteError(id, `the filed story reads back wrong: ${problems.join("; ")}`);
   }
+}
+
+/** The status a story is filed at, and the one the gate's pass sets (0012). */
+const REFINED = "Refined";
+const READY = "Ready";
+
+/** The gate content hash of a view, as the gate and the structural check compute it. */
+const contentHashOf = (view: PlainTask): string =>
+  gateContentHash(
+    gateStoryFromView(
+      view,
+      view.subtasks.map((task) => task.id),
+    ),
+  );
+
+/** Sets the status of `id` and reads it back; throws `FieldWriteError` when it does not hold. */
+async function setStatus(ctx: ApplyContext, id: string, status: string): Promise<PlainTask> {
+  await runBacklog(ctx.cli, ctx.cwd, ["task", "edit", id, "--status", status]);
+  const view = await viewStory({ cli: ctx.cli, cwd: ctx.cwd, id });
+  if (view.status !== status) {
+    throw new FieldWriteError(id, `status read back is ${view.status}, not ${status}`);
+  }
+  return view;
+}
+
+/**
+ * Runs the Ready gate on the story `id` as the `_backlog` worktree holds it and leaves it Ready
+ * when the gate passes, Refined otherwise (DIPO-495); returns what it decided, for the
+ * operation's notice. The gate runs in `ready` mode, which wants the story Refined (R01a), so a
+ * Ready story is set Refined first. Only a pass sets Ready, and only while the story then reads
+ * back with the content the passing decision was for.
+ */
+async function gateToReady(ctx: ApplyContext, id: string, key: StoryKey | null): Promise<string> {
+  if ((await viewStory({ cli: ctx.cli, cwd: ctx.cwd, id })).status !== REFINED) {
+    await setStatus(ctx, id, REFINED);
+  }
+  const later = "set it Ready from the Queue once it is on the base";
+  if (ctx.gate === undefined) return `${id} is Refined: no Ready gate runs here; ${later}`;
+  let decision;
+  try {
+    decision = await ctx.gate(id, key);
+  } catch (error) {
+    // The gate could not read its inputs: the story stays Refined rather than blocking the lane.
+    if (!(error instanceof CommandError)) throw error;
+    return `${id} is Refined: the Ready gate could not run (${error.message}); ${later}`;
+  }
+  if (!decision.result.passed) {
+    const failures = decision.result.failures.map(({ rule, message }) => `${rule}: ${message}`);
+    return `${id} is Refined: the Ready gate failed it: ${failures.join("; ")}`;
+  }
+  const ready = await setStatus(ctx, id, READY);
+  if (contentHashOf(ready) !== decision.contentHash) {
+    await setStatus(ctx, id, REFINED);
+    return `${id} is Refined: it read back with other content than the Ready gate passed; ${later}`;
+  }
+  return `${id} is Ready: the Ready gate passed it`;
 }
 
 export const fileKind: LaneOpKind = {
@@ -213,6 +288,7 @@ export const fileKind: LaneOpKind = {
     }
     await fillFields(ctx, id, target);
     await checkFiled(ctx, id, target);
+    const notice = await gateToReady(ctx, id, null);
     const office = ctx.office;
     if (office !== undefined) {
       const story = id;
@@ -225,7 +301,7 @@ export const fileKind: LaneOpKind = {
         }),
       );
     }
-    return { applies: true };
+    return { applies: true, notice };
   },
 };
 
@@ -345,6 +421,9 @@ export const reviseKind: LaneOpKind = {
     if (left.length > 0) {
       throw new FieldWriteError(ctx.story, `the revision reads back wrong: its ${left.join(", ")}`);
     }
+    // A Ready story is gated again on its revised content (DIPO-495); any other keeps its status.
+    const notice =
+      view.status === READY ? await gateToReady(ctx, ctx.story, ctx.entry.key) : undefined;
     const office = ctx.office;
     if (office !== undefined) {
       office.immediate(() =>
@@ -356,7 +435,7 @@ export const reviseKind: LaneOpKind = {
         }),
       );
     }
-    return { applies: true };
+    return notice === undefined ? { applies: true } : { applies: true, notice };
   },
 };
 
@@ -474,7 +553,8 @@ export const refineKind: LaneOpKind = {
     }
     await fillFields(ctx, id, target);
     await checkFiled(ctx, id, target);
+    const notice = await gateToReady(ctx, id, null);
     recordRefined(ctx, target, id);
-    return { applies: true };
+    return { applies: true, notice };
   },
 };

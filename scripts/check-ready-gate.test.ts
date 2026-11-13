@@ -7,6 +7,9 @@
 // list that lost its last lines fails the check loudly instead of failing a story's rules
 // (DIPO-323). The script's CLI is the daemon's spawn, and every call has the CLI write its output
 // to files, never a pipe (DIPO-333).
+// On a pull request that also changes code, a new task at Ready and a draft promoted to Ready fail
+// the check against the PR's base, a backlog-only PR does not, and a base that cannot be read
+// fails it (DIPO-495).
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -15,6 +18,7 @@ import { join } from "node:path";
 import { BacklogListIncompleteError } from "../packages/engine/src/backlog/list";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
 import { systemSpawn } from "../packages/engine/src/platform/process";
+import { withTempRepo } from "../packages/testkit/src/index";
 import { type FileTask, writeBacklog } from "../packages/engine/test/gate/task-files";
 
 import { checkReadyGate, REPO_BACKLOG_CLI } from "./check-ready-gate";
@@ -401,4 +405,66 @@ describe("the Ready gate's other tasks from the task files (DIPO-494)", () => {
     const badBlock: FileTask = { id: "DIPO-3", branch: '"DIPO-3/Not_A_Slug"' };
     await expect(run([ready("DIPO-1")], [badBlock])).rejects.toThrow(/field block does not parse/);
   });
+});
+
+// ---- A task added at Ready in a PR that also changes code (DIPO-495) ----------------------------
+
+/**
+ * A fixture repository whose base commit holds `base` as task files (and the draft DRAFT-3),
+ * and whose head holds `head`; `code` also changes a file outside `backlog/`. Returns the
+ * mixed-PR refusals the check gives against the base.
+ */
+async function mixed(
+  base: readonly FixtureStory[],
+  head: readonly FixtureStory[],
+  code: boolean,
+): Promise<string[]> {
+  return withTempRepo(async (repo) => {
+    const draft: FileTask = { id: "DRAFT-3", status: "Draft", folder: "drafts" };
+    writeBacklog(repo.dir, [...base.map(fileOf), draft]);
+    const baseCommit = await repo.commitAll("base");
+    rmSync(join(repo.dir, "backlog"), { recursive: true, force: true });
+    writeBacklog(repo.dir, head.map(fileOf));
+    if (code) {
+      mkdirSync(join(repo.dir, "packages"), { recursive: true });
+      writeFileSync(join(repo.dir, "packages", "export.ts"), "export const rows = 1;\n");
+    }
+    await repo.commitAll("pr");
+    const { cli } = fakeCli(head);
+    const report = await checkReadyGate(repo.dir, cli, { base: baseCommit });
+    return report.failures.filter((failure) => failure.includes(" failed mixed-pr: "));
+  });
+}
+
+describe("the Ready gate on a PR that also changes code (DIPO-495)", () => {
+  it("refuses a new task at Ready in a PR that changes a code file", async () => {
+    const refusals = await mixed([refined("DIPO-1")], [refined("DIPO-1"), ready("DIPO-2")], true);
+    expect(refusals).toEqual([
+      "ready DIPO-2 failed mixed-pr: DIPO-2 is added at Ready, as a new task or a promoted draft, in a PR that also changes packages/export.ts; a task may arrive at Ready only in a backlog-only PR (0012), so add it Refined here or in a PR of its own",
+    ]);
+  }, 60_000);
+
+  it("refuses a draft promoted to Ready in a PR that changes a code file", async () => {
+    // DRAFT-3 goes and DIPO-4 appears at Ready: a promotion, which gives the task a new id.
+    const refusals = await mixed([refined("DIPO-1")], [refined("DIPO-1"), ready("DIPO-4")], true);
+    expect(refusals.map((line) => line.split(":")[0])).toEqual(["ready DIPO-4 failed mixed-pr"]);
+  }, 60_000);
+
+  it("does not refuse a backlog-only PR, nor a task the base holds that goes Ready", async () => {
+    expect(await mixed([refined("DIPO-1")], [refined("DIPO-1"), ready("DIPO-2")], false)).toEqual(
+      [],
+    );
+    expect(await mixed([refined("DIPO-1")], [ready("DIPO-1")], true)).toEqual([]);
+  }, 60_000);
+
+  it("fails the check when the PR's base cannot be read (fail closed)", async () => {
+    await withTempRepo(async (repo) => {
+      writeBacklog(repo.dir, [fileOf(ready("DIPO-1"))]);
+      await repo.commitAll("base");
+      const { cli } = fakeCli([ready("DIPO-1")]);
+      await expect(
+        checkReadyGate(repo.dir, cli, { base: "refs/remotes/origin/main" }),
+      ).rejects.toThrow(/git merge-base/);
+    });
+  }, 60_000);
 });

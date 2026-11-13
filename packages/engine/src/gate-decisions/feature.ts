@@ -4,6 +4,8 @@
 //
 // - `recordGateDecision(office, key, mode)` stores every evaluation it makes, in one transaction;
 //   the pickup re-check inside `work.run` (DIPO-48) calls it in `pickup` mode.
+// - `recordLaneDecision` is the same evaluation and store, run by the planning lane on its `_backlog`
+//   worktree for a story the maintainer confirmed in a planning session (DIPO-495).
 // - The read `story.gate` evaluates in `ready` mode and stores nothing (M0 breakdown decision D3).
 // - `checkGate` evaluates in any mode and stores nothing; `work.preview` (DIPO-74) uses it.
 //
@@ -62,7 +64,18 @@ export interface GateStoreDeps {
 export interface BaseCheckout {
   readonly path: string;
   readonly base: string;
+  /**
+   * True for the planning lane's `_backlog` worktree (DIPO-495): its tasks may differ from the
+   * base's, so they are read from its files, never from the mirror.
+   */
+  readonly ownTasks?: boolean;
 }
+
+/** A stored decision with the story it was taken for and the gate's result. */
+export type StoredGateDecision = GateDecisionRecord & {
+  readonly story: StoryId;
+  readonly result: GateResult;
+};
 
 /** One evaluation of a story's gate on `_base`, with the content hash it applies to. */
 export interface GateEvaluation {
@@ -159,7 +172,8 @@ export class GateStore {
     }
     const base = at ?? (await git.ensureBaseWorktree());
     const read = async (session: GitSession | undefined = held) => {
-      const others = await this.#otherTasks(office, git, base.path, session);
+      const others =
+        at?.ownTasks === true ? undefined : await this.#otherTasks(office, git, base.path, session);
       const files = await this.#baseFiles(office, git, base.path, session);
       return readGateInput(
         this.#deps.stories,
@@ -244,13 +258,45 @@ export class GateStore {
     mode: GateMode,
     checkout?: BaseCheckout,
     session?: GitSession,
-  ): Promise<GateDecisionRecord & { readonly story: StoryId; readonly result: GateResult }> {
+  ): Promise<StoredGateDecision> {
     const handle = this.#handle(office);
     const identity = findStoryByKey(handle, key);
     if (identity === null) {
       throw new CommandError("story.unknown", `No story has the key ${key}.`, { story: key });
     }
-    const evaluation = await this.#evaluate(office, identity.story, mode, checkout, session);
+    return this.#record(office, { story: identity.story, key }, mode, checkout, session);
+  }
+
+  /**
+   * The planning lane's Ready gate (DIPO-495): the same evaluation and store as
+   * `recordGateDecision`, in `ready` mode, of the story `story` as the lane's `_backlog` worktree
+   * `cwd` holds it, inside the lane's queue item. The other tasks are read from that worktree's
+   * files. The decision goes under `key`, or under no key for a story the base does not hold
+   * yet, which the index hands to the key it makes for the story (`adoptLaneDecisions`).
+   */
+  recordLaneDecision(
+    office: OfficeId,
+    story: StoryId,
+    key: StoryKey | null,
+    cwd: string,
+  ): Promise<StoredGateDecision> {
+    return this.#record(office, { story, key }, "ready", {
+      path: cwd,
+      base: "the planning lane's backlog branch",
+      ownTasks: true,
+    });
+  }
+
+  /** Evaluates the gate of `story` and stores the decision under `key`, in one transaction. */
+  async #record(
+    office: OfficeId,
+    { story, key }: { readonly story: StoryId; readonly key: StoryKey | null },
+    mode: GateMode,
+    checkout?: BaseCheckout,
+    session?: GitSession,
+  ): Promise<StoredGateDecision> {
+    const handle = this.#handle(office);
+    const evaluation = await this.#evaluate(office, story, mode, checkout, session);
     const at = this.#deps.clock.now();
     const stored = handle.immediate(() =>
       storeGateDecision(handle, this.#deps.ids, {
