@@ -362,6 +362,11 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
       proposal: 1,
       state: "filed",
       stories: ["DIPO-31"],
+      flush: {
+        state: "opened",
+        branch: "dipo/backlog-20261106T090500",
+        pr: "https://github.com/o/r/pull/7",
+      },
     },
   },
   "planning.edit": {
@@ -377,6 +382,11 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     result: {
       queued: ["DIPO-31"],
       refused: [{ story: "DIPO-32", messages: ["R01a: the story has no acceptance criteria"] }],
+      flush: {
+        state: "opened",
+        branch: "dipo/backlog-20261106T091000",
+        pr: "https://github.com/o/r/pull/8",
+      },
     },
   },
   "planning.ready": {
@@ -385,6 +395,11 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
       run: ids.run,
       queued: ["DIPO-31"],
       refused: [{ story: "DIPO-32", messages: ["the story has no acceptance criteria"] }],
+      flush: {
+        state: "opened",
+        branch: "dipo/backlog-20261106T091000",
+        pr: "https://github.com/o/r/pull/8",
+      },
     },
   },
 };

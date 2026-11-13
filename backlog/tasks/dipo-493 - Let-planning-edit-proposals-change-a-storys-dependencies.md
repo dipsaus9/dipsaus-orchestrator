@@ -1,10 +1,10 @@
 ---
 id: DIPO-493
 title: A planning edit or split can set a story's dependencies
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-12 13:49'
-updated_date: '2026-11-13 09:40'
+updated_date: '2026-11-13 10:24'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -21,6 +21,22 @@ references:
   - packages/engine/test/run/planning-world.ts
   - packages/engine/test/run/planning-proposals.test.ts
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0022-planning-sessions.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/engine/src/backlog/lane/stories.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/prompts/planning-contract.test.ts
+  - packages/engine/test/run/planning-dependencies.test.ts
+  - packages/engine/test/run/planning-proposals.test.ts
 priority: high
 type: feature
 ---
@@ -75,11 +91,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An edit proposal with only a dependencies list passes the proposal schema, and so do a split whose edit has only dependencies and an empty list that clears them
-- [ ] #2 Confirming an edit or split whose dependency is unknown, is the edited task itself or would make a dependency cycle is refused with a message naming the dependency, and nothing is journaled
-- [ ] #3 A dependency on a story this planning session filed is accepted, as for a new story
-- [ ] #4 A confirmed edit leaves the story with exactly the given dependencies once applied, an empty list leaves none, and the read-back check covers them
-- [ ] #5 An edit naming the dependencies the story already has runs no task edit call, and dependencies with other fields apply in one revision
-- [ ] #6 The planning contract and the first message say an edit or split can set dependencies and that the session never asks the maintainer to set them by hand
-- [ ] #7 ADR 0022's edit line lists dependencies
+- [x] #1 An edit proposal with only a dependencies list passes the proposal schema, and so do a split whose edit has only dependencies and an empty list that clears them
+- [x] #2 Confirming an edit or split whose dependency is unknown, is the edited task itself or would make a dependency cycle is refused with a message naming the dependency, and nothing is journaled
+- [x] #3 A dependency on a story this planning session filed is accepted, as for a new story
+- [x] #4 A confirmed edit leaves the story with exactly the given dependencies once applied, an empty list leaves none, and the read-back check covers them
+- [x] #5 An edit naming the dependencies the story already has runs no task edit call, and dependencies with other fields apply in one revision
+- [x] #6 The planning contract and the first message say an edit or split can set dependencies and that the session never asks the maintainer to set them by hand
+- [x] #7 ADR 0022's edit line lists dependencies
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 10:24 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 99,472 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

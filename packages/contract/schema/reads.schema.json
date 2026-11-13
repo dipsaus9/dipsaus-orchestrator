@@ -1555,6 +1555,15 @@
                               "pattern": "^[A-Za-z0-9_.@+][A-Za-z0-9_./@+-]*$"
                             }
                           },
+                          "dependencies": {
+                            "description": "the whole list of stories that must be Done first, replacing the old one; an empty list clears them",
+                            "maxItems": 10,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
+                            }
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -1629,6 +1638,15 @@
                                   "type": "string",
                                   "maxLength": 200,
                                   "pattern": "^[A-Za-z0-9_.@+][A-Za-z0-9_./@+-]*$"
+                                }
+                              },
+                              "dependencies": {
+                                "description": "the whole list of stories that must be Done first, replacing the old one; an empty list clears them",
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
                               }
                             },

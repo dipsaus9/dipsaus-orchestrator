@@ -207,6 +207,9 @@ export function reviseTargetOf(
     ...(edit.context === undefined ? {} : { context: edit.context.trim() }),
     ...(edit.criteria === undefined ? {} : { criteria: edit.criteria.map((text) => text.trim()) }),
     ...(edit.references === undefined ? {} : { references: [...new Set(edit.references)] }),
+    ...(edit.dependencies === undefined
+      ? {}
+      : { dependencies: [...new Set(edit.dependencies.map((id) => id.toUpperCase()))] }),
   };
 }
 

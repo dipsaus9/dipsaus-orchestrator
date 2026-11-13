@@ -6,13 +6,12 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { PlanningView, RunId } from "@dipsaus-orchestrator/contract";
+import { PlanningView } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { CommandError } from "../../src/commands/errors";
 import { CONTRACT_TEMPLATES, ROLE_TEMPLATES } from "../../src/prompts/templates";
 import { renderSystemFile } from "../../src/prompts/system";
-import { proxiedUsageLedger } from "../../src/records/proxied-usage";
 import {
   openQuestions,
   planningRecordText,
@@ -136,20 +135,10 @@ describe("the office planning file in the first message (DIPO-455)", () => {
 
   it("holds the file in the first message of a fresh model session too", () =>
     withWorld(async (w) => {
-      const { run } = await started(w);
-      const agent = viewOf(w)?.agent ?? "";
-      proxiedUsageLedger({ owner: () => null, office: () => w.office, clock: w.t.clock }).open(
-        { office: officeOf(w), run: RunId.parse(run), agent: agent as never },
-        "opus",
-      )({
-        model: "claude-opus-5-5",
-        input: 500_000,
-        output: 0,
-        cacheCreate: 0,
-        cacheCreate5m: 0,
-        cacheCreate1h: 0,
-        cacheRead: 0,
-      });
+      // The next answer's message fills the context.
+      w.answerUsage = (n) =>
+        n === 2 ? { input: 10, output: 100, cacheCreate: 1_000, cacheRead: 98_890 } : undefined;
+      await started(w);
       await w.sessions.message(commandContext(w), { text: "Go on." });
       await until(() => {
         w.t.clock.advance(1_000);

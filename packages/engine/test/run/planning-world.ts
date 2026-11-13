@@ -8,7 +8,6 @@ import { dirname, join } from "node:path";
 
 import {
   type DeskItem,
-  type LaneFlush,
   OfficeId,
   type PlanningProposal,
   RequestId,
@@ -57,10 +56,54 @@ export const initLine = line({
 /** The tokens of answer `n` (from 1), as the proxy reads them from the answer's usage. */
 export const answerTokens = (n: number) => ({ input: 1_000 * n, output: 100 * n });
 
+/** The usage of one assistant message, as the model proxy and the stream count it. */
+export interface MessageUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheCreate: number;
+  readonly cacheRead: number;
+}
+
+/** A line of the stream: a message of a subagent (`parent_tool_use_id`), with `usage` (DIPO-489). */
+export const subagentLine = (id: string, usage: MessageUsage): string =>
+  line({
+    type: "assistant",
+    message: {
+      model: PLANNING_MODEL,
+      id,
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "A subagent's note." }],
+      usage: {
+        input_tokens: usage.input,
+        cache_creation_input_tokens: usage.cacheCreate,
+        cache_read_input_tokens: usage.cacheRead,
+        output_tokens: usage.output,
+      },
+    },
+    parent_tool_use_id: "toolu_sub",
+    session_id: "session-p",
+  });
+
+/** A `compact_boundary` line of the stream. */
+export const compactLine = line({
+  type: "system",
+  subtype: "compact_boundary",
+  session_id: "session-p",
+  uuid: "uuid-compact-1",
+  compact_metadata: { trigger: "auto", pre_tokens: 150_000 },
+});
+
 /** One answer of the session: its text and the turn's result. */
-export function answerLines(n: number, text = `Answer ${n}.`): string {
-  const { input, output } = answerTokens(n);
+export function answerLines(
+  n: number,
+  text = `Answer ${n}.`,
+  usage: MessageUsage = { ...answerTokens(n), cacheCreate: 0, cacheRead: 0 },
+  before = "",
+): string {
+  const { input, output, cacheCreate, cacheRead } = usage;
   return (
+    before +
     line({
       type: "assistant",
       message: {
@@ -71,8 +114,8 @@ export function answerLines(n: number, text = `Answer ${n}.`): string {
         content: [{ type: "text", text }],
         usage: {
           input_tokens: input,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: cacheCreate,
+          cache_read_input_tokens: cacheRead,
           output_tokens: output,
         },
       },
@@ -91,8 +134,8 @@ export function answerLines(n: number, text = `Answer ${n}.`): string {
         [PLANNING_MODEL]: {
           inputTokens: input,
           outputTokens: output,
-          cacheCreationInputTokens: 0,
-          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: cacheCreate,
+          cacheReadInputTokens: cacheRead,
         },
       },
     })
@@ -121,14 +164,19 @@ export interface PlanningWorld {
   holdAnswers: boolean;
   /** Gives the answer to the last message it held back. */
   release(): void;
+  /** The usage of answer `n` (from 1); the default one unless a test sets it (DIPO-489). */
+  answerUsage: (n: number) => MessageUsage | undefined;
+  /** Stream lines that go before answer `n`, such as a subagent's message or a compaction. */
+  before: (n: number) => string;
   /** The text of answer `n` (from 1); `Answer n.` unless a test sets it (DIPO-450). */
   answerText: (n: number) => string;
   /** The offices the session held an aside of, in order (DIPO-452). */
   readonly ideas: string[];
-  /** What each background flush of a confirm or Ready step answered, in order (DIPO-492). */
-  readonly flushes: (LaneFlush | null)[];
-  /** Waits until the background flushes started so far have ended (DIPO-492). */
-  flushed(): Promise<void>;
+  /** The INFO lines the sessions logged (DIPO-489). */
+  readonly infos: {
+    readonly message: string;
+    readonly fields: Readonly<Record<string, unknown>>;
+  }[];
 }
 
 /** What a test may give the world instead of its defaults. */
@@ -183,9 +231,10 @@ export function planningWorld(
     startLines: "",
     holdAnswers: false,
     answerText: (n: number) => `Answer ${n}.`,
-    flushes: [] as (LaneFlush | null)[],
-    flushed: () => w.sessions.flushed(officeId),
+    answerUsage: () => undefined,
+    before: () => "",
     ideas: [],
+    infos: [],
   } as unknown as PlanningWorld;
   let held: (() => void) | null = null;
   w.release = () => {
@@ -209,7 +258,8 @@ export function planningWorld(
   const ledger = proxiedUsageLedger({ owner: () => null, office: () => office, clock: t.clock });
   const answer = (run: string, agent: string) => {
     w.answers += 1;
-    const { input, output } = answerTokens(w.answers);
+    const usage = w.answerUsage(w.answers);
+    const { input, output } = usage ?? answerTokens(w.answers);
     ledger.open(
       { office: officeId, run, agent },
       "opus",
@@ -217,12 +267,12 @@ export function planningWorld(
       model: PLANNING_MODEL,
       input,
       output,
-      cacheCreate: 0,
-      cacheCreate5m: 0,
+      cacheCreate: usage?.cacheCreate ?? 0,
+      cacheCreate5m: usage?.cacheCreate ?? 0,
       cacheCreate1h: 0,
-      cacheRead: 0,
+      cacheRead: usage?.cacheRead ?? 0,
     });
-    return answerLines(w.answers, w.answerText(w.answers));
+    return answerLines(w.answers, w.answerText(w.answers), usage ?? undefined, w.before(w.answers));
   };
   (w as { sessions: PlanningSessions }).sessions = new PlanningSessions({
     clock: t.clock,
@@ -287,25 +337,10 @@ export function planningWorld(
       },
     },
     desk: () => w.desk,
-    ...(options.lane === undefined
-      ? {}
-      : {
-          lane: (id) => {
-            const lane = options.lane?.(id);
-            if (lane === undefined) return undefined;
-            // Records what each background flush of a confirm answered (DIPO-492).
-            return {
-              ...lane,
-              flush: async (change) => {
-                const flush = await lane.flush(change);
-                w.flushes.push(flush);
-                return flush;
-              },
-            };
-          },
-        }),
+    ...(options.lane === undefined ? {} : { lane: options.lane }),
     ...(options.gate === undefined ? {} : { gate: options.gate }),
     onIdea: (id) => w.ideas.push(id),
+    info: (message, fields) => w.infos.push({ message, fields }),
     baseCommit: async () => BASE_COMMIT,
     planningFile: async () => options.planningFile ?? null,
     ...(options.contextTokens === undefined ? {} : { contextTokens: options.contextTokens }),
@@ -386,17 +421,3 @@ export const blocksOf = (...values: unknown[]): string =>
     ...values.map((value) => `\`\`\`dipo-proposal\n${JSON.stringify(value, null, 2)}\n\`\`\``),
     "Confirm, edit or decline each.",
   ].join("\n\n");
-
-/** The backlog branch the newest background flush that names one answered (DIPO-492); "" before any. */
-export function flushBranch(w: PlanningWorld): string {
-  for (const flush of w.flushes.toReversed()) {
-    if (flush !== null && "branch" in flush && flush.branch !== undefined) return flush.branch;
-  }
-  return "";
-}
-
-/** Proposal `n` of the open session's view (DIPO-492). */
-export function proposalView(w: PlanningWorld, n: number) {
-  const view = w.sessions.view(OfficeId.parse(w.office.officeId));
-  return view?.proposals?.find((proposal) => proposal.n === n);
-}

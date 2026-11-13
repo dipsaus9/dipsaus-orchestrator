@@ -29,6 +29,7 @@ The base branch at {{commit}}, with the backlog, read-only at {{dir}}.
 </copy>
 
 <proposal_schema>
+An edit or split may set an existing story's dependencies, as the whole list; never ask the maintainer to set dependencies by hand.
 Each proposal is one ```{{fence}} block holding one JSON object that passes this JSON Schema:
 {{schema}}
 </proposal_schema>
