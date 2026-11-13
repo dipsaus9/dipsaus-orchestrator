@@ -62,7 +62,10 @@ export interface TaskChange {
  * Paths outside `backlog/` a backlog PR may add, never change or remove: the `.dipo/.gitignore`
  * office init adds only if absent (0007, DIPO-36).
  */
-export const ADDED_OUTSIDE_BACKLOG: readonly string[] = [".dipo/.gitignore"];
+export const ADDED_OUTSIDE_BACKLOG: readonly string[] = [
+  ".dipo/.gitignore",
+  ".dipo/roles/developer.md",
+];
 
 /**
  * The file modes of a regular file on one side of `git diff --raw`: `100644`, or `000000` on the
