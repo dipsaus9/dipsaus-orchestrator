@@ -93,7 +93,7 @@ import type {
 } from "../../src/workers/types";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
 import { StoryTeardown } from "../../src/worktree/done";
-import { backlog, CLI, publish } from "../gate/gated-office";
+import { backlog, CLI, publish, writeDeveloperRole } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { scriptedWorker } from "../workers/scripts";
 
@@ -253,7 +253,7 @@ export async function addTask4(repo: TempRepoWithRemote): Promise<void> {
     "-s",
     "Ready",
     "-l",
-    "tier:S",
+    "tier:S,role:developer",
     "--type",
     "feature",
     "-m",
@@ -431,7 +431,11 @@ export async function withLoopOffice(
         "m-0",
         "--ref",
         "packages/export/",
+        "--add-label",
+        "role:developer",
       ]);
+      // The role TASK-1's label names (R17, DIPO-477).
+      writeDeveloperRole(repo.dir);
       await publish(repo, "make TASK-1 pass the gate");
       await options.prepare?.(repo);
 

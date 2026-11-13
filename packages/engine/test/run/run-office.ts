@@ -82,7 +82,7 @@ import { AdapterPauses, type LaunchCheckOutcome } from "../../src/run/starts-pau
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { Caps, HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
-import { backlog, CLI, publish } from "../gate/gated-office";
+import { backlog, CLI, publish, writeDeveloperRole } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 
 import { withBuiltinPlugins, withoutSkills } from "../workers/launch-fixtures";
@@ -239,7 +239,11 @@ export async function withRunOffice(
         "m-0",
         "--ref",
         "packages/export/",
+        "--add-label",
+        "role:developer",
       ]);
+      // The role TASK-1's label names (R17, DIPO-477).
+      writeDeveloperRole(repo.dir);
       await publish(repo, "make TASK-1 pass the gate");
       await options.prepare?.(repo);
 

@@ -637,6 +637,7 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
         runDir: "/home/me/code/shop/.git/dipo/runs/<run-id>",
         cwd: "/home/me/code/shop/.git/dipo/runs/<run-id>",
         argv: ["/home/me/.local/bin/claude", "-p", "--model", "sonnet"],
+        role: "developer",
         model: "sonnet",
         effort: "medium",
         caps: { budgetTokens: 800_000, maxTurns: 120, maxMinutes: 60, loops: 4 },

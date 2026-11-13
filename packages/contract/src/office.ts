@@ -865,12 +865,15 @@ export const storyLosses = defineRead({
 // variable names without their values, the files written into the run directory, such as the run
 // settings with the sandbox), and the system file and task message the worker would get. The run
 // id, the session id and the run directory are placeholders until a real run makes them.
+// (DIPO-477) `role`: the role the story would run as, from its role label; `model` and `effort`
+// are that role file's when it sets them, else the tier's.
 export const WorkerLaunchPreview = z.object({
   adapter: z.string(),
   branch: z.string(),
   runDir: z.string(),
   cwd: z.string(),
   argv: z.array(z.string()).min(1),
+  role: RoleId,
   model: z.string(),
   effort: z.string(),
   caps: z.object({

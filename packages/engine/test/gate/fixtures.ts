@@ -1,7 +1,7 @@
 // Gate fixtures: one story that passes every rule, and helpers to break exactly one thing.
 
 import { OFFICE_DEFAULTS } from "../../src/config/schema";
-import type { GateConfig, GateInput, GateStory, GateTask } from "../../src/gate";
+import type { GateConfig, GateInput, GateRole, GateStory, GateTask } from "../../src/gate";
 
 export const ID = "DIPO-7";
 export const BRANCH = "DIPO-7/export-rows-to-csv";
@@ -46,7 +46,7 @@ export const PASSING_STORY: GateStory = {
   status: "Refined",
   type: "feature",
   milestone: "m-0",
-  labels: ["tier:M"],
+  labels: ["tier:M", "role:developer"],
   description: description(),
   acceptanceCriteria: [
     { index: 1, checked: false, text: "The export writes a header line first" },
@@ -68,6 +68,9 @@ export const ACTIVE_TASKS: readonly GateTask[] = [
 /** The folders the Backlog.md store names in a repository with no root configuration. */
 export const STORY_FOLDERS: readonly string[] = ["backlog", ".backlog"];
 
+/** The roster of the passing story: the developer role file (R17). */
+export const ROSTER: readonly GateRole[] = [{ name: "developer", code: true }];
+
 export function input(
   story: Partial<GateStory> = {},
   rest: Partial<Omit<GateInput, "story">> = {},
@@ -78,6 +81,7 @@ export function input(
     milestones: ["m-0", "m-1"],
     storyFolders: STORY_FOLDERS,
     config: DEFAULT_CONFIG,
+    roster: ROSTER,
     ...rest,
   };
 }

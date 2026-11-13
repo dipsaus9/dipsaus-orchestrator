@@ -65,11 +65,10 @@ export const CONTRACT_TEMPLATES = {
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
 /**
- * Built-in L2 roles until `.dipo/roles/` (M4): `developer`, and `reviewer`, used only by the
- * `review-box` kind and never named by a story (0002).
+ * The L2 roles that stay engine code (0001): `reviewer`, used only by the `review-box` kind and
+ * never named by a story (0002). A story runs as the role file its label names (DIPO-477).
  */
 export const ROLE_TEMPLATES = {
-  developer: developerRole,
   reviewer: reviewerRole,
   // Used only by the `scan` kind (DIPO-310).
   scanner: scannerRole,
@@ -79,6 +78,12 @@ export const ROLE_TEMPLATES = {
   auditor: auditorRole,
 } as const;
 export type BuiltInRole = keyof typeof ROLE_TEMPLATES;
+
+/**
+ * The bundled developer instructions (DIPO-477): no run role. Office init seeds the developer role
+ * file with them (0017), and a run started before runs kept their role file runs with them.
+ */
+export const DEVELOPER_SEED: string = developerRole;
 
 /** L4 section templates. */
 export const TASK_TEMPLATES = {

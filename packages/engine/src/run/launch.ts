@@ -41,6 +41,7 @@ import type {
   FieldBlock,
   OfficeId,
   Progress,
+  RoleId,
   RunId,
   WorkerLaunchPreview,
   WorkRef,
@@ -222,6 +223,29 @@ export function defaultWorkspace(git: OfficeGit, at: WorkspaceAt): Workspace {
   });
 }
 
+/**
+ * The role a story run runs as (DIPO-477, 0012 F12): the name its role label gives, and the
+ * instructions, model and effort of that role file as the run started with them.
+ */
+export interface RunRole {
+  readonly name: RoleId;
+  readonly instructions: string;
+  readonly model?: string;
+  readonly effort?: string;
+}
+
+/**
+ * The tier's caps with the role's model and effort where its file sets them (DIPO-477): the tier
+ * still gives the budget, turns, minutes and loops.
+ */
+export function roleCaps(tier: TierCaps, role: Pick<RunRole, "model" | "effort">): TierCaps {
+  return {
+    ...tier,
+    model: role.model ?? tier.model,
+    effort: (role.effort ?? tier.effort) as TierCaps["effort"],
+  };
+}
+
 /** What one story run starts with, from `work.run`. */
 export interface RunFacts {
   readonly office: OfficeId;
@@ -229,6 +253,9 @@ export interface RunFacts {
   readonly agent: AgentId;
   readonly view: PlainTask;
   readonly fields: FieldBlock;
+  /** The role it runs as; its instructions are the system file's L2 (0014). */
+  readonly role: RunRole;
+  /** The tier's caps with the role's model and effort (`roleCaps`). */
   readonly caps: TierCaps;
   readonly config: OfficeConfig;
   /** Repo-relative path of the story's task file. */
@@ -279,8 +306,9 @@ export function runLaunchPaths(
  * schema comes from the worker port, never from an adapter module (DIPO-113), for the session's
  * kind. With `facts.reviewer` the session is a reviewer's (0002): kind `review`, model
  * and effort from the review settings, the reviewer's tools, its own turn and minute caps, the
- * `ReviewReport` schema, and always a fresh session. Otherwise it is the developer's `implement`
- * session with the tier's model, effort and caps.
+ * `ReviewReport` schema, and always a fresh session. Otherwise it is the story role's `implement`
+ * session with the model, effort and caps of `facts.caps`: the tier's, with the role's model and
+ * effort when its file sets them (`roleCaps`, DIPO-477).
  */
 export function runWorkerSpec(
   worker: Pick<WorkerPort, "reportSchema">,
@@ -444,6 +472,7 @@ export class RunLauncher {
         workspace: this.#workspace(git, { commit: claim.startSha }),
         baseSha: claim.baseSha,
         config: facts.config,
+        role: facts.role,
         // A box worker reads the box contract (DIPO-272).
         ...(boxes === undefined ? {} : { box: true }),
       });
@@ -631,6 +660,7 @@ export class RunLauncher {
     readonly branch: string;
     readonly view: PlainTask;
     readonly fields: FieldBlock;
+    readonly role: RunRole;
     readonly caps: TierCaps;
     readonly config: OfficeConfig;
     readonly taskFile: string;
@@ -657,6 +687,7 @@ export class RunLauncher {
       workspace,
       baseSha: await workspace.headSha(),
       config: input.config,
+      role: input.role,
       ...(box ? { box: true } : {}),
     });
     const spec = this.#spec(
@@ -681,6 +712,8 @@ export class RunLauncher {
       runDir: paths.runDir,
       cwd: plan.cwd,
       argv: [...plan.argv],
+      // The role the story would run as, and the model it gives (DIPO-477).
+      role: input.role.name,
       model: spec.model,
       effort: spec.effort,
       caps: { ...spec.caps, loops: input.caps.loops },

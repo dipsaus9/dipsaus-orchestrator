@@ -437,13 +437,19 @@ export const r16: RuleCheck = (context) => {
     : fail(context, "R16", `needs exactly one tier from ${list(allowed)}, found ${list(tiers)}`);
 };
 
-/** R17: at most one role label, naming a roster role. */
+/** R17: exactly one role label, naming a roster role: the role the story runs as (DIPO-477). */
 export const r17: RuleCheck = (context) => {
   const { roles } = context.labels;
   const [only] = roles;
-  if (roles.length === 0) return [];
-  if (roles.length === 1 && context.roster.some((role) => role.name === only)) return [];
-  return fail(context, "R17", `role ${roles.join(", ")} is not in the roster`);
+  const roster = list(context.roster.map((role) => role.name));
+  if (roles.length === 0) {
+    return fail(context, "R17", `needs a role label role:<name>; the roster has ${roster}`);
+  }
+  if (roles.length > 1) {
+    return fail(context, "R17", `needs exactly one role label, found ${roles.join(", ")}`);
+  }
+  if (context.roster.some((role) => role.name === only)) return [];
+  return fail(context, "R17", `role ${only} is not in the roster; the roster has ${roster}`);
 };
 
 /** R18: the branch is `<ID>/<slug>`, slug lowercase hyphenated and at most `story.slugMax`. */

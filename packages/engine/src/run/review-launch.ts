@@ -49,6 +49,7 @@ import { ensurePrivateDir } from "../platform/paths";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { type ReviewChangedPath, withReviewCommit } from "../prompts/review";
 import { renderSystemFile } from "../prompts/system";
+import { ROLE_TEMPLATES } from "../prompts/templates";
 import { recordAgent } from "../records/agents";
 import { setProcessedOffset } from "../records/worker-hosts";
 import { branchTip } from "../git/write";
@@ -442,7 +443,7 @@ export class ReviewLauncher implements ReviewSessions {
     const paths = runLaunchPaths(git, deps, run.runId);
     // The reviewer reads that dipo ran the verify in the developer's box at done and that CI runs
     // with the review (DIPO-346).
-    const systemFile = renderSystemFile("review-box", "reviewer");
+    const systemFile = renderSystemFile("review-box", ROLE_TEMPLATES.reviewer);
     const taskMessage = withReviewCommit(request.taskMessage, {
       commit: request.head,
       dir: REVIEW_CODE_DIR,

@@ -14,6 +14,7 @@ import { partSteps } from "./migrations/0009-part-steps";
 import { mergedParks } from "./migrations/0010-merged-parks";
 import { proxyRefusals } from "./migrations/0011-proxy-refusals";
 import { planningMessages } from "./migrations/0012-planning-messages";
+import { runRoles } from "./migrations/0013-run-roles";
 
 /**
  * Software-wide tables (0007). Every other table is office-scoped and has `office_id` as the first
@@ -34,4 +35,5 @@ export const MIGRATIONS: readonly Migration[] = [
   mergedParks,
   proxyRefusals,
   planningMessages,
+  runRoles,
 ];

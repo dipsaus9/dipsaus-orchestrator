@@ -61,7 +61,7 @@ import type { RunProfile } from "../scan/detect";
 import { capNote, gatherHandoff, type HandoffFacts } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import maintainerNoteTemplate from "../prompts/feedback/maintainer-note.md" with { type: "text" };
-import { renderTemplate } from "../prompts/templates";
+import { DEVELOPER_SEED, renderTemplate } from "../prompts/templates";
 import { withWorkViews } from "../views/work";
 import type { AdapterPause } from "./starts-paused";
 import type { WorkerPort } from "../workers/port";
@@ -279,21 +279,31 @@ function messageOf(error: unknown): string {
 
 /**
  * The tier a run's sessions use: the office tier in force with the model the run row started with
- * and the effort of the run's first developer agent, so a tier edit never changes a parked or live
- * story's session (DIPO-207). A first agent without a recorded effort leaves the tier's effort.
+ * and the effort of the run's first agent of its own role, so a tier edit, or a role file edit,
+ * never changes a parked or live story's session (DIPO-207, DIPO-477). A first agent without a
+ * recorded effort leaves the tier's effort.
  */
 export function startTierOf(office: OfficeHandle, run: StoredRun, tier: TierCaps): TierCaps {
   const first = office.get<{ effort: string | null }>(
     `select effort from agents
-      where office_id = $office_id and run_id = $run and role = 'developer'
+      where office_id = $office_id and run_id = $run and role = $role
       order by started_at, rowid limit 1`,
-    { run: run.runId },
+    { run: run.runId, role: run.role },
   );
   return {
     ...tier,
     model: run.model,
     effort: (first?.effort ?? tier.effort) as TierCaps["effort"],
   };
+}
+
+/**
+ * The role instructions of a story run's sessions (DIPO-477): those of the role file the run started
+ * with, whatever the file on the base says now; the bundled developer instructions for a run
+ * started before runs kept their role file.
+ */
+export function sessionRoleText(run: Pick<StoredRun, "roleFile">): string {
+  return run.roleFile?.instructions ?? DEVELOPER_SEED;
 }
 
 function previousAgent(office: OfficeHandle, runId: string, agent: string): PreviousAgent {
@@ -371,7 +381,7 @@ export class RunResumer implements NextSession {
     // Every developer session reads the box contract (DIPO-272, DIPO-342); with box workers every
     // developer session is a box worker's, a run from before them included, whose box is made below.
     const box = deps.boxes !== undefined || existsSync(join(paths.runDir, BOX_RUN_FILE));
-    const systemFile = renderSystemFile("implement-box", "developer");
+    const systemFile = renderSystemFile("implement-box", sessionRoleText(run));
 
     // The handoff message: the new session's task message.
     let handoff: HandoffMessage;
@@ -712,6 +722,7 @@ export class RunResumer implements NextSession {
       baseSha,
       config,
       handoff,
+      role: { instructions: sessionRoleText(run) },
       ...(box ? { box: true } : {}),
     });
     return { text: prompts.taskMessage };

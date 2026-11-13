@@ -87,7 +87,7 @@ async function started(w: PlanningWorld) {
 }
 
 describe("the interviewing standard (DIPO-455)", () => {
-  const prompt = renderSystemFile("planning-box", "planner");
+  const prompt = renderSystemFile("planning-box", ROLE_TEMPLATES.planner);
 
   it("is in the planning prompt, one rule at a time", () => {
     expect(ROLE_TEMPLATES.planner).toContain("Ask, never assume");
