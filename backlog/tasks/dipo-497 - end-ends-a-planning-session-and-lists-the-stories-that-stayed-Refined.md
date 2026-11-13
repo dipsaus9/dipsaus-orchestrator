@@ -1,10 +1,10 @@
 ---
 id: DIPO-497
 title: Ending a planning session lists the stories that stayed Refined
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-13 09:28'
-updated_date: '2026-11-13 13:02'
+updated_date: '2026-11-13 13:06'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -64,6 +64,10 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository, in a planning session confirm one story that passes and one that lacks a test plan, then type /end and answer y"
       expect: "The session ends and lists the second story as Refined with the reason and how to set it Ready; no Ready step opens"
+park:
+  reason: "worker-failed"
+  from: "In Progress"
+  note: "no valid report: no structured_output"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -110,4 +114,13 @@ Parked 2026-11-13 13:01 UTC: budget-exceeded
 - Last good commit: 48432c5033e75b42dfb59b3cb71cbe6cd47e3116
 
 Resumed 2026-11-13 13:02 UTC; grants: budget +300,000 tokens, +90 turns, +45 minutes; note: Continue
+
+Parked 2026-11-13 13:06 UTC: worker-failed
+- Detail: no valid report: no structured_output
+- Run: run_01M7AENFG02Q9Q7CWQANPG0JER
+- Criteria met: 3 of 4 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 391,948 of 750,000 tokens; 169 of 225 turns; 12 of 113 minutes
+- Last good commit: 4ce253de0f69f45ab0ccfe5becc007027c82dff3
 <!-- SECTION:NOTES:END -->
