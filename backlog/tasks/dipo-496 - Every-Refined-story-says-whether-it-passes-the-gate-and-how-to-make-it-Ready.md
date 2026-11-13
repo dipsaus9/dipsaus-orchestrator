@@ -1,10 +1,10 @@
 ---
 id: DIPO-496
 title: Every Refined story says whether it passes the gate and how to make it Ready
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 13:48'
+updated_date: '2026-11-13 15:02'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -21,6 +21,23 @@ references:
   - packages/cli/src/desk-command.test.ts
   - docs/decisions/0009-tui.md
   - docs/decisions/0020-park-and-resume.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/decisions/0020-park-and-resume.md
+  - packages/cli/src/desk-command.test.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/engine/src/db/migrations/0013-mirror-gate-hash.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/stories/apply.ts
+  - packages/engine/src/views/story.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/views/derive.test.ts
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/queue.tsx
 priority: high
 type: feature
 ordinal: 467000
@@ -77,3 +94,18 @@ test_plan:
 - [x] #4 dipo desk prints the READY TO SET item with its command line
 - [x] #5 ADR 0009's Queue line and ADR 0020's desk order describe the row's step and the new item
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 15:02 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 118,939 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
