@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
+import { type GateId, type OfficeId, RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
@@ -15,9 +15,16 @@ import {
   type NewPr,
   type PrState,
 } from "../../src/platform/host";
+import { appendEntries, type NewEntry } from "../../src/changelog/log";
+import { backlogPrDeskItems } from "../../src/backlog/pr/desk";
+import { desk, DESK_SOURCES, type DeskSources } from "../../src/overview/desk";
+import { mergeGate, openMergeGate } from "../../src/run-state/gates";
+import { insertPark as insertParkRow } from "../run/park-fixture";
+import type { Logger } from "../../src/log/logger";
+import { StoryMerges, type StoryMergeContext, type StoryMergeDeps } from "../../src/merge/stories";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import { stopAtInReview } from "../../src/run-state";
-import { findRun, findStoryPr, insertRun, openAtInReview } from "../../src/records";
+import { findRun, findStoryPr, insertRun, openAtInReview, type StoredRun } from "../../src/records";
 import {
   type StoryPrFacts,
   type StoryPrGit,
@@ -113,6 +120,14 @@ interface World {
   gitReads: number;
   /** The checks the base requires on GitHub; none by default. */
   requiredNames: string[];
+  /** The code tree key of a head; `tree-<head>` unless set (DIPO-498). */
+  readonly trees: Map<string, string>;
+  /** Reading a code tree key fails. */
+  failTree: boolean;
+  /** What the hold answer logged. */
+  readonly warnings: string[];
+  /** The hold answer of the merge gates (DIPO-498). */
+  readonly merges: StoryMerges;
   readonly host: FakeHost;
   readonly prs: StoryPrs;
   readonly run: RunId;
@@ -194,7 +209,19 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
       stopAtInReview(office, run, t.clock.now());
     });
     const host = new FakeHost();
+    const trees = new Map<string, string>();
+    const warnings: string[] = [];
     const world: World = {
+      trees,
+      failTree: false,
+      warnings,
+      merges: new StoryMerges({
+        treeKey: async (_office: OfficeId, _run: StoredRun, head: string) => {
+          if (world.failTree) throw new Error("git is down");
+          return trees.get(head) ?? `tree-${head}`;
+        },
+        logger: { warn: (message: string) => warnings.push(message) } as unknown as Logger,
+      } as unknown as StoryMergeDeps),
       facts: FACTS,
       config: OFFICE_DEFAULTS,
       gitReads: 0,
@@ -220,6 +247,8 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
         clock: t.clock,
         checkout: () => undefined,
         required: { requiredCheckNames: async () => [...world.requiredNames] },
+        staleGates: (handle, runId, head) =>
+          world.merges.staleGates(handle.officeId, handle, runId, head),
       }),
     };
     try {
@@ -598,4 +627,182 @@ describe("a closed story PR the maintainer reopened before the resume (DIPO-324)
       });
     });
   });
+});
+
+async function moveTo(w: World, head: string): Promise<void> {
+  w.facts = { ...FACTS, head };
+  w.t.clock.advance(60_000);
+  await w.prs.sync(w.office.officeId, w.run);
+}
+
+// A moved PR and its merge gates (DIPO-498).
+describe("a story PR that moves while a merge gate waits", () => {
+  const A = "a".repeat(40);
+  const B = "b".repeat(40);
+  const waits = [{ kind: "autoMergeOff" }] as const;
+
+  function openGate(w: World, head: string, overrideOf?: GateId): GateId {
+    return w.office.immediate(
+      () =>
+        openMergeGate(w.office, w.t.ids, {
+          runId: w.run,
+          key: w.key,
+          head,
+          waits: [...waits],
+          summary: `gate at ${head.slice(0, 4)}`,
+          at: w.t.clock.now(),
+          ...(overrideOf === undefined ? {} : { overrideOf }),
+        }).gate.gate,
+    );
+  }
+
+  const sources: DeskSources = {
+    stories: backlogLayout,
+    ...DESK_SOURCES,
+    prItems: backlogPrDeskItems,
+  };
+  const merges = (w: World) =>
+    desk(w.office, () => true, sources).filter((item) => item.kind === "MERGE");
+
+  it("shows a gate that waits at the PR's head as MERGE with approve and reject", async () => {
+    await inWorld(async (w) => {
+      await w.prs.sync(w.office.officeId, w.run);
+      const gate = openGate(w, A);
+      expect(merges(w)).toMatchObject([
+        {
+          story: "DIPO-1",
+          gate,
+          actions: [
+            { command: "gate.approve", cli: "dipo approve DIPO-1" },
+            { command: "gate.reject", cli: 'dipo reject DIPO-1 --note "<why>"' },
+          ],
+        },
+      ]);
+    });
+  });
+
+  it("closes the gate as superseded when a code commit moves the PR, and the desk drops it", async () => {
+    await inWorld(async (w) => {
+      await w.prs.sync(w.office.officeId, w.run);
+      const gate = openGate(w, A);
+      await moveTo(w, B);
+      expect(mergeGate(w.office, gate)?.decision).toMatchObject({
+        decision: "rejected",
+        by: "rule",
+        note: `superseded: the PR head moved to ${B.slice(0, 12)}`,
+      });
+      expect(merges(w)).toEqual([]);
+      // The new head's gate opens: one MERGE item, with the new gate.
+      const next = openGate(w, B);
+      expect(merges(w).map((item) => item.gate)).toEqual([next]);
+    });
+  });
+
+  it("keeps a gate open when a task-file-only commit moves the PR", async () => {
+    await inWorld(async (w) => {
+      await w.prs.sync(w.office.officeId, w.run);
+      const gate = openGate(w, A);
+      w.trees.set(B, `tree-${A}`);
+      await moveTo(w, B);
+      expect(mergeGate(w.office, gate)?.decision).toBeNull();
+      expect(merges(w).map((item) => item.gate)).toEqual([gate]);
+      expect(
+        await w.merges.gateHolds(w.office.officeId, w.office, mergeGate(w.office, gate)!, B),
+      ).toBe(true);
+    });
+  });
+
+  it("closes the stale gate when a closed PR is found open again at a new head", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      const gate = openGate(w, A);
+      w.host.hostState = "closed";
+      w.t.clock.advance(60_000);
+      await w.prs.retry(id);
+      w.host.open = { ...(w.host.open as HostPr), number: 7 };
+      w.facts = { ...FACTS, head: B };
+      await w.prs.replace(id, w.run);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ state: "open", headSha: B });
+      expect(mergeGate(w.office, gate)?.decision?.note).toContain(B.slice(0, 12));
+      expect(merges(w)).toEqual([]);
+    });
+  });
+
+  it("leaves the gate open and logs a failed tree key read; it holds once git recovers", async () => {
+    await inWorld(async (w) => {
+      await w.prs.sync(w.office.officeId, w.run);
+      const gate = openGate(w, A);
+      w.trees.set(B, `tree-${A}`);
+      w.failTree = true;
+      await moveTo(w, B);
+      expect(mergeGate(w.office, gate)?.decision).toBeNull();
+      expect(w.warnings.some((line) => line.includes("code tree key"))).toBe(true);
+      expect(merges(w)).toHaveLength(1);
+      w.failTree = false;
+      const stored = mergeGate(w.office, gate)!;
+      expect(await w.merges.holdOf(w.office.officeId, w.office, stored, B)).toBe("holds");
+      expect(await w.merges.gateHolds(w.office.officeId, w.office, stored, B)).toBe(true);
+    });
+  });
+
+  it("never closes an override gate on a moved head, and its park row keeps approve --note", async () => {
+    await inWorld(async (w) => {
+      await w.prs.sync(w.office.officeId, w.run);
+      const gate = openGate(w, A, "gat_verdict" as GateId);
+      insertParkRow(w.office, {
+        key: w.key,
+        story: "DIPO-1",
+        runId: w.run,
+        reason: "review-blocked",
+        detail: "round 3 blocked",
+        at: w.t.clock.now(),
+      });
+      await moveTo(w, B);
+      expect(mergeGate(w.office, gate)?.decision).toBeNull();
+      const parked = desk(w.office, () => true, sources).filter((item) => item.kind === "PARKED");
+      expect(parked).toMatchObject([
+        { gate, actions: [{ command: "work.resume" }, { command: "gate.approve" }] },
+      ]);
+    });
+  });
+
+  for (const parked of [false, true]) {
+    it(`the start sweep closes a stale gate of a ${parked ? "parked" : "ended"} run only`, async () => {
+      await inWorld(async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        const stale = openGate(w, "c".repeat(40));
+        const holding = openGate(w, A);
+        const override = openGate(w, "d".repeat(40), "gat_verdict" as GateId);
+        if (parked) {
+          insertParkRow(w.office, {
+            key: w.key,
+            story: "DIPO-1",
+            runId: w.run,
+            reason: "budget-exceeded",
+            detail: "turn cap",
+            at: w.t.clock.now(),
+          });
+        }
+        const ctx = {
+          officeId: id,
+          office: w.office,
+          clock: w.t.clock,
+          write: (fn: () => NewEntry[]) =>
+            w.office.immediate(() => appendEntries(w.office, fn(), { at: w.t.clock.now() })),
+        } as unknown as StoryMergeContext;
+        // A failed read leaves every gate open.
+        w.failTree = true;
+        await w.merges.sweep(ctx);
+        for (const g of [stale, holding, override])
+          expect(mergeGate(w.office, g)?.decision).toBeNull();
+        w.failTree = false;
+        await w.merges.sweep(ctx);
+        expect(mergeGate(w.office, stale)?.decision?.note).toContain("superseded");
+        expect(mergeGate(w.office, holding)?.decision).toBeNull();
+        expect(mergeGate(w.office, override)?.decision).toBeNull();
+      });
+    });
+  }
 });

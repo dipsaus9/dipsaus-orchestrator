@@ -323,6 +323,30 @@ describe("dipo desk", () => {
     expect(ctx.err).toEqual([]);
   });
 
+  it("prints the one MERGE item office.desk returns for a moved PR, with the new gate (DIPO-498)", async () => {
+    const merge = DeskItem.parse({
+      kind: "MERGE",
+      story: "DIPO-489",
+      key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
+      gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B",
+      detail: "decision records changed: approve or reject the merge",
+      since: ago(3),
+      blocks: [],
+      actions: [
+        { command: "gate.approve", cli: "dipo approve DIPO-489" },
+        { command: "gate.reject", cli: 'dipo reject DIPO-489 --note "<why>"' },
+      ],
+    });
+    const ctx = fake(() => ({ ok: true, result: [merge] }));
+    expect(await main(["desk"], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual(formatDesk("dipsaus-orchestrator", [merge], NOW));
+    expect(ctx.out.filter((line) => line.startsWith("MERGE"))).toHaveLength(1);
+    expect(ctx.out.join("\n")).toContain("dipo approve DIPO-489");
+    const json = fake(() => ({ ok: true, result: [merge] }));
+    expect(await main(["desk", "--json"], json.deps)).toBe(0);
+    expect(JSON.parse(json.out[0] ?? "")).toEqual([merge]);
+  });
+
   it("prints Nothing waits on you. for an empty desk and exits 0", async () => {
     const ctx = fake(() => ({ ok: true, result: [] }));
     expect(await main(["desk", "--office", OFFICE], ctx.deps)).toBe(0);
