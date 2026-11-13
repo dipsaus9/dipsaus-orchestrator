@@ -109,7 +109,7 @@ import type { z } from "zod";
 
 import { cycleThrough } from "../gate/rules";
 import { baseCommit } from "../box/image";
-import { retro } from "../records/retro";
+import { retro, type RoleRunCounts, roleRunCounts, roleRunLines } from "../records/retro";
 import { loadRoleFiles } from "../roles/base";
 import { REVIEW_CODE_DIR } from "../box/review-box";
 import type { BoxSession, BoxWorkers } from "../box/workers";
@@ -125,7 +125,7 @@ import type { StorylessEvents } from "../ingest/pending";
 import { ensurePrivateDir } from "../platform/paths";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { renderSystemFile } from "../prompts/system";
-import { rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
+import { type Rendered, rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
 import { recordAgent } from "../records/agents";
 import {
   addPlanningEntry,
@@ -254,7 +254,17 @@ export interface PlanningFacts {
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
   /** The roster of the base's role files, each with its purpose (DIPO-476). */
-  readonly roles: readonly { readonly name: string; readonly purpose: string }[];
+  readonly roles: readonly {
+    readonly name: string;
+    readonly purpose: string;
+    readonly model?: string;
+    readonly effort?: string;
+    readonly instructions?: string;
+  }[];
+  /** A roles session (DIPO-475): each role file that failed to load, with its problem. */
+  readonly invalidRoles?: readonly string[];
+  /** A roles session: the recent runs of each role, counted by code (`roleRunCounts`). */
+  readonly roleRuns?: readonly RoleRunCounts[];
   /** The retro numbers as text (DIPO-453): counted by code, to explain and never to compute. */
   readonly retro: string;
   /** The base branch's commit the read-only copy holds. */
@@ -275,8 +285,66 @@ const listOr = (lines: readonly string[], none: string): string =>
 
 const day = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
+/** Pure: the schema of the role proposals only, from the schema of every proposal (DIPO-475). */
+export function roleProposalSchema(
+  schema: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const alternatives = schema.oneOf;
+  if (!Array.isArray(alternatives)) return schema;
+  const kinds = ["role", "role-edit", "role-remove"];
+  return {
+    ...schema,
+    oneOf: alternatives.filter((alternative) => {
+      const kind = (alternative as { properties?: { kind?: { const?: unknown } } }).properties?.kind
+        ?.const;
+      return typeof kind === "string" && kinds.includes(kind);
+    }),
+  };
+}
+
+/** Pure: the first message of a roles session: the roster, its runs and the role proposal schema. */
+function rolesFirstMessage(facts: PlanningFacts): string {
+  const runs = new Map((facts.roleRuns ?? []).map((counts) => [counts.role, counts]));
+  const roster = facts.roles.map((role) =>
+    [
+      `## ${role.name}`,
+      `purpose: ${role.purpose}`,
+      `model: ${role.model ?? "the tier's model"}`,
+      `effort: ${role.effort ?? "the tier's effort"}`,
+      `recent runs: ${roleRunLines(runs.get(role.name)).join("; ")}`,
+      "instructions:",
+      role.instructions ?? "",
+    ].join("\n"),
+  );
+  return renderTemplate(TASK_TEMPLATES.planningRoles, {
+    kind: facts.kind,
+    goal: facts.goal,
+    record: facts.record,
+    roles: roster.length === 0 ? "The office has no roles." : roster.join("\n\n"),
+    invalid: listOr(facts.invalidRoles ?? [], "Every role file loaded."),
+    commit: rendered(facts.commit),
+    dir: rendered(REVIEW_CODE_DIR),
+    fence: rendered(PLANNING_PROPOSAL_FENCE),
+    schema: rendered(JSON.stringify(roleProposalSchema(facts.proposalSchema))),
+    questions_fence: rendered(PLANNING_QUESTIONS_FENCE),
+    questions_schema: rendered(JSON.stringify(PLANNING_QUESTIONS_JSON_SCHEMA)),
+    preferences: preferencesSection(facts.preferences),
+  });
+}
+
+function preferencesSection(preferences: string | null): string | Rendered {
+  return preferences === null || preferences.trim() === ""
+    ? ""
+    : rendered(
+        `${renderTemplate(TASK_TEMPLATES.planningPreferences, {
+          text: preferences.trim().slice(0, PLANNING_PREFERENCES_MAX_CHARS),
+        })}\n`,
+      );
+}
+
 /** Pure: the session's first message, as text, from the facts code knows. */
 export function planningFirstMessage(facts: PlanningFacts): string {
+  if (facts.kind === "roles") return rolesFirstMessage(facts);
   return renderTemplate(TASK_TEMPLATES.planning, {
     kind: facts.kind,
     goal: facts.goal,
@@ -310,14 +378,7 @@ export function planningFirstMessage(facts: PlanningFacts): string {
     schema: rendered(JSON.stringify(facts.proposalSchema)),
     questions_fence: rendered(PLANNING_QUESTIONS_FENCE),
     questions_schema: rendered(JSON.stringify(PLANNING_QUESTIONS_JSON_SCHEMA)),
-    preferences:
-      facts.preferences === null || facts.preferences.trim() === ""
-        ? ""
-        : rendered(
-            `${renderTemplate(TASK_TEMPLATES.planningPreferences, {
-              text: facts.preferences.trim().slice(0, PLANNING_PREFERENCES_MAX_CHARS),
-            })}\n`,
-          ),
+    preferences: preferencesSection(facts.preferences),
   });
 }
 
@@ -1052,7 +1113,7 @@ export class PlanningSessions {
         { proposal: item.n },
       );
     }
-    const checked = checkProposal(args.edited, this.#roleFacts(open));
+    const checked = checkProposal(args.edited, this.#roleFacts(open), open.kind);
     if (!checked.ok) {
       throw new CommandError(
         "planning.invalid",
@@ -1455,7 +1516,7 @@ export class PlanningSessions {
         open.refusals.push({ at, problems: read.problems });
       }
     }
-    for (const read of readProposals(text, this.#roleFacts(open))) {
+    for (const read of readProposals(text, this.#roleFacts(open), open.kind)) {
       if (read.ok) {
         open.proposals.push({
           n: open.proposals.length + 1,
@@ -1762,19 +1823,24 @@ export class PlanningSessions {
     const filed = this.#filedStories(open, commit);
     open.filedSeen = filedSignature(filed);
     const taskMessage = planningFirstMessage(
-      handle.deferred(() => ({
-        kind: open.kind,
-        goal: open.goal,
-        record: planningRecordText(readPlanningRecord(handle, open.session), filed),
-        drafts: planningDrafts(handle),
-        desk: deps.desk?.(handle, now) ?? [],
-        runs: recentStoryRuns(handle),
-        roles: loadRoleFiles(this.#roleFacts(open)?.files ?? new Map()).roles,
-        retro: retro(handle).lines.join("\n"),
-        commit,
-        proposalSchema: deps.worker.reportSchema.planning,
-        preferences,
-      })),
+      handle.deferred(() => {
+        const loaded = loadRoleFiles(this.#roleFacts(open)?.files ?? new Map());
+        return {
+          kind: open.kind,
+          goal: open.goal,
+          record: planningRecordText(readPlanningRecord(handle, open.session), filed),
+          drafts: planningDrafts(handle),
+          desk: deps.desk?.(handle, now) ?? [],
+          runs: recentStoryRuns(handle),
+          roles: loaded.roles,
+          invalidRoles: loaded.problems,
+          roleRuns: open.kind === "roles" ? roleRunCounts(handle) : [],
+          retro: retro(handle).lines.join("\n"),
+          commit,
+          proposalSchema: deps.worker.reportSchema.planning,
+          preferences,
+        };
+      }),
     );
     const systemFile = renderSystemFile("planning-box", "planner");
     const spec: WorkerSpec = {

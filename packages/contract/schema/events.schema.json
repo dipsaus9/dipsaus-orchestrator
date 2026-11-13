@@ -3315,7 +3315,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"
@@ -4577,7 +4577,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"
@@ -5826,7 +5826,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"
@@ -7097,7 +7097,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"
@@ -8364,7 +8364,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"

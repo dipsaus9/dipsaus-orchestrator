@@ -74,6 +74,9 @@ import { clockTime, glyphs } from "./views";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/** The kinds the planning view's choice offers: the Roles room starts `roles` (DIPO-475). */
+export const PLANNING_CHOICES = PLANNING_KINDS.filter((kind) => kind !== "roles");
+
 /** The lines of the input while it holds a proposal's form (DIPO-450). */
 const FORM_ROWS = 16;
 
@@ -127,6 +130,12 @@ export interface Planning {
   readonly rail: boolean;
   /** The block of questions the maintainer answers now, and the dialog's state (DIPO-455). */
   readonly dialog: { readonly block: PlanningQuestionBlock; readonly state: DialogState } | null;
+  /** The Roles room's chat has the keys: a roles session is open, or its goal is being typed. */
+  readonly chatting: boolean;
+  /** Whether this view takes the keys in the mode `mode`: the planning view, or the Roles chat. */
+  keysIn(mode: string): boolean;
+  /** The Roles room's chat key: asks for the goal of a roles session (DIPO-475). */
+  startRoles(): void;
   /** Opens the view with `text` in the input, as the retro's `d` does (DIPO-479). */
   discuss(text: string): void;
   onKey(input: string, key: Key): void;
@@ -600,6 +609,24 @@ function useFolds(transcript: Transcript, session: string | null, office: string
   };
 }
 
+/** The kind of the session the form starts: the chosen one, or `roles` while the Roles chat asks for its goal. */
+function useKindChoice(args: PlanningArgs) {
+  const view = args.state.planning;
+  const [kindIndex, setKindIndex] = useState(0);
+  const [rolesGoal, setRolesGoal] = useState(false);
+  const kind = rolesGoal ? "roles" : (PLANNING_CHOICES[kindIndex] ?? PLANNING_CHOICES[0] ?? "plan");
+  const cycleKind = () => {
+    if (!rolesGoal) setKindIndex((index) => (index + 1) % PLANNING_CHOICES.length);
+  };
+  const chatting = view === null ? rolesGoal : view.kind === "roles";
+  const startRoles = () => {
+    if (view === null) {
+      if (!args.refusedOffline()) setRolesGoal(true);
+    } else if (view.kind !== "roles") args.setMessage("a planning session is open: end it first");
+  };
+  return { kind, rolesGoal, setRolesGoal, cycleKind, chatting, startRoles };
+}
+
 /** The planning view's state; always mounted, so an open draft survives a visit to another mode. */
 export function usePlanning(args: PlanningArgs): Planning {
   const { state } = args;
@@ -607,14 +634,13 @@ export function usePlanning(args: PlanningArgs): Planning {
   const office = state.office;
   const session = view === null ? null : (view.session ?? view.run);
   const [draft, setDraft] = useState("");
-  const [kindIndex, setKindIndex] = useState(0);
+  const { kind, setRolesGoal, cycleKind, chatting, startRoles } = useKindChoice(args);
   const [sending, setSending] = useState<Sending | null>(null);
   const [rail, setRail] = useState(false);
   const [ending, setEnding] = useState<EndStep | null>(null);
   const transcript = useTranscript(args);
   const fold = useFolds(transcript, session, office);
   useResets(session, office, setEnding, setDraft);
-  const kind = PLANNING_KINDS[kindIndex] ?? PLANNING_KINDS[0];
   const send: Send = (which, command, commandArgs, done) =>
     sendCommand(args, setSending, which, { command, args: commandArgs }, done);
   const cards = useCards(
@@ -643,7 +669,10 @@ export function usePlanning(args: PlanningArgs): Planning {
     }
     if (args.refusedOffline()) return;
     if (view === null) {
-      send("start", "planning.start", { kind, goal: text }, () => setDraft(""));
+      send("start", "planning.start", { kind, goal: text }, () => {
+        setDraft("");
+        setRolesGoal(false);
+      });
       return;
     }
     send("message", "planning.message", { text }, () => setDraft(""));
@@ -657,7 +686,7 @@ export function usePlanning(args: PlanningArgs): Planning {
     if (questions.onKey(input, key)) return;
     if (cards.onKey(input, key)) return;
     if (key.tab) {
-      if (view === null) setKindIndex((index) => (index + 1) % PLANNING_KINDS.length);
+      if (view === null) cycleKind();
       else if (key.shift) fold.move(1);
       else setRail((open) => !open);
       return;
@@ -665,6 +694,7 @@ export function usePlanning(args: PlanningArgs): Planning {
     const event = composerKey(draft, input, key);
     if (event.kind === "cancel") {
       // The session keeps running.
+      setRolesGoal(false);
       args.setMessage(null);
       args.leave();
     } else if (event.kind === "send" && fold.focus !== null && draft.trim() === "") {
@@ -686,6 +716,9 @@ export function usePlanning(args: PlanningArgs): Planning {
     editing: cards.editing,
     rail,
     dialog: questions.dialog,
+    chatting,
+    keysIn: (mode) => mode === "planning" || (mode === "roles" && chatting),
+    startRoles,
     discuss: (text) => {
       setDraft(text);
       args.open();
@@ -777,6 +810,12 @@ function proposalHead(proposal: PlanningProposalView["proposal"]): {
       };
     case "drop":
       return { title: `drop ${proposal.draft}` };
+    case "role":
+      return { title: `add role ${proposal.name}` };
+    case "role-edit":
+      return { title: `edit role ${proposal.name}` };
+    case "role-remove":
+      return { title: `remove role ${proposal.name}` };
     default:
       return { title: String((proposal as { kind?: unknown }).kind ?? "proposal") };
   }
@@ -787,7 +826,10 @@ function firstLine(proposal: PlanningProposalView["proposal"]): string {
   const line =
     (proposal.kind === "story" || proposal.kind === "refine") && proposal.storyLine !== undefined
       ? proposal.storyLine
-      : proposal.why;
+      : (proposal.kind === "role" || proposal.kind === "role-edit") &&
+          proposal.purpose !== undefined
+        ? proposal.purpose
+        : proposal.why;
   return line.replace(/\s+/g, " ");
 }
 
@@ -1049,9 +1091,12 @@ function viewHead(planning: Planning, columns: number, display: Display): string
   const { view } = planning;
   if (view !== null)
     return [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
+  if (planning.kind === "roles") {
+    return ["Roles chat: no open session", "goal (what do you want to ask about the roles?):"];
+  }
   return [
     "Planning: no open planning session",
-    `kind: ${PLANNING_KINDS.map((kind) => (kind === planning.kind ? `[${kind}]` : kind)).join("  ")}`,
+    `kind: ${PLANNING_CHOICES.map((kind) => (kind === planning.kind ? `[${kind}]` : kind)).join("  ")}`,
     "goal (what do you want to plan?):",
   ];
 }

@@ -265,7 +265,7 @@ export function App(props: AppProps) {
   });
   const ro = { store, actions, state, leave: goHome };
   const retro = useRetro({ ...ro, active: mode.kind === "retro", discuss: planning.discuss });
-  const roles = useRoles({ ...ro, active: mode.kind === "roles" });
+  const roles = useRoles({ ...ro, active: mode.kind === "roles", chat: planning.startRoles });
   const modeKeys: ModeKeys = {
     store,
     actions,
@@ -299,7 +299,7 @@ export function App(props: AppProps) {
     acts.setMessage(null);
     if (mode.kind === "path") onPathKey(mode, input, key, modeKeys);
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
-    else if (mode.kind === "planning") planning.onKey(input, key);
+    else if (planning.keysIn(mode.kind)) planning.onKey(input, key);
     else if (overlays.onKey(mode, input, key)) return;
     else if (onQuitKey(input)) return;
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
@@ -314,7 +314,7 @@ export function App(props: AppProps) {
     } else home.onKey(input, key);
   };
 
-  useKeys(typesText(mode) || acts.typing || home.steering.draft !== null, handleKey);
+  useKeys(typesText(mode, planning) || acts.typing || home.steering.draft !== null, handleKey);
 
   return (
     <Screen

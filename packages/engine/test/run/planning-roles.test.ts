@@ -161,8 +161,9 @@ describe("confirming role proposals", () => {
                 { kind: "role-remove", name: "writer", why: "Not used." },
               )
             : "Noted.";
-        const { run } = (await w.sessions.start(commandContext(w), { kind: "plan", goal: "Roles" }))
-          .result;
+        const { run } = (
+          await w.sessions.start(commandContext(w), { kind: "roles", goal: "Roles" })
+        ).result;
         const officeId = OfficeId.parse(w.office.officeId);
         await until(() => w.sessions.view(officeId)?.state === "waiting");
         expect(w.sessions.view(officeId)?.proposals?.map((p) => p.proposal.kind)).toEqual([

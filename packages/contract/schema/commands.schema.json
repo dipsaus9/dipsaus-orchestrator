@@ -1361,7 +1361,7 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["plan", "refine", "triage"]
+          "enum": ["plan", "refine", "triage", "roles"]
         },
         "goal": {
           "type": "string",
@@ -1396,7 +1396,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"
@@ -2673,7 +2673,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"

@@ -94,6 +94,8 @@ describe("the planning view", () => {
     await ui.press("5");
     const form = await ui.waitFor("no open planning session");
     expect(form).toContain("[plan]  refine  triage");
+    // The Roles room starts the roles kind; the choice here does not offer it (DIPO-475).
+    expect(form).not.toContain("roles");
     expect(form).toContain("⏎ start");
 
     await ui.press("tab");
