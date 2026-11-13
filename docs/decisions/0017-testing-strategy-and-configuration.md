@@ -123,6 +123,8 @@ scripts: { verify: bun run verify }                                # 0013
 
 The frontmatter is a strict schema as in section 6: an unknown key is an error naming the file, the key path and that the key may need a newer dipo. Allowed tools are not a key; the adapter names the tools per kind (0008). The body is the role's instructions, and an empty body is an error. The files are read at the base commit from git's objects, never the checkout, as `office.yaml` is, and again when they change on the base through the same poll. An invalid file leaves only that role out of the roster and raises one notice naming the file and the problem; the other roles and the office's runs are unaffected. Every file role is a code role; non-code roles come with M4.
 
+**The seed.** The developer role starts as a file. Office init (0010) writes `.dipo/roles/developer.md` with `version: 1`, a one-line purpose and the bundled developer instructions as the body, and adds `role:developer` to every open story without a role label. Both steps are planned only while the base's `.dipo/roles/` holds no role file, and each is target-state, so a second init adds no commit. The bundled text stays in the binary as the seed text.
+
 ### 6. Precedence and validation
 
 - **Precedence**, lowest to highest: built-in defaults, then `office.yaml`, then the allowlisted keys of `office.local.yaml`, then flags on a single command. Objects merge per key, and lists and scalars replace. There is no user-level layer, because offices are isolated.

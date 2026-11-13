@@ -14,7 +14,7 @@
 // `In Review` or `Parked` is missing; `work.run` (DIPO-48) refuses runs with it. The load step
 // `office.statuses` raises the same as an `engine.notice` when the office loads.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type Clock, type OfficeId, officeInit } from "@dipsaus-orchestrator/contract";
@@ -22,9 +22,12 @@ import { type Clock, type OfficeId, officeInit } from "@dipsaus-orchestrator/con
 import { allEntries, type JournalEntry, OPEN_STATES } from "../lane/journal";
 import { type FlushReport, LaneFlushError, type OfficeLane } from "../lane/lane";
 import { listAll } from "../list";
-import { BacklogParseError } from "../plain";
+import { BacklogParseError, parseView } from "../plain";
 import { openPrs } from "../pr/records";
-import { type BacklogCli, BacklogCommandError, BacklogRefusedError } from "../runner";
+import { type BacklogCli, BacklogCommandError, BacklogRefusedError, runBacklog } from "../runner";
+import { DONE_STATUS } from "../../merge/close-out";
+import { ROLES_DIR } from "../../roles/parse";
+import { readLabels } from "../../story-store/fields/labels";
 import { appendEntries, type NewEntry } from "../../changelog/log";
 import { CommandError } from "../../commands/errors";
 import type { OfficeDirectory } from "../../commands/offices";
@@ -72,8 +75,17 @@ export interface BaseState {
       };
   /** `config get` output of `defaultStatus` and each office setting. */
   readonly settings: Readonly<Record<string, string>>;
-  /** Every active task with its status, as `task list --plain` groups them. */
-  readonly tasks: readonly { readonly id: string; readonly status: string }[];
+  /**
+   * Every active task with its status, as `task list --plain` groups them, and its labels (read
+   * only for a task that is not Done, and only while the base holds no role file).
+   */
+  readonly tasks: readonly {
+    readonly id: string;
+    readonly status: string;
+    readonly labels: readonly string[];
+  }[];
+  /** True when `.dipo/roles/` on the base holds a role file (`*.md`). */
+  readonly roleFiles: boolean;
   /** Local branches and the remote's branches, by short name. */
   readonly branches: readonly string[];
   /** True when `.dipo/.gitignore` exists on the base. */
@@ -129,6 +141,13 @@ export function planInit(base: BaseState): InitPlan {
     for (const { key } of differing) previous[key] = settingValue(base.settings[key] ?? "");
   }
   if (todo.length > leftAlone.length) targets.push({ step: "migrate", leave: leftAlone });
+  if (!base.roleFiles) {
+    targets.push({ step: "roles" });
+    const unlabelled = base.tasks.some(
+      (task) => task.status !== DONE_STATUS && readLabels(task.labels).roles.length === 0,
+    );
+    if (unlabelled) targets.push({ step: "roleLabels" });
+  }
   if (!base.gitignore) targets.push({ step: "gitignore" });
   return { targets, previous, leftAlone };
 }
@@ -165,14 +184,23 @@ async function readBase(
   for (const key of ["defaultStatus", ...OFFICE_SETTINGS.map((setting) => setting.key)]) {
     settings[key] = await configGet(cli, ctx.cwd, key);
   }
-  const tasks = (await listAll(cli, ctx.cwd, "task")).entries.map((entry) => ({
-    id: entry.id,
-    status: entry.group,
-  }));
+  const rolesDir = join(ctx.cwd, ROLES_DIR);
+  const roleFiles =
+    existsSync(rolesDir) && readdirSync(rolesDir).some((name) => name.endsWith(".md"));
+  const tasks: BaseState["tasks"][number][] = [];
+  for (const entry of (await listAll(cli, ctx.cwd, "task")).entries) {
+    let labels: readonly string[] = [];
+    if (!roleFiles && entry.group !== DONE_STATUS) {
+      const { stdout } = await runBacklog(cli, ctx.cwd, ["task", "view", entry.id, "--plain"]);
+      labels = parseView(stdout).labels;
+    }
+    tasks.push({ id: entry.id, status: entry.group, labels });
+  }
   return {
     statuses: read.ok ? { ok: true, list: read.statuses } : { ok: false, reason: read.reason },
     settings,
     tasks,
+    roleFiles,
     branches: await branchNames(ctx.git, remote),
     gitignore: existsSync(join(ctx.cwd, DIPO_GITIGNORE)),
   };

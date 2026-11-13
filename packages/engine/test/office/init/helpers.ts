@@ -58,6 +58,41 @@ function tasks(cwd: string): TaskFile[] {
     });
 }
 
+/** The labels of a task file: the `labels:` block list of its front matter. */
+function labelsOf(text: string): string[] {
+  const lines = text.split("\n");
+  const at = lines.indexOf("labels:");
+  if (at < 0) return [];
+  const labels: string[] = [];
+  for (const line of lines.slice(at + 1)) {
+    const item = /^ {2}- '?(.*?)'?$/.exec(line);
+    if (item === null) break;
+    labels.push(item[1] ?? "");
+  }
+  return labels;
+}
+
+/** The labels of task `id`. */
+export function taskLabels(cwd: string, id: string): string[] {
+  const task = tasks(cwd).find((entry) => entry.id === id);
+  if (task === undefined) throw new Error(`no task ${id} in ${cwd}`);
+  return labelsOf(readFileSync(task.path, "utf8"));
+}
+
+/** A task file's labels set to `labels`. */
+export function setTaskLabels(cwd: string, id: string, labels: readonly string[]): void {
+  const task = tasks(cwd).find((entry) => entry.id === id);
+  if (task === undefined) throw new Error(`no task ${id} in ${cwd}`);
+  const lines = readFileSync(task.path, "utf8").split("\n");
+  const at = lines.indexOf("labels:") >= 0 ? lines.indexOf("labels:") : lines.indexOf("labels: []");
+  const old = labelsOf(lines.join("\n"));
+  const block =
+    labels.length === 0 ? ["labels: []"] : ["labels:", ...labels.map((l) => `  - '${l}'`)];
+  if (at < 0) lines.splice(lines.indexOf("dependencies: []"), 0, ...block);
+  else lines.splice(at, old.length + 1, ...block);
+  writeFileSync(task.path, lines.join("\n"));
+}
+
 /** The status line of a task file rewritten. */
 export function setTaskStatus(cwd: string, id: string, status: string): void {
   const task = tasks(cwd).find((entry) => entry.id === id);
@@ -104,11 +139,19 @@ function reply(cwd: string, args: readonly string[]): ScriptedReply {
     const task = tasks(cwd).find((entry) => entry.id === rest[0]);
     if (task === undefined) return { code: 1, stderr: "Task not found" };
     return {
-      stdout: viewOutput(task.id, "").replace("Status: ○ Ready", `Status: ○ ${task.status}`),
+      stdout: viewOutput(task.id, "", taskLabels(cwd, task.id)).replace(
+        "Status: ○ Ready",
+        `Status: ○ ${task.status}`,
+      ),
     };
   }
   if (group === "task" && sub === "edit") {
     const [id, flag, status] = rest;
+    if (flag === "--add-label" && id !== undefined && status !== undefined) {
+      const labels = taskLabels(cwd, id);
+      if (!labels.includes(status)) setTaskLabels(cwd, id, [...labels, status]);
+      return { stdout: `Updated task ${id}\n` };
+    }
     if (flag !== "-s" || id === undefined || status === undefined) {
       return { code: 1, stderr: "unsupported edit" };
     }

@@ -24,6 +24,8 @@ import {
 
 import { fileBacklog, OLD_CONFIG } from "./helpers";
 
+const steps = (state: BaseState) => planInit(state).targets.map((target) => target.step);
+
 const OLD = ["To Do", "In Progress", "Done"];
 
 describe("the statuses line", () => {
@@ -78,10 +80,11 @@ describe("planInit", () => {
       autoCommit: "false",
     },
     tasks: [
-      { id: "TASK-1", status: "To Do" },
-      { id: "TASK-2", status: "To Do" },
-      { id: "TASK-3", status: "Done" },
+      { id: "TASK-1", status: "To Do", labels: [] },
+      { id: "TASK-2", status: "To Do", labels: ["role:designer"] },
+      { id: "TASK-3", status: "Done", labels: [] },
     ],
+    roleFiles: true,
     branches: ["main", "task-2/rename-the-export-setting", "TASK-22/other"],
     gitignore: false,
   };
@@ -110,7 +113,8 @@ describe("planInit", () => {
           remoteOperations: "true",
           autoCommit: "false",
         },
-        tasks: [{ id: "TASK-1", status: "Refined" }],
+        tasks: [{ id: "TASK-1", status: "Refined", labels: [] }],
+        roleFiles: true,
         branches: [],
         gitignore: true,
       }),
@@ -124,6 +128,32 @@ describe("planInit", () => {
       settingValue(""),
       settingValue("To Do"),
     ]).toEqual([true, false, null, "To Do"]);
+  });
+
+  describe("the role steps", () => {
+    const unlabelled: BaseState = {
+      ...base,
+      tasks: [
+        { id: "TASK-1", status: "Refined", labels: ["tier:S"] },
+        { id: "TASK-2", status: "Done", labels: [] },
+      ],
+      roleFiles: false,
+    };
+
+    it("plans the seed and the label step only while the base holds no role file", () => {
+      expect(steps(unlabelled)).toEqual(expect.arrayContaining(["roles", "roleLabels"]));
+      expect(steps({ ...unlabelled, roleFiles: true })).not.toContain("roles");
+      expect(steps({ ...unlabelled, roleFiles: true })).not.toContain("roleLabels");
+    });
+
+    it("plans no label step when every open task has a role label", () => {
+      const labelled = {
+        ...unlabelled,
+        tasks: [{ id: "TASK-1", status: "Refined", labels: ["role:x"] }],
+      };
+      expect(steps(labelled)).toContain("roles");
+      expect(steps(labelled)).not.toContain("roleLabels");
+    });
   });
 });
 

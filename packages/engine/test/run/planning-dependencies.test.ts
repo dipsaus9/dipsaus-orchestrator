@@ -112,9 +112,13 @@ describe("a planning edit that sets dependencies (DIPO-493)", () => {
           edit("TASK-2", { dependencies: ["task-1", "TASK-4"] }),
         ]);
         await w.sessions.confirm(ctx, { proposal: 1 });
+<<<<<<< 3397115a9e37d77d28e3d94a700c52eb44959d32
         await lane.flush();
         await w.sessions.confirm(ctx, { proposal: 2 });
         await lane.flush();
+=======
+        await w.sessions.confirm(ctx, { proposal: 2 });
+>>>>>>> 0583fcc9de2235ef111d3c279b73cef718f2a110
         expect(allEntries(s.office).map((entry) => entry.kind)).toEqual([FILE_KIND, REVISE_KIND]);
         expect(dependenciesOf(s.lane().worktreePath(), "TASK-2")).toEqual(["TASK-1", "TASK-4"]);
       },
@@ -135,22 +139,34 @@ describe("a planning edit that sets dependencies (DIPO-493)", () => {
         const edits = () => s.log.filter((line) => line.startsWith("cli task edit TASK-3")).length;
 
         await w.sessions.confirm(ctx, { proposal: 1 });
+<<<<<<< 3397115a9e37d77d28e3d94a700c52eb44959d32
         await lane.flush();
+=======
+>>>>>>> 0583fcc9de2235ef111d3c279b73cef718f2a110
         expect(dependenciesOf(worktree, "TASK-3")).toEqual(["TASK-2"]);
 
         const before = edits();
         await w.sessions.confirm(ctx, { proposal: 2 });
+<<<<<<< 3397115a9e37d77d28e3d94a700c52eb44959d32
         await lane.flush();
+=======
+>>>>>>> 0583fcc9de2235ef111d3c279b73cef718f2a110
         expect(edits()).toBe(before);
         expect(dependenciesOf(worktree, "TASK-3")).toEqual(["TASK-2"]);
 
         await w.sessions.confirm(ctx, { proposal: 3 });
+<<<<<<< 3397115a9e37d77d28e3d94a700c52eb44959d32
         await lane.flush();
+=======
+>>>>>>> 0583fcc9de2235ef111d3c279b73cef718f2a110
         expect(dependenciesOf(worktree, "TASK-3")).toEqual([]);
 
         const entries = allEntries(s.office).length;
         await w.sessions.confirm(ctx, { proposal: 4 });
+<<<<<<< 3397115a9e37d77d28e3d94a700c52eb44959d32
         await lane.flush();
+=======
+>>>>>>> 0583fcc9de2235ef111d3c279b73cef718f2a110
         expect(allEntries(s.office)).toHaveLength(entries + 1);
         expect(dependenciesOf(worktree, "TASK-3")).toEqual(["TASK-1"]);
         expect(readFileSync(taskFile(worktree, "TASK-3"), "utf8")).toContain(
