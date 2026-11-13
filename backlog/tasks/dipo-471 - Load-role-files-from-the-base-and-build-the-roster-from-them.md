@@ -1,10 +1,10 @@
 ---
 id: DIPO-471
 title: Load role files from the base and build the roster from them
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 14:35'
-updated_date: '2026-11-13 09:55'
+updated_date: '2026-11-13 10:08'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -22,6 +22,32 @@ references:
   - docs/decisions/0012-story-standard.md
   - docs/decisions/0014-worker-prompt-assembly.md
   - docs/decisions/0001-foundational-decisions.md
+modified_files:
+  - docs/decisions/0001-foundational-decisions.md
+  - docs/decisions/0004-language-and-runtime.md
+  - docs/decisions/0012-story-standard.md
+  - docs/decisions/0014-worker-prompt-assembly.md
+  - docs/decisions/0017-testing-strategy-and-configuration.md
+  - packages/engine/src/gate-decisions/feature.ts
+  - packages/engine/src/gate/evaluate.ts
+  - packages/engine/src/gate/index.ts
+  - packages/engine/src/gate/types.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/roles/base.ts
+  - packages/engine/src/roles/parse.ts
+  - packages/engine/test/engine/loop-office.ts
+  - packages/engine/test/gate/gate.test.ts
+  - packages/engine/test/gate/gated-office.ts
+  - packages/engine/test/gate/index-notify.ci.test.ts
+  - packages/engine/test/gate/story-gate.ci.test.ts
+  - packages/engine/test/gate/story-gate.test.ts
+  - packages/engine/test/office/roles.test.ts
+  - packages/engine/test/roles/parse.test.ts
+  - packages/engine/test/run/run-office.ts
+  - packages/engine/test/run/work-run.ci.test.ts
+  - scripts/check-ready-gate.test.ts
+  - scripts/check-ready-gate.ts
+  - tools/lint/oxlint-plugin.js
 type: feature
 ordinal: 444000
 ---
@@ -85,3 +111,18 @@ test_plan:
 - [x] #9 The built-in roster constant is removed; the gate's roster comes only from role files.
 - [x] #10 Decisions 0017, 0012, 0014 and 0001 describe role files, their keys and the roster as built here.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 10:08 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 124,101 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
