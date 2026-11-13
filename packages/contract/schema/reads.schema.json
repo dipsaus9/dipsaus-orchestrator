@@ -2234,6 +2234,12 @@
                       "type": "string"
                     }
                   },
+                  "gate": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
                   "detail": {
                     "type": "string"
                   },

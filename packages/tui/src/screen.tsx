@@ -19,7 +19,7 @@ import { OverlayOver } from "./overlays";
 import { promptRows } from "./prompt-box";
 import type { SegLine } from "./segments";
 import { endingKind, type Planning, PlanningMode } from "./planning";
-import { dialogComplete } from "./question-dialog";
+import { dialogOnSubmit } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
 import { type Roles, RolesMode } from "./roles";
 import type { Display } from "./options";
@@ -93,7 +93,7 @@ function screenKeys(props: ScreenProps, columns: number): Hint[] {
           ? null
           : {
               typing: planning.dialog.state.typing !== null,
-              complete: dialogComplete(planning.dialog.state),
+              submit: dialogOnSubmit(planning.dialog.state),
             },
     },
   });

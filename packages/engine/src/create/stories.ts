@@ -114,6 +114,7 @@ function storyPrsOf(core: Core, partners: EnginePartners, guard: AutoMergeGuard)
 function laneOf(
   core: Core,
   partners: EnginePartners,
+  gates: () => GateStore,
 ): { readonly backlogPrs: BacklogPrs; readonly lane: BacklogLane } {
   const backlogPrs = new BacklogPrs({
     host: core.host,
@@ -148,6 +149,8 @@ function laneOf(
     refreshStory: (office, key) => partners.storyIndex.get().refreshStory(office, key),
     // Each flush that holds, fails or leaves operations waiting says why (DIPO-401).
     logger: core.logger.child({ component: "backlog-lane" }),
+    // A planning confirm files a story Ready when the gate passes it on `_backlog` (DIPO-495).
+    gate: { recordLaneDecision: (...args) => gates().recordLaneDecision(...args) },
   });
   return { backlogPrs, lane };
 }
@@ -242,7 +245,12 @@ export function buildStoryServices(core: Core, partners: EnginePartners): StoryS
   const autoMergeGuard: AutoMergeGuard = (office, branch, write) =>
     partners.autoMerge.get().guarded(office, branch, write);
   const storyPrs = storyPrsOf(core, partners, autoMergeGuard);
-  const { backlogPrs, lane } = laneOf(core, partners);
+  // The Ready gate is made below, after the story index it needs; the lane asks for it lazily.
+  let gateStore: GateStore | undefined;
+  const { backlogPrs, lane } = laneOf(core, partners, () => {
+    if (gateStore === undefined) throw new Error("the Ready gate is not built yet");
+    return gateStore;
+  });
   // Office init (DIPO-36): `office.init` reads the base and submits its steps to the lane, whose
   // flush opens the backlog PR and kicks the auto-merge.
   const officeInit = new OfficeInit({
@@ -265,6 +273,7 @@ export function buildStoryServices(core: Core, partners: EnginePartners): StoryS
     index: storyIndex,
     logger: core.logger.child({ component: "gate" }),
   });
+  gateStore = gates;
   return {
     claims,
     storyPrs,

@@ -40,8 +40,8 @@
 [acc]│[/] [hi]Don’t raise the timeout. The real host must[/]                                                                  [acc]│[/]
 [acc]│[/] [hi]bind within 4.5 s; find why it doesn’t.[acc]▍[/][/]                                                                     [acc]│[/]
 [acc]└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[/]
-[dim][acc]⏎[/] new line   [acc]ctrl-s[/] send   [acc]esc[/] cancel[/]
+[dim][acc]⏎[/] send   [acc]⌥⏎[/] new line   [acc]esc[/] cancel[/]
 
 [dim]10:42  [/][ok]you    [/]Don’t raise the timeout… [dim]· delivered next turn[/]
 --- notes ---
-The second block is the foot of the stream pane: `s` opens the Composer under the last stream lines; after ctrl-s the message lands as a `you` line with its delivery state.
+The second block is the foot of the stream pane: `s` opens the Composer under the last stream lines; after Enter the message lands as a `you` line with its delivery state.

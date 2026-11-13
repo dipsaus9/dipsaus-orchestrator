@@ -112,7 +112,7 @@ export function capsText(flow: Flow, ascii: boolean): SegLine {
   const dot = ascii ? "-" : "·";
   const caps = flow.caps?.details;
   if (caps === undefined || flow.caps?.share !== shareChosen(flow)) {
-    return [seg("ctrl-s shows the caps before it resumes", "dim")];
+    return [seg("⏎ shows the caps before it resumes", "dim")];
   }
   return [
     seg(`${compactCount(caps.before.budgetTokens)} ${g.arrow} `),

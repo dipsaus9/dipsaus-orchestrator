@@ -1,5 +1,5 @@
 // The steer message of the Run (0009, DIPO-461): `s` opens the Composer at the foot of the stream,
-// Ctrl-S sends `work.steer`, and the message stays in the stream as a `you` line that says when it
+// Enter sends `work.steer`, and the message stays in the stream as a `you` line that says when it
 // arrives (`next turn`, `on resume`) or why it was not sent. The sent lines are kept per run for as
 // long as the TUI runs.
 

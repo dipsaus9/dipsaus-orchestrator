@@ -13,7 +13,10 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import type { StoryKey } from "@dipsaus-orchestrator/contract";
+
 import type { OfficeHandle } from "../../db/office";
+import type { StoredGateDecision } from "../../gate-decisions/feature";
 import { editLabels, FieldWriteError, viewStory, writeFields } from "../fields/write";
 import { FieldBlockError } from "../../story-store/fields/block";
 import {
@@ -49,10 +52,27 @@ export interface ApplyContext {
    * accepted proposal, DIPO-166). Absent where a test applies a kind by hand.
    */
   readonly office?: OfficeHandle;
+  /**
+   * The Ready gate on this worktree (DIPO-495), for a kind that files or edits a story the
+   * maintainer confirmed in a planning session. Absent where no gate is wired: such a kind sets
+   * nothing Ready then.
+   */
+  readonly gate?: LaneGate;
 }
 
+/**
+ * The Ready gate as a lane kind runs it (DIPO-495): `GateStore.recordLaneDecision` in `ready` mode
+ * on the `_backlog` worktree, storing the decision under `key`, or under none for a story the base
+ * does not hold yet.
+ */
+export type LaneGate = (
+  story: string,
+  key: StoryKey | null,
+) => Promise<Pick<StoredGateDecision, "result" | "contentHash">>;
+
 export type ApplyOutcome =
-  | { readonly applies: true }
+  /** It applied; `notice`, when set, says what it decided (the Ready gate's answer, DIPO-495). */
+  | { readonly applies: true; readonly notice?: string }
   /** The operation no longer applies (the story changed or vanished); it is dropped. */
   | { readonly applies: false; readonly reason: string };
 

@@ -15,6 +15,8 @@ export interface Span {
   readonly sel?: boolean;
   readonly bold?: boolean;
   readonly underline?: boolean;
+  /** Painted on the shade role's background. */
+  readonly shade?: boolean;
 }
 
 /** `spans` on the focused row's background when `on`: the background covers every cell it wraps. */
@@ -32,7 +34,7 @@ function signature(spans: readonly Span[]): string {
   return spans
     .map(
       (s) =>
-        `${s.role ?? ""}${s.sel === true ? "s" : ""}${s.bold === true ? "b" : ""}${s.underline === true ? "u" : ""}:${s.text}`,
+        `${s.role ?? ""}${s.sel === true ? "s" : ""}${s.bold === true ? "b" : ""}${s.underline === true ? "u" : ""}${s.shade === true ? "h" : ""}:${s.text}`,
     )
     .join("\u0000");
 }
@@ -70,6 +72,7 @@ export const SpanLine = memo(
               role={span.role}
               {...(span.bold === true ? { bold: true } : {})}
               {...(span.underline === true ? { underline: true } : {})}
+              {...(span.shade === true ? { shade: true } : {})}
             >
               {span.text}
             </Colored>

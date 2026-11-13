@@ -11,13 +11,17 @@
 //   executable fails it, under `backlog/` too (DIPO-341).
 // - `parses` (R02): every changed task or draft that still exists parses: its view, and its `dipo`
 //   field block.
-// - `transition`: each status change is a 0012 transition that lane b may write (below). Parked to
-//   Done is one only for a story whose own PR merged while it was parked: the one Done check
+// - `transition`: each status change is a 0012 transition that lane b may write (below). A new task
+//   at Ready, and a draft promoted to Ready, is one (DIPO-495): `ready-decision` still wants its
+//   passing decision, and CI refuses it in a PR that also changes code (`check-ready-gate.ts`).
+//   Parked to Done is one only for a story whose own PR merged while it was parked: the one Done check
 //   (`decideDone`) answers merged for the claim {branch: the task's field-block `branch` on the
 //   base side, base: the PR's base} and the story PR whose merge commit last touched the task file
 //   on the base (`merged.ts`, DIPO-468). Every other Parked to Done is refused.
 // - `ready-decision`: each task that becomes `Ready` has a passing Ready gate decision stored for
-//   its content hash (DIPO-71).
+//   its content hash (DIPO-71): under its key, or, for a task dipo knows no key of yet (one the
+//   planning lane filed Ready before the base held it, DIPO-495), one the lane stored with no key
+//   for that very content.
 // - `no-claim`: no changed task has a live claim (DIPO-38); such a story belongs to lane a.
 
 import type { StoryKey } from "@dipsaus-orchestrator/contract";
@@ -110,6 +114,12 @@ export interface PrFacts {
   /** Content hashes with a passing Ready gate decision, per key. */
   readonly passing: Readonly<Record<string, readonly string[]>>;
   /**
+   * Content hashes with a passing Ready gate decision the planning lane stored with no key, for a
+   * story the base did not hold yet (DIPO-495); absent means none. The hash covers the task's id
+   * and every field the gate reads, so it matches only that very task.
+   */
+  readonly unkeyed?: readonly string[];
+  /**
    * The story PR fact of each task the PR moves from Parked to Done, by task id
    * (`mergedWhileParkedFacts`, DIPO-468); absent means none, so each such change is refused.
    */
@@ -151,15 +161,18 @@ export function stateOf(side: TaskSide): string | null {
 
 /**
  * The status changes a backlog-only PR may make (0012, 0010): the
- * transitions written in lane b. `null` is "no file": a new draft, a promotion (the draft goes and
- * a Refined task appears), and the office-init migration from `To Do`. Everything from In Progress
- * onward belongs to the story PR (lane a).
+ * transitions written in lane b. `null` is "no file": a new draft, a new task, a promotion (the
+ * draft goes and a task appears), and the office-init migration from `To Do`. A new task or a
+ * promoted draft is Refined, or Ready when the gate passed it at the maintainer's planning confirm
+ * (DIPO-495). Everything from In Progress onward belongs to the story PR (lane a).
  */
 export const LANE_B_TRANSITIONS: readonly (readonly [string | null, string | null])[] = [
   [null, "Draft"],
   [null, "Refined"],
+  [null, "Ready"],
   ["Draft", null],
   ["Draft", "Refined"],
+  ["Draft", "Ready"],
   ["Draft", "Removed"],
   ["To Do", "Refined"],
   ["Refined", "Ready"],
@@ -288,10 +301,12 @@ export function checkBacklogPr(diff: PrDiff, facts: PrFacts): CheckResult {
         ),
       );
       if (key === undefined) {
-        fail(
-          "ready-decision",
-          `${change.id} becomes Ready, but dipo knows no story with this id, so no Ready gate decision can match it`,
-        );
+        if (!(facts.unkeyed ?? []).includes(hash)) {
+          fail(
+            "ready-decision",
+            `${change.id} becomes Ready, but dipo knows no story with this id and holds no passing Ready gate decision for its content`,
+          );
+        }
       } else if (!(facts.passing[key] ?? []).includes(hash)) {
         fail(
           "ready-decision",

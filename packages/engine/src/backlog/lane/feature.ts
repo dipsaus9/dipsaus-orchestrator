@@ -109,6 +109,7 @@ export class BacklogLane {
       ...(this.#deps.held === undefined ? {} : { held: this.#deps.held }),
       ...(this.#deps.refreshStory === undefined ? {} : { refreshStory: this.#deps.refreshStory }),
       ...(this.#deps.logger === undefined ? {} : { logger: this.#deps.logger }),
+      ...(this.#deps.gate === undefined ? {} : { gate: this.#deps.gate }),
     });
     this.#offices.set(ctx.officeId, lane);
     return lane;

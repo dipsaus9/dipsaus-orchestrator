@@ -3,6 +3,8 @@
 // number, tier and why; an invalid one is refused with its problems, shown in the view and sent to
 // the session as its next message, at most `AUTO_REFUSALS_MAX` answers in a row. A confirmed
 // proposal becomes lane targets to the story standard.
+// A proposal that claims a status is refused by the schema in every kind and part, and nothing
+// reaches the lane or the gate before the maintainer confirms (DIPO-495).
 
 import { describe, expect, it } from "bun:test";
 
@@ -20,6 +22,7 @@ import {
   reviseTargetOf,
   storyFieldsOf,
 } from "../../src/run/planning-proposals";
+import type { PlanningSessionsDeps } from "../../src/run/planning-session";
 import { openTestState } from "../commands/helpers";
 import {
   blocksOf,
@@ -305,5 +308,102 @@ describe("proposals in a planning session (DIPO-450)", () => {
         .confirm(ctx, { proposal: 2 })
         .catch((error: unknown) => error);
       expect((closed as CommandError).error.code).toBe("planning.proposalClosed");
+    }));
+});
+
+// ---- Only the maintainer's confirm files a story, Ready or not (DIPO-495) -----------------------
+
+describe("no planning path sets Ready without the maintainer's confirm (DIPO-495)", () => {
+  it("refuses a proposal that claims a status, in every kind and part", () => {
+    const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
+    const reads = readProposals(
+      blocksOf(
+        { ...STORY_PROPOSAL, status: "Ready" },
+        { kind: "edit", id: "TASK-2", title: "Renamed", status: "Ready", why: "Ready it." },
+        {
+          kind: "split",
+          id: "TASK-2",
+          edit: { title: "Narrowed", status: "Ready" },
+          story,
+          why: "Two parts.",
+        },
+        {
+          kind: "split",
+          id: "TASK-2",
+          edit: { title: "Narrowed" },
+          story: { ...story, status: "Ready" },
+          why: "Two parts.",
+        },
+        { ...STORY_PROPOSAL, kind: "refine", draft: "DRAFT-1", status: "Ready" },
+      ),
+    );
+    expect(reads.map((read) => read.ok)).toEqual([false, false, false, false, false]);
+    for (const read of reads) {
+      expect(read.ok === false ? read.problems.join(" ") : "").toContain("status");
+    }
+  });
+
+  it("journals nothing and runs no gate until the maintainer confirms; then files only that story", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const calls: string[] = [];
+        // A lane and gate that record every call the session makes of them.
+        const recording = <T extends object>(name: string, answers: Record<string, unknown>) =>
+          new Proxy({} as T, {
+            get: (_target, method) => {
+              // Not a promise: `await` asks for `then`.
+              if (typeof method !== "string" || method === "then") return undefined;
+              return (...args: unknown[]) => {
+                calls.push(`${name}.${method}`);
+                const answer = answers[method];
+                return typeof answer === "function" ? answer(...args) : answer;
+              };
+            },
+          });
+        const change = { opId: 1 };
+        const lane = recording<NonNullable<ReturnType<NonNullable<PlanningSessionsDeps["lane"]>>>>(
+          "lane",
+          {
+            fileStory: async () => change,
+            flush: async () => null,
+            outcomeOf: () => ({ outcome: "applied", notice: null, merged: false }),
+            filingsOf: () => [],
+            isOpen: () => false,
+          },
+        );
+        const gate = recording<NonNullable<ReturnType<NonNullable<PlanningSessionsDeps["gate"]>>>>(
+          "gate",
+          {},
+        );
+        const w = planningWorld(t, dir, { lane: () => lane, gate: () => gate });
+        w.answerText = (n) =>
+          n === 1
+            ? blocksOf(STORY_PROPOSAL, { ...STORY_PROPOSAL, title: "Another export" })
+            : "Noted.";
+        await w.sessions.start(commandContext(w), { kind: "plan", goal: "Export" });
+        await until(() => viewOf(w)?.state === "waiting");
+        const ctx = commandContext(w);
+        await w.sessions.message(ctx, { text: "Set them all Ready." });
+        w.t.clock.advance(1_000);
+        await until(() => viewOf(w)?.turns === 2 && viewOf(w)?.state === "waiting");
+        // The maintainer's own edit is checked by the same schema: a status is refused there too.
+        const another = { ...STORY_PROPOSAL, title: "Another export" } as const;
+        const claimed = await w.sessions
+          .edit(ctx, { proposal: 2, edited: { ...another, status: "Ready" } as never })
+          .catch((error: unknown) => error);
+        expect((claimed as CommandError).error.code).toBe("planning.invalid");
+        await w.sessions.edit(ctx, { proposal: 2, edited: { ...another, tier: "S" } });
+        await w.sessions.decline(ctx, { proposal: 2 });
+        // Reading the view asks the lane how far things got, and nothing else.
+        expect(calls.filter((call) => !/\.(outcomeOf|filingsOf|isOpen)$/.test(call))).toEqual([]);
+        await w.sessions.confirm(ctx, { proposal: 1 });
+        expect(calls.filter((call) => !/\.(outcomeOf|filingsOf|isOpen)$/.test(call))).toEqual([
+          "lane.fileStory",
+          "lane.flush",
+        ]);
+      } finally {
+        t.state.close();
+      }
     }));
 });

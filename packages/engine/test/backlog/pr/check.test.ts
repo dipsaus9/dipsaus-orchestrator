@@ -307,6 +307,101 @@ describe("checkBacklogPr", () => {
   });
 });
 
+// ---- A new task or a promoted draft at Ready (DIPO-495) ----------------------------------------
+
+/** The failures of the check by rule and task. */
+const rules = (diff: PrDiff, facts: PrFacts) =>
+  checkBacklogPr(diff, facts).failures.map((failure) => [failure.rule, failure.task]);
+
+describe("checkBacklogPr: a new task and a promoted draft at Ready (DIPO-495)", () => {
+  const ready = task("TASK-7", "Ready");
+  const other = task(
+    "TASK-7",
+    "Ready",
+    `Story: As maintainer I want other content in its place so that the decision no longer matches.\n\n${BLOCK}`,
+  );
+  /** TASK-7 new at Ready; with `promoted`, the draft DRAFT-3 it was promoted from goes. */
+  const diffOf = (after: PlainTask, promoted = false): PrDiff => ({
+    paths: [
+      "backlog/tasks/task-7 - Story.md",
+      ...(promoted ? ["backlog/drafts/draft-3 - Story.md"] : []),
+    ],
+    tasks: [
+      { id: "TASK-7", before: { where: "absent" }, after: side(after) },
+      ...(promoted
+        ? [
+            {
+              id: "DRAFT-3",
+              before: { where: "draft", view: { ok: true, task: task("DRAFT-3", "Draft") } },
+              after: { where: "absent" },
+            } satisfies PrDiff["tasks"][number],
+          ]
+        : []),
+    ],
+  });
+  it("passes a new task at Ready with the lane's passing decision for its content, under no key", () => {
+    expect(rules(diffOf(ready), { ...NO_FACTS, unkeyed: [hashOf(ready)] })).toEqual([]);
+  });
+
+  it("passes a draft promoted to Ready with a passing decision for its content", () => {
+    expect(rules(diffOf(ready, true), { ...NO_FACTS, unkeyed: [hashOf(ready)] })).toEqual([]);
+    // CI and a renumbered key hold the decision under the task's own key.
+    const keyed: PrFacts = {
+      keys: { "TASK-7": K1 },
+      claimed: [],
+      passing: { [K1]: [hashOf(ready)] },
+    };
+    expect(rules(diffOf(ready, true), keyed)).toEqual([]);
+    // The same id on both sides, from Draft to Ready, is a transition lane b may write too.
+    const sameId: PrDiff = {
+      paths: ["backlog/tasks/task-7 - Story.md"],
+      tasks: [
+        {
+          id: "TASK-7",
+          before: { where: "draft", view: { ok: true, task: task("TASK-7", "Draft") } },
+          after: side(ready),
+        },
+      ],
+    };
+    expect(rules(sameId, keyed)).toEqual([]);
+    expect(rules(sameId, { ...keyed, passing: {} })).toEqual([["ready-decision", "TASK-7"]]);
+  });
+
+  it("fails ready-decision without a decision, and with a decision for other content", () => {
+    expect(rules(diffOf(ready), NO_FACTS)).toEqual([["ready-decision", "TASK-7"]]);
+    expect(rules(diffOf(ready, true), NO_FACTS)).toEqual([["ready-decision", "TASK-7"]]);
+    expect(rules(diffOf(other), { ...NO_FACTS, unkeyed: [hashOf(ready)] })).toEqual([
+      ["ready-decision", "TASK-7"],
+    ]);
+    // A failing decision is no decision: only passing hashes are facts.
+    const keyed: PrFacts = {
+      keys: { "TASK-7": K1 },
+      claimed: [],
+      passing: { [K1]: [hashOf(ready)] },
+    };
+    expect(rules(diffOf(other), keyed)).toEqual([["ready-decision", "TASK-7"]]);
+    // A decision held under no key never counts for a task dipo knows under a key.
+    expect(rules(diffOf(ready), { ...keyed, passing: {}, unkeyed: [hashOf(ready)] })).toEqual([
+      ["ready-decision", "TASK-7"],
+    ]);
+  });
+
+  it("still refuses every other new-task transition from In Progress on", () => {
+    for (const status of ["In Progress", "In Review", "Done", "Parked"]) {
+      const result = checkBacklogPr(diffOf(task("TASK-7", status)), {
+        ...NO_FACTS,
+        unkeyed: [hashOf(ready)],
+      });
+      expect(result.failures.map((failure) => [failure.rule, failure.message])).toEqual([
+        [
+          "transition",
+          `TASK-7 moves from no file to ${status}, which a backlog PR may not do (0012)`,
+        ],
+      ]);
+    }
+  });
+});
+
 // ---- Parked to Done for a story whose own PR merged while it was parked (DIPO-468) --------------
 
 const MERGE = sha("m");

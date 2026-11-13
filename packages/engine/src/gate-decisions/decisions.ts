@@ -1,7 +1,10 @@
 // Stored Ready gate decisions (0007, 0012). A rule-decided Ready gate is one
 // `gates` row of kind `ready` or `pickup` (the mode) and its one `gate_decisions` row: approved
 // when every rule passed, rejected otherwise, with every rule result and the story content hash.
-// The writes here run inside the caller's transaction.
+// A decision the planning lane takes before the base holds its story (a story filed at the
+// maintainer's planning confirm, DIPO-495) has no key yet: it is stored with none, and the index
+// gives it the key it makes for that story once it reads the very content the decision was for
+// (`adoptLaneDecisions` in `stories/apply.ts`). The writes here run inside the caller's transaction.
 
 import type { GateId, IdSource, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -22,7 +25,8 @@ export interface RuleResult {
 /** A stored Ready gate decision. */
 export interface GateDecisionRecord {
   readonly gate: GateId;
-  readonly key: StoryKey;
+  /** Null for a decision the planning lane stored before the base held its story (DIPO-495). */
+  readonly key: StoryKey | null;
   readonly mode: GateMode;
   readonly passed: boolean;
   readonly ruleResults: readonly RuleResult[];
@@ -62,7 +66,8 @@ export function ruleResults(result: GateResult): RuleResult[] {
 }
 
 export interface StoreDecision {
-  readonly key: StoryKey;
+  /** Null for a story the base does not hold yet, gated in the planning lane (DIPO-495). */
+  readonly key: StoryKey | null;
   readonly result: GateResult;
   readonly contentHash: string;
   readonly at: number;
@@ -170,4 +175,20 @@ export function gateDecisionsOf(office: OfficeHandle, key: StoryKey): GateDecisi
       { key },
     )
     .map(recordOf);
+}
+
+/**
+ * The content hashes of the passing Ready gate decisions stored with no key (DIPO-495): the
+ * decisions the planning lane took for stories the base did not hold yet.
+ */
+export function unkeyedPassingHashes(office: OfficeHandle): string[] {
+  return office
+    .all<{ content_hash: string }>(
+      `select distinct d.content_hash from gate_decisions d
+         join gates g on g.office_id = d.office_id and g.gate_id = d.gate_id
+        where d.office_id = $office_id and g.key is null and g.kind in ${READY_KINDS}
+          and d.decision = 'approved' and d.content_hash is not null
+        order by d.content_hash`,
+    )
+    .map((row) => row.content_hash);
 }

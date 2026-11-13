@@ -21,10 +21,16 @@ The rituals of M3 (0003) are one kind of session, the **planning session**: the 
 
 Claude proposes in a structured block the engine validates; the maintainer confirms, edits or declines in the TUI; code files, through the planning lane (0010), on backlog PRs dipo opens itself.
 
+<<<<<<< f8900a61bd0c9c78cda29f6f72982e2d2fb5dded
 - **A new story** is filed `Refined` to the story standard (0012), with a proposed tier and one line of why.
 - **An edit** to an existing story (wording, criteria, references, dependencies, a split, a resolved unknown) is applied as confirmed.
 - **A role** is added, edited or removed through a `role`, `role-edit` or `role-remove` proposal (0017): the name, purpose, optional model and effort and instructions of the role file `.dipo/roles/<name>.md`, and one line of why. The engine refuses a block whose name is invalid, reserved or already a file, whose role has no file on the base, whose resulting file does not load, or, for a removal, while a story that is not Done has the role's label. A confirmed change reaches the lane as `role-add`, `role-edit` or `role-remove` (0010); an edit rewrites only the fields it names. The record and the session's next message say which role was added, edited or removed.
 - **Ready.** At the end the maintainer confirms which stories go `Ready`; dipo checks the gate (0012) and sets them Ready in a second backlog PR, never in the PR that filed them.
+=======
+- **A new story** is filed to the story standard (0012), with a proposed tier and one line of why: `Ready` when the Ready gate passes it as filed, `Refined` with the gate's messages when it fails. A refined draft and the new story of a split are filed the same way.
+- **An edit** to an existing story (wording, criteria, references, dependencies, a split, a resolved unknown) is applied as confirmed. An edit of a `Ready` story is gated again on its revised content and stays `Ready` only when it passes; an edit of a `Refined` or `Parked` story keeps its status.
+- **Ready.** The maintainer's confirm of a proposal is the Ready choice: the planning lane's operation that files the story evaluates the gate (0012) on the task as filed, stores the decision for its content and sets it Ready in the same backlog PR when it passes; a story that fails is filed Refined, and the planning view and its card show the gate's messages. Only the maintainer's confirm does this: a proposal has no status field, and the session never files. A Refined story is set Ready later with `story.ready` from the Queue.
+>>>>>>> 716b328032a1b05a04f9bfd2db376b55837cb5b0
 - **An aside**, an idea that comes up but is not for now, goes to the audit (section 3). The session sends it as an aside block in its answer, a fenced `dipo-aside` block whose schema is in the contract; the engine validates it, holds a valid one as an idea, and refuses an invalid one with a notice that says why.
 
 ## 3. Ideas are audited before they reach the maintainer
@@ -49,6 +55,7 @@ This ADR governs the M3 stories that build it. Each of those stories rewrites th
 
 ## Replaced
 
+- The end-of-session Ready confirm as the way to Ready, which set the session's stories Ready in a second backlog PR after the PR that filed them merged (2026-11-06). Replaced by filing a story Ready at the maintainer's confirm when the gate passes it as filed (2026-11-13).
 - A planning transcript per Claude session, with the maintainer's messages kept only in the TUI's memory and the view cleared at a full context's end (2026-11-13, DIPO-490). Replaced by one conversation per planning session, built from the engine's view and the record.
 - A context counted as nearly full by the tokens spent over the Claude session, and a fresh session's first message built from the decisions alone (2026-11-13). Replaced by the size of the last main-agent message, and a first message that also carries the last exchange.
 - Every incoming idea filed as a draft by itself and triaged by the maintainer (2026-11-05). Replaced by an audit of each idea, by code and a Claude session, and a proposed user story on the desk that the maintainer accepts as a draft (2026-11-06).

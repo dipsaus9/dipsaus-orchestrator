@@ -44,7 +44,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Clock, OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, StoryId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
@@ -56,6 +56,7 @@ import {
   WORKTREE_ADD_CONFIG,
 } from "../../git/hardened";
 import type { GitSession, OfficeGit } from "../../git/office";
+import type { GateStore } from "../../gate-decisions/feature";
 import type { Logger } from "../../log/logger";
 import {
   EXTERNAL_STEP_TIMEOUT_MS,
@@ -259,6 +260,11 @@ export interface OfficeLaneOptions {
    * pending state then (`backlogPark`), so the mirror must hold the base's read at once.
    */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
+  /**
+   * The office's Ready gate (DIPO-495): the kinds that file and edit a planning session's stories
+   * run it on `_backlog` (`ApplyContext.gate`). Without it they set nothing Ready.
+   */
+  readonly gate?: Pick<GateStore, "recordLaneDecision">;
   /** Where each flush that stops early, fails or leaves operations waiting says why (DIPO-401). */
   readonly logger?: Pick<Logger, "info" | "warn">;
 }
@@ -299,6 +305,7 @@ export class OfficeLane {
   readonly #onFlushed: ((office: OfficeId, report: FlushReport) => Promise<void>) | undefined;
   readonly #held: (office: OfficeId) => string | null;
   readonly #refreshStory: ((office: OfficeId, key: StoryKey) => Promise<unknown>) | undefined;
+  readonly #gate: Pick<GateStore, "recordLaneDecision"> | undefined;
   readonly #logger: Pick<Logger, "info" | "warn"> | undefined;
   #waiting: Waiting | null = null;
   #stall: LaneStall | null = null;
@@ -316,6 +323,7 @@ export class OfficeLane {
     this.#held = options.held ?? (() => null);
     this.#refreshStory = options.refreshStory;
     this.#logger = options.logger;
+    this.#gate = options.gate;
   }
 
   /** Why the last flush left operations unapplied or unpushed, or null (DIPO-401). */
@@ -732,6 +740,7 @@ export class OfficeLane {
       await this.#checkout(git, location, branch ?? base.sha, branch === null);
     }
 
+    const gate = this.#gate;
     for (const entry of toApply) {
       if (isAdoptedTarget(entry.target)) {
         // Adopted from an open backlog PR after a lost database (DIPO-80): no target to apply.
@@ -756,7 +765,19 @@ export class OfficeLane {
       let outcome;
       try {
         outcome = await kind.apply(
-          { cli: this.#cli, cwd: location.workTree, story, entry, office: this.#office },
+          {
+            cli: this.#cli,
+            cwd: location.workTree,
+            story,
+            entry,
+            office: this.#office,
+            ...(gate === undefined
+              ? {}
+              : {
+                  gate: (id: string, key: StoryKey | null) =>
+                    gate.recordLaneDecision(this.officeId, id as StoryId, key, location.workTree),
+                }),
+          },
           entry.target,
         );
       } catch (error) {
@@ -821,7 +842,9 @@ export class OfficeLane {
       this.#write(() => this.#update(entry.opId, { state: "applied", branch: onto }));
       await git.ok(location, ["add", "--all", "--", ...paths]);
       const sha = await this.#commit(git, location, entry);
-      this.#write(() => this.#update(entry.opId, { state: "committed", commit: sha }));
+      // What the kind decided (the Ready gate's answer, DIPO-495) replaces what an earlier apply said.
+      const said = outcome.notice === undefined ? {} : { notice: outcome.notice };
+      this.#write(() => this.#update(entry.opId, { state: "committed", commit: sha, ...said }));
       committed.push(entry.opId);
     }
 
@@ -1229,6 +1252,8 @@ export interface BacklogLaneDeps {
   readonly held?: (office: OfficeId) => string | null;
   /** Reads a story whose operation merged again on the base (DIPO-360). */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
+  /** The Ready gate the kinds that file and edit a planning session's stories run (DIPO-495). */
+  readonly gate?: Pick<GateStore, "recordLaneDecision">;
   /** Where each lane logs why a flush stopped, failed or waits (DIPO-401). */
   readonly logger?: Pick<Logger, "info" | "warn">;
 }

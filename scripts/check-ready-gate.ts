@@ -10,12 +10,22 @@
 // gate runs in `pickup` mode: a Ready story is checked by R01b (status Ready) and R02 to R30.
 // `ready` mode would fail every Ready story at R01a, which wants Refined.
 //
+// A task may arrive at Ready only in a backlog-only PR, where the structural check runs (0010, 0012,
+// DIPO-495). On a pull request (`GITHUB_BASE_REF`, as `check-backlog-pr.ts` reads it) the head is
+// compared with the PR's base `origin/<base>`: when the PR changes any entry outside the Backlog
+// files (a path other than a `.md` file under `backlog/` or `backlog/config.yml`, or an entry that
+// is not a regular file, as the light path of ci.yml decides), every Ready story that is not a
+// task at the merge base, a new task or a promoted draft, fails the check. A base that cannot be
+// read fails it too.
+//
 // Usage: bun scripts/check-ready-gate.ts [repository]   (the repository defaults to the current directory)
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { loadOfficeConfig } from "../packages/engine/src/config/load";
+import { isBacklogFile, REGULAR_MODES } from "../packages/engine/src/backlog/pr/check";
+import { parseRawDiff, taskOfPath } from "../packages/engine/src/backlog/pr/diff";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
 import { backlogStoryStore } from "../packages/engine/src/backlog/store";
 import { evaluateGate } from "../packages/engine/src/gate/evaluate";
@@ -62,6 +72,68 @@ function checkoutRoles(repo: string) {
   );
 }
 
+/** Read-only git in `repo`, with no repository hook; throws with git's message when it fails. */
+function gitIn(repo: string, args: readonly string[]): string {
+  const result = Bun.spawnSync(["git", "-c", "core.hooksPath=/dev/null", "-C", repo, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString().trim()}`);
+  }
+  return result.stdout.toString();
+}
+
+/**
+ * Why each of the Ready stories `ready` may not be Ready in a PR from `base` to the checked-out
+ * HEAD of `repo` (DIPO-495): none when every changed entry is a regular Backlog file (a backlog-only
+ * PR, which the structural check covers), else one line for each Ready story that is no task at the
+ * merge base, a new task or a draft promoted to Ready. Throws when `base` cannot be read.
+ */
+export function mixedPrReadyRefusals(
+  repo: string,
+  base: string,
+  ready: readonly string[],
+): string[] {
+  const mergeBase = gitIn(repo, ["merge-base", `${base}^{commit}`, "HEAD"]).trim();
+  const changed = parseRawDiff(
+    gitIn(repo, ["diff", "--raw", "-z", "--no-renames", mergeBase, "HEAD"]),
+  );
+  const code = changed
+    .filter(
+      (entry) =>
+        !isBacklogFile(entry.path) ||
+        !REGULAR_MODES.includes(entry.from) ||
+        !REGULAR_MODES.includes(entry.to),
+    )
+    .map((entry) => entry.path);
+  if (code.length === 0) return [];
+  const tasks = new Set(
+    gitIn(repo, [
+      "ls-tree",
+      "-r",
+      "-z",
+      "--name-only",
+      "--full-tree",
+      mergeBase,
+      "--",
+      "backlog/tasks",
+    ])
+      .split("\0")
+      .flatMap((path) => {
+        const task = taskOfPath(path);
+        return task?.where === "task" ? [task.id] : [];
+      }),
+  );
+  const named = `${code.slice(0, 3).join(", ")}${code.length > 3 ? ` and ${code.length - 3} more` : ""}`;
+  return ready
+    .filter((id) => !tasks.has(id.toUpperCase()))
+    .map(
+      (id) =>
+        `ready ${id} failed mixed-pr: ${id} is added at Ready, as a new task or a promoted draft, in a PR that also changes ${named}; a task may arrive at Ready only in a backlog-only PR (0012), so add it Refined here or in a PR of its own`,
+    );
+}
+
 export interface ReadyGateReport {
   /** How many Ready stories were checked. */
   readonly checked: number;
@@ -80,9 +152,14 @@ export interface ReadyGateReport {
  * Runs the Ready gate over every Ready story of the backlog in `repo`. Throws when the office
  * configuration is invalid, a Ready story's view does not parse, another task's file does not, a
  * CLI call fails, or the task list disagrees with its `--count` (DIPO-323), since nothing can be checked then: the gate never
- * runs on part of the backlog.
+ * runs on part of the backlog. With `base`, the PR's base, a Ready story a PR that also changes code
+ * adds at Ready fails too (`mixedPrReadyRefusals`, DIPO-495).
  */
-export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<ReadyGateReport> {
+export async function checkReadyGate(
+  repo: string,
+  cli: BacklogCli,
+  options: { readonly base?: string } = {},
+): Promise<ReadyGateReport> {
   const loaded = await loadOfficeConfig(repo);
   if (!loaded.ok) throw new Error(loaded.errors.map((error) => error.message).join("\n"));
   const config = gateConfigOf(loaded.config);
@@ -111,6 +188,15 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
     failures.push(...result.failures.map((failure) => failure.message));
     warnings.push(...(result.warnings ?? []).map((warning) => warning.message));
   }
+  if (options.base !== undefined) {
+    failures.push(
+      ...mixedPrReadyRefusals(
+        repo,
+        options.base,
+        ready.map((entry) => entry.id),
+      ),
+    );
+  }
   return {
     checked: ready.length,
     passed,
@@ -121,7 +207,13 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
 
 if (import.meta.main) {
   try {
-    const report = await checkReadyGate(process.argv[2] ?? process.cwd(), REPO_BACKLOG_CLI);
+    // On a pull request, the PR's base: a Ready task a PR that also changes code adds fails.
+    const baseRef = process.env["GITHUB_BASE_REF"] ?? "";
+    const report = await checkReadyGate(
+      process.argv[2] ?? process.cwd(),
+      REPO_BACKLOG_CLI,
+      baseRef === "" ? {} : { base: `refs/remotes/origin/${baseRef}` },
+    );
     for (const warning of report.warnings ?? []) console.warn(warning);
     if (report.failures.length > 0) {
       for (const failure of report.failures) console.error(failure);

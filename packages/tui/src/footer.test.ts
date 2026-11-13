@@ -153,20 +153,29 @@ describe("the footer registry", () => {
       expect(planningKeys).not.toContain(gone);
   });
 
+  it("names no ctrl- key in the hints of the dialog, the Composer and the top-up prompt (DIPO-491)", () => {
+    const hints = FOOTER_KEYS.filter((entry) => entry.views.includes("planning")).map(
+      (entry) => entry.key,
+    );
+    expect(hints.filter((key) => key.startsWith("ctrl-"))).toEqual([]);
+    expect(
+      FOOTER_KEYS.filter((entry) => /^(dialog|composer)/.test(entry.id)).map((entry) => entry.key),
+    ).toEqual(expect.arrayContaining(["⏎", "esc"]));
+  });
+
   it("gives the question dialog its keys over the input's, with sending (DIPO-455)", () => {
     const session = { ...ctx.planning, session: true, cards: true };
-    const choosing = { ...session, dialog: { typing: false, complete: false } };
+    const choosing = { ...session, dialog: { typing: false, submit: false } };
     expect(texts("planning", { ...ctx, planning: choosing })).toEqual([
-      "ctrl-s send (when all answered)",
       "⏎ pick",
       "↑↓ option",
       "←→ question",
-      "ctrl-n write a message instead",
+      "esc write a message instead",
     ]);
-    const complete = { ...session, sending: true, dialog: { typing: false, complete: true } };
-    expect(texts("planning", { ...ctx, planning: complete })).toContain("ctrl-s send the answers");
-    expect(texts("planning", { ...ctx, planning: complete }).at(-1)).toBe("sending");
-    const typing = { ...session, dialog: { typing: true, complete: false } };
+    const submit = { ...session, sending: true, dialog: { typing: false, submit: true } };
+    expect(texts("planning", { ...ctx, planning: submit })).toContain("⏎ send the answers");
+    expect(texts("planning", { ...ctx, planning: submit }).at(-1)).toBe("sending");
+    const typing = { ...session, dialog: { typing: true, submit: false } };
     expect(texts("planning", { ...ctx, planning: typing })).toEqual([
       "⏎ take the answer",
       "esc back to the options",

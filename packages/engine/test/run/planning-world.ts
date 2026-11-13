@@ -14,11 +14,14 @@ import {
   type RunId,
 } from "@dipsaus-orchestrator/contract";
 
+import type { BacklogCli } from "../../src/backlog/runner";
+import { backlogStoryStore } from "../../src/backlog/store";
 import { REVIEW_SESSION_DIR } from "../../src/box/review-box";
 import type { BoxSession } from "../../src/box/workers";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
+import { GateStore } from "../../src/gate-decisions";
 import type { OfficeGit } from "../../src/git/office";
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { PlanningSessions, type PlanningSessionsDeps } from "../../src/run/planning-session";
@@ -431,3 +434,28 @@ export const blocksOf = (...values: unknown[]): string =>
     ...values.map((value) => `\`\`\`dipo-proposal\n${JSON.stringify(value, null, 2)}\n\`\`\``),
     "Confirm, edit or decline each.",
   ].join("\n\n");
+
+/**
+ * The office's real Ready gate over the lane's office git and Backlog CLI (DIPO-495), as the lane's
+ * planning kinds run it on `_backlog`: `GateStore.recordLaneDecision` with the default office
+ * configuration and no role files. No index pass runs in it.
+ */
+export function laneGate(s: {
+  readonly t: TestState;
+  readonly office: OfficeHandle;
+  readonly git: OfficeGit;
+  readonly cli: BacklogCli;
+}): GateStore {
+  return new GateStore({
+    git: { forOffice: () => s.git },
+    stories: backlogStoryStore(s.cli),
+    offices: { get: () => s.office, config: () => OFFICE_DEFAULTS, roster: () => [] },
+    clock: s.t.clock,
+    ids: s.t.ids,
+    index: {
+      indexInSession: () => {
+        throw new Error("the lane's gate runs no index pass");
+      },
+    },
+  });
+}

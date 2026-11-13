@@ -385,9 +385,9 @@ function SteerBox(props: {
         display={display}
         spans={[
           { text: "⏎", role: "acc" },
-          { text: " new line   ", role: "dim" },
-          { text: "ctrl-s", role: "acc" },
           { text: " send   ", role: "dim" },
+          { text: "⌥⏎", role: "acc" },
+          { text: " new line   ", role: "dim" },
           { text: "esc", role: "acc" },
           { text: " cancel", role: "dim" },
         ]}

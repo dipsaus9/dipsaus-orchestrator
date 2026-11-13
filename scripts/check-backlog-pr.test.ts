@@ -1,6 +1,6 @@
 // The structural check of a backlog-only PR in CI (0010, 0016), over a fixture repository with the
-// real Backlog CLI: a story the PR makes Ready that passes the Ready gate passes, one that fails
-// the gate fails `ready-decision`, a status change a backlog PR may not make fails `transition`,
+// real Backlog CLI: a story the PR makes Ready, or adds at Ready (DIPO-495), that passes the Ready
+// gate passes, one that fails the gate fails `ready-decision`, a status change a backlog PR may not make fails `transition`,
 // and a path outside `backlog/` fails `backlog-only`. The temporary worktree is gone afterwards.
 // A Parked to Done (DIPO-468) passes only when `gh`, a fake executable run through the real spawn
 // path, names the story's own PR as the one that merged as the last commit on the base that
@@ -166,6 +166,22 @@ describe("the structural check of a backlog-only PR in CI", () => {
     await withTempRepo(async (repo) => {
       const [base, head] = await pr(repo, { [path(2)]: taskFile(2, "Ready", NO_EXPECT) });
       expect(rules(await check(repo, base, head))).toEqual(["ready-decision DIPO-2"]);
+    });
+  }, 60_000);
+
+  it("passes a new task added at Ready that passes the Ready gate (DIPO-495)", async () => {
+    await withTempRepo(async (repo) => {
+      const [base, head] = await pr(repo, { [path(3)]: taskFile(3, "Ready", CLEAN_PLAN) });
+      const result = await check(repo, base, head);
+      expect(result.failures).toEqual([]);
+      expect(result.touched.map(String)).toEqual(["DIPO-3"]);
+    });
+  }, 60_000);
+
+  it("fails a new task added at Ready that fails the Ready gate (DIPO-495)", async () => {
+    await withTempRepo(async (repo) => {
+      const [base, head] = await pr(repo, { [path(3)]: taskFile(3, "Ready", NO_EXPECT) });
+      expect(rules(await check(repo, base, head))).toEqual(["ready-decision DIPO-3"]);
     });
   }, 60_000);
 

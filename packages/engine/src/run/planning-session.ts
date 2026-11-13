@@ -47,9 +47,12 @@
 //
 // - `planning.confirm` journals it in the office's planning lane (0010): a new story as a `file`
 //   change, an edit as a `revise` change, a split as both, a refined draft as a `refine` change
-//   (promoted to a Refined story with a new id and a branch named for it) and a dropped draft as a
+//   (promoted to a story with a new id and a branch named for it) and a dropped draft as a
 //   `drop` of the draft (DIPO-454, triage), then flushes the lane, which opens or updates dipo's
-//   backlog PR. Each filed or edited story's id goes into the session's record once
+//   backlog PR. The confirm is the Ready choice (DIPO-495): the lane gates each story it files or
+//   refines as filed and files it Ready when it passes, Refined otherwise, and gates an edited
+//   Ready story again; the view shows the gate's answer per story (`PlanningProposalView.gate`) and
+//   the session's next message says it. Each filed or edited story's id goes into the session's record once
 //   the lane applied its change (`planning_record`). A new story whose title an active story or
 //   another confirmed proposal has, a dependency the office does not know, an edit of a task that
 //   is not Refined, Ready or Parked, or a refine or drop of anything but an open draft is refused
@@ -913,9 +916,13 @@ export class PlanningSessions {
     open.notes.push(
       view.state === "failed"
         ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
+<<<<<<< f8900a61bd0c9c78cda29f6f72982e2d2fb5dded
         : role !== null
           ? `[dipo] The maintainer confirmed proposal ${item.n}: role \`${role.name}\` ${role.change} in dipo's backlog PR. Do not propose it again.`
           : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
+=======
+        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}.${(view.gate ?? []).map((line) => ` ${line.replace(/\.$/, "")}.`).join("")} Do not propose it again.`,
+>>>>>>> 716b328032a1b05a04f9bfd2db376b55837cb5b0
     );
     this.#append(open, () => [this.#updated(open)]);
     return {
@@ -1482,9 +1489,12 @@ export class PlanningSessions {
     const { handle } = open;
     let state: PlanningProposalView["state"] = item.state;
     let detail: string | undefined;
+    let gate: string[] = [];
     if (item.state === "confirmed") {
       const lane = this.#deps.lane?.(open.office);
       const outcomes = item.changes.map((change) => lane?.outcomeOf(change));
+      // What the Ready gate decided for each story as the lane filed it (DIPO-495).
+      gate = outcomes.flatMap((outcome) => (outcome?.gate === undefined ? [] : [outcome.gate]));
       const closed = outcomes.find((outcome) => outcome?.outcome === "closed");
       if (closed !== undefined) {
         state = "failed";
@@ -1506,6 +1516,7 @@ export class PlanningSessions {
       state,
       ...(item.edited ? { edited: true } : {}),
       ...(stories.length === 0 || state === "open" || state === "declined" ? {} : { stories }),
+      ...(gate.length === 0 ? {} : { gate }),
       ...(detail === undefined ? {} : { detail }),
       at: iso(item.at),
     };

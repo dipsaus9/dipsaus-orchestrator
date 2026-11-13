@@ -6,6 +6,8 @@
 // is a new story. Nothing is matched by branch, date or title. The one exception is a draft dipo
 // promoted itself (a triage refine, DIPO-454): its key holds the new id as `promoted_to`, so when
 // its draft id vanished and that id appears, the key is renumbered to it (`story.renumbered`).
+// A new key, or a key under its promoted id, takes the Ready gate decisions the planning lane
+// stored with no key for the content read (DIPO-495).
 
 import {
   type IdSource,
@@ -169,6 +171,7 @@ export function applyIndex(
       },
     );
     matched.set(k.key, promoted);
+    if (promoted.gateHash !== undefined) adoptLaneDecisions(office, k.key, promoted.gateHash);
     entries.push({
       type: "story.renumbered",
       key: k.key,
@@ -219,6 +222,7 @@ export function applyIndex(
     );
     matched.set(identity.key, story);
     added.add(identity.key);
+    if (story.gateHash !== undefined) adoptLaneDecisions(office, identity.key, story.gateHash);
     recordOrigin(office, identity.key, story, origins());
   }
 
@@ -400,4 +404,21 @@ export function applyStory(
   if (options.quiet === true || view === null) return [];
   if (previous !== null && sameView(previous, view)) return [];
   return [stateEntry(view, previous?.lifecycle ?? view.lifecycle)];
+}
+
+/**
+ * Gives the story `key` every Ready gate decision stored with no key for exactly this content hash
+ * (DIPO-495, `gate-decisions/decisions.ts`): the decision the planning lane took when the
+ * maintainer's planning confirm filed the story becomes the story's own once the index sees it,
+ * new or under its promoted id. The hash covers the story's id and every field the gate reads, so
+ * another story never gets it. Runs inside the caller's transaction.
+ */
+export function adoptLaneDecisions(office: OfficeHandle, key: StoryKey, contentHash: string): void {
+  office.run(
+    `update gates set key = $key
+      where office_id = $office_id and key is null and kind in ('ready', 'pickup')
+        and gate_id in (select gate_id from gate_decisions
+                         where office_id = $office_id and content_hash = $hash)`,
+    { key, hash: contentHash },
+  );
 }
