@@ -1,10 +1,10 @@
 ---
 id: DIPO-493
 title: A planning edit or split can set a story's dependencies
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-12 13:49'
-updated_date: '2026-11-13 09:29'
+updated_date: '2026-11-13 09:40'
 labels:
   - 'tier:M'
 milestone: m-3

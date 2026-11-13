@@ -1,10 +1,10 @@
 ---
 id: DIPO-497
 title: Ending a planning session lists the stories that stayed Refined
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 09:28'
-updated_date: '2026-11-13 09:30'
+updated_date: '2026-11-13 09:40'
 labels:
   - 'tier:S'
 milestone: m-3

@@ -1,10 +1,10 @@
 ---
 id: DIPO-496
 title: Every Refined story says whether it passes the gate and how to make it Ready
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 09:30'
+updated_date: '2026-11-13 09:40'
 labels:
   - 'tier:M'
 milestone: m-3

@@ -3,10 +3,10 @@ id: DIPO-490
 title: >-
   The planning view shows one conversation per session across its fresh model
   sessions
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:29'
+updated_date: '2026-11-13 09:40'
 labels:
   - 'tier:M'
 milestone: m-3

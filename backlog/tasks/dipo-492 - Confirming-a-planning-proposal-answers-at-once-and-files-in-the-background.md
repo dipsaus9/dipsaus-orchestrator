@@ -1,10 +1,10 @@
 ---
 id: DIPO-492
 title: Confirming a planning proposal answers at once and files in the background
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:29'
+updated_date: '2026-11-13 09:40'
 labels:
   - 'tier:M'
 milestone: m-3
