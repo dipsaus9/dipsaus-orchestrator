@@ -916,13 +916,9 @@ export class PlanningSessions {
     open.notes.push(
       view.state === "failed"
         ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
-<<<<<<< f8900a61bd0c9c78cda29f6f72982e2d2fb5dded
         : role !== null
           ? `[dipo] The maintainer confirmed proposal ${item.n}: role \`${role.name}\` ${role.change} in dipo's backlog PR. Do not propose it again.`
-          : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
-=======
-        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}.${(view.gate ?? []).map((line) => ` ${line.replace(/\.$/, "")}.`).join("")} Do not propose it again.`,
->>>>>>> 716b328032a1b05a04f9bfd2db376b55837cb5b0
+          : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}.${(view.gate ?? []).map((line) => ` ${line.replace(/\.$/, "")}.`).join("")} Do not propose it again.`,
     );
     this.#append(open, () => [this.#updated(open)]);
     return {
