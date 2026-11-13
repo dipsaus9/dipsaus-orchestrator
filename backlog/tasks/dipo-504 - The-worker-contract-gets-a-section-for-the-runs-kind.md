@@ -1,10 +1,10 @@
 ---
 id: DIPO-504
 title: The worker contract gets a section for the run's kind
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 13:29'
-updated_date: '2026-11-13 13:29'
+updated_date: '2026-11-13 15:03'
 labels:
   - 'tier:M'
 milestone: m-4
