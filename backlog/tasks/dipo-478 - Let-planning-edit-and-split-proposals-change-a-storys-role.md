@@ -1,10 +1,10 @@
 ---
 id: DIPO-478
 title: Let planning edit and split proposals change a story's role
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:18'
-updated_date: '2026-11-13 13:23'
+updated_date: '2026-11-13 13:26'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -58,11 +58,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An edit proposal with only a role field passes the proposal schema, and so does a split whose edit has only a role field.
-- [ ] #2 Confirming an edit or split whose role is not in the office's roster is refused with a message naming the role, and nothing is journaled.
-- [ ] #3 A confirmed edit with a new role leaves the story with exactly one role label, the new one, once the backlog PR's change is applied.
-- [ ] #4 A confirmed role change on a Ready story leaves it Refined; on a Refined or Parked story the status is unchanged.
-- [ ] #5 A confirmed edit naming the role the story already has changes no label and no status.
-- [ ] #6 An edit that changes the role together with other fields applies all of them in one revision.
-- [ ] #7 Decision 0022 describes the role field of edit and split proposals and the move of a Ready story to Refined.
+- [x] #1 An edit proposal with only a role field passes the proposal schema, and so does a split whose edit has only a role field.
+- [x] #2 Confirming an edit or split whose role is not in the office's roster is refused with a message naming the role, and nothing is journaled.
+- [x] #3 A confirmed edit with a new role leaves the story with exactly one role label, the new one, once the backlog PR's change is applied.
+- [x] #4 A confirmed role change on a Ready story leaves it Refined; on a Refined or Parked story the status is unchanged.
+- [x] #5 A confirmed edit naming the role the story already has changes no label and no status.
+- [x] #6 An edit that changes the role together with other fields applies all of them in one revision.
+- [x] #7 Decision 0022 describes the role field of edit and split proposals and the move of a Ready story to Refined.
 <!-- AC:END -->
