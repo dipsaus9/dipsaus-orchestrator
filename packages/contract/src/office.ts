@@ -522,7 +522,9 @@ export const planningEnd = defineCommand({
 // `planning.confirm` files the proposal through the planning lane (0010): a new story is created
 // Refined to the story standard, an edit changes the existing task, a split does both. The
 // filed and edited ids go into the session's record, and `stories` names those the lane has applied
-// so far; `flush` says what the lane's flush did. Confirming a filed proposal changes nothing.
+// so far. The answer comes once the changes are journaled, before the lane flushes them: the proposal
+// shows `filing` in the view and `filed` when the flush applied it (`planning.updated`). Confirming a
+// filed proposal changes nothing.
 // Errors: `planning.notOpen`, `planning.proposalUnknown`, `planning.proposalClosed` (declined),
 // `planning.storyUnknown` (an edit of a task the office does not have, or of one that is not
 // Refined, Ready or Parked), `planning.duplicate` (a new story whose title an active story has)
@@ -536,7 +538,6 @@ export const planningConfirm = defineCommand({
     proposal: z.int().positive(),
     state: PlanningProposalState,
     stories: z.array(z.string()),
-    flush: LaneFlush.optional(),
   }),
   confirm: false,
   irreversible: false,
@@ -568,8 +569,8 @@ export const planningDecline = defineCommand({
 // open session that go Ready. For each, dipo evaluates the Ready gate against the story as the
 // base branch holds it (its filing PR merged) and stores the decision. A story that passes is set
 // Ready through the planning lane, in a backlog PR of its own, never the one that filed it; one
-// that fails stays as it is and is listed in `refused` with the gate's messages. `flush` says what
-// the lane's flush did. Setting a story again that is set already changes nothing.
+// that fails stays as it is and is listed in `refused` with the gate's messages. The answer comes once the
+// change is journaled; the view shows `setting` and then `set` when the flush applied it. Setting a story again that is set already changes nothing.
 // Errors: `planning.notOpen`, `planning.storyUnknown` (a story the session neither filed nor
 // edited) and `planning.notFiled` (the office has no backlog lane yet).
 export const planningReady = defineCommand({
@@ -580,7 +581,6 @@ export const planningReady = defineCommand({
     run: RunId,
     queued: z.array(z.string()),
     refused: z.array(z.object({ story: z.string(), messages: z.array(z.string()) })),
-    flush: LaneFlush.optional(),
   }),
   confirm: false,
   irreversible: false,
@@ -591,8 +591,9 @@ export const planningReady = defineCommand({
 // dipo evaluates the Ready gate against the story as the base branch holds it and stores the
 // decision; one that passes is set Ready through the planning lane, in a backlog PR other than the
 // one that filed it, and is listed in `queued`; one that fails, or is not Refined, or has an edit
-// still waiting in the lane, stays as it is and is listed in `refused` with the reasons. `flush`
-// says what the lane's flush did, with the backlog PR the queued ones wait on. Errors, changing
+// still waiting in the lane, stays as it is and is listed in `refused` with the reasons. The answer
+// comes once the changes are journaled, before the lane flushes them; the backlog PR the queued
+// ones wait on is in the lane progress (`lane.progress`). Errors, changing
 // nothing: `story.unknown` (an id that names no story, an archived one included),
 // `story.draft` (a `DRAFT-n` id: promote it first), `story.ambiguous` and `planning.notFiled` (the
 // office has no backlog lane yet).
@@ -603,7 +604,6 @@ export const storyReady = defineCommand({
   result: z.object({
     queued: z.array(z.string()),
     refused: z.array(z.object({ story: z.string(), messages: z.array(z.string()) })),
-    flush: LaneFlush.optional(),
   }),
   confirm: false,
   irreversible: false,

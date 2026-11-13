@@ -1,10 +1,10 @@
 ---
 id: DIPO-492
 title: Confirming a planning proposal answers at once and files in the background
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:40'
+updated_date: '2026-11-13 09:59'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -18,6 +18,24 @@ references:
   - packages/engine/test/run/planning-world.ts
   - packages/engine/test/run/planning-filing.test.ts
   - packages/tui/src/planning.tsx
+modified_files:
+  - packages/cli/src/story-commands.test.ts
+  - packages/client/src/ready-text.ts
+  - packages/client/test/unit/ready-text.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/planning.ts
+  - packages/engine/test/run/planning-background-flush.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/engine/test/run/story-ready.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/queue.test.tsx
 priority: high
 type: bug
 ordinal: 464000
@@ -67,10 +85,25 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 planning.confirm and story.ready answer once their operations are journaled, before the lane's flush, and their results have no flush field
-- [ ] #2 The card shows filing… from the answer and filed as DIPO-n when the background flush applied it, through a planning.updated the flush's end appends
-- [ ] #3 A background flush that fails or closes the change leaves the proposal failed with the lane's reason in the view and its operations journaled; a stuck lane reaches the desk through the existing stuck-lane item
-- [ ] #4 The session's [dipo] note naming the filed ids is added when the flush ended
-- [ ] #5 The Queue's ready result names the backlog PR a queued story waits on from the store's lane progress, not from a command result
-- [ ] #6 Confirms and ready commands flush in journal order, and a held branch still applies nothing (0010)
+- [x] #1 planning.confirm and story.ready answer once their operations are journaled, before the lane's flush, and their results have no flush field
+- [x] #2 The card shows filing… from the answer and filed as DIPO-n when the background flush applied it, through a planning.updated the flush's end appends
+- [x] #3 A background flush that fails or closes the change leaves the proposal failed with the lane's reason in the view and its operations journaled; a stuck lane reaches the desk through the existing stuck-lane item
+- [x] #4 The session's [dipo] note naming the filed ids is added when the flush ended
+- [x] #5 The Queue's ready result names the backlog PR a queued story waits on from the store's lane progress, not from a command result
+- [x] #6 Confirms and ready commands flush in journal order, and a held branch still applies nothing (0010)
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 09:59 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 174,493 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
