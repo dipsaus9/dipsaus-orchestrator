@@ -1,10 +1,10 @@
 ---
 id: DIPO-473
 title: Show the office's roles in a Roles room
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:04'
-updated_date: '2026-11-13 11:43'
+updated_date: '2026-11-13 11:45'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -23,6 +23,36 @@ references:
   - packages/tui/src/home.tsx
   - packages/tui/src/roles.tsx
   - packages/tui/src/retro.tsx
+modified_files:
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/office/feature.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/roles/view.ts
+  - packages/engine/test/office/roles.test.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/footer.ts
+  - packages/tui/src/header.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/keys.ts
+  - packages/tui/src/mode.test.ts
+  - packages/tui/src/mode.ts
+  - packages/tui/src/modes.tsx
+  - packages/tui/src/overlays.tsx
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/palette.test.tsx
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/roles.test.tsx
+  - packages/tui/src/roles.tsx
+  - packages/tui/src/run.tsx
+  - packages/tui/src/screen.tsx
+  - packages/tui/src/views.tsx
+  - packages/tui/test/support/fake-session.ts
+  - packages/tui/test/support/setup.tsx
 type: feature
 ordinal: 446000
 ---
@@ -80,3 +110,18 @@ test_plan:
 - [x] #9 After a role file changes on the base, an open Roles room shows the new roster without being reopened.
 - [x] #10 An office with no role files shows that it has no roles and names dipo office init.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 11:45 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 162,088 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
