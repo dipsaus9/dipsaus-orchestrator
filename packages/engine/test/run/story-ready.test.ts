@@ -260,14 +260,13 @@ describe("story.ready (DIPO-482)", () => {
 });
 
 describe("the one Ready function (DIPO-482)", () => {
-  it("is what planning.ready and story.ready both call", async () => {
+  it("is what story.ready calls, from the command in planning.ts", async () => {
     const [session, planning] = await Promise.all([
       source("planning-session.ts"),
       source("planning.ts"),
     ]);
-    expect(session).toContain("readyStories(");
     expect(planning).toContain("readyStories(");
-    expect(session).not.toContain("recordGateDecision(open");
+    expect(session).not.toContain("readyStories(");
     expect(planning).not.toContain("recordGateDecision(");
   });
 

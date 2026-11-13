@@ -106,13 +106,13 @@ describe("the footer registry", () => {
     expect(texts("planning", { ...ctx, planning: { ...ctx.planning, session: true } })).toContain(
       "⏎ send",
     );
-    expect(texts("planning", { ...ctx, planning: { ...ctx.planning, ending: "empty" } })).toEqual([
+    expect(texts("planning", { ...ctx, planning: { ...ctx.planning, ending: "ask" } })).toEqual([
       "y end the session",
       "any other key keep it",
     ]);
   });
 
-  it("reads the card keys, the edit keys and the Ready step keys of the planning view (DIPO-487)", () => {
+  it("reads the card keys, the edit keys and the end keys of the planning view (DIPO-487, DIPO-497)", () => {
     const session = { ...ctx.planning, session: true, cards: true };
     expect(texts("planning", { ...ctx, planning: session })).toEqual([
       "⏎ send",
@@ -134,17 +134,11 @@ describe("the footer registry", () => {
       "shift-⏎ new line",
       "esc cancel the edit",
     ]);
-    expect(texts("planning", { ...ctx, planning: { ...session, ending: "ready" } })).toEqual([
-      "Y set the ticked Ready and end",
-      "n end, none Ready",
-      "space tick",
-      "↑↓ story",
-      "esc keep open",
+    expect(texts("planning", { ...ctx, planning: { ...session, ending: "listed" } })).toEqual([
+      "any key close the list",
     ]);
     expect(
-      texts("planning", { ...ctx, planning: { ...session, ending: "ready", sending: true } }).at(
-        -1,
-      ),
+      texts("planning", { ...ctx, planning: { ...session, ending: "ask", sending: true } }).at(-1),
     ).toBe("sending");
     const planningKeys = FOOTER_KEYS.filter((entry) => entry.views.includes("planning")).map(
       (e) => e.key,

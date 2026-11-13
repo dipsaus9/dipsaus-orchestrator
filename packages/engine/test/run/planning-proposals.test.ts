@@ -343,12 +343,12 @@ describe("no planning path sets Ready without the maintainer's confirm (DIPO-495
     }
   });
 
-  it("journals nothing and runs no gate until the maintainer confirms; then files only that story", () =>
+  it("journals nothing until the maintainer confirms; then files only that story", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
         const calls: string[] = [];
-        // A lane and gate that record every call the session makes of them.
+        // A lane that records every call the session makes of it.
         const recording = <T extends object>(name: string, answers: Record<string, unknown>) =>
           new Proxy({} as T, {
             get: (_target, method) => {
@@ -372,11 +372,7 @@ describe("no planning path sets Ready without the maintainer's confirm (DIPO-495
             isOpen: () => false,
           },
         );
-        const gate = recording<NonNullable<ReturnType<NonNullable<PlanningSessionsDeps["gate"]>>>>(
-          "gate",
-          {},
-        );
-        const w = planningWorld(t, dir, { lane: () => lane, gate: () => gate });
+        const w = planningWorld(t, dir, { lane: () => lane });
         w.answerText = (n) =>
           n === 1
             ? blocksOf(STORY_PROPOSAL, { ...STORY_PROPOSAL, title: "Another export" })

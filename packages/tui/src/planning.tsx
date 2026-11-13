@@ -22,11 +22,11 @@
 // other printable key, returns focus to the input and types there. A confirmed proposal leaves the
 // cards at once and shows as one line, `filing…` and then `filed as DIPO-n`; a declined one leaves.
 //
-// The Ready step (DIPO-451, DIPO-487): `/end` then Enter opens it. It lists the session's filed
-// and edited stories that are not Ready yet, all ticked; space ticks or unticks the focused one;
-// `Y` sends `planning.ready` with the ticked stories and then `planning.end` and shows each story
-// set, queued or refused with the gate's messages; `n` ends with none set Ready; Esc keeps the
-// session open. With nothing to list it asks to end.
+// Ending (DIPO-487, DIPO-497): `/end` then Enter asks to end; `Y` sends `planning.end`, and when
+// the session filed or edited stories that stayed Refined, the view lists each one with the gate's
+// first message and how to set it Ready later (the Queue's `space` and `Y`, or `dipo ready <ID>`)
+// until a key is pressed. Any other key keeps the session open. Stories are set Ready only by the
+// confirm and by `story.ready`, never by ending.
 
 import {
   healthLabel,
@@ -39,7 +39,6 @@ import {
   PLANNING_KINDS,
   type PlanningProposalView,
   type PlanningQuestionBlock,
-  type PlanningReadyView,
   type PlanningView,
   type RunId,
 } from "@dipsaus-orchestrator/contract";
@@ -91,20 +90,18 @@ export interface PlanningArgs {
   readonly open: () => void;
 }
 
-/** What `planning.ready` answered for the stories the Ready step sent. */
-export interface ReadyOutcome {
-  readonly stories: readonly string[];
-  readonly queued: readonly string[];
-  readonly refused: readonly { readonly story: string; readonly messages: readonly string[] }[];
+/** A story the session filed or edited that stayed Refined, with the gate's first message (DIPO-497). */
+export interface StayedRefined {
+  readonly story: string;
+  readonly message: string;
 }
 
-/** The Ready step (DIPO-487): the focused story, the stories unticked, and what the gate said. */
+/**
+ * The end question (DIPO-487, DIPO-497): null `stayed` while it asks; once the session ended, the
+ * stories that stayed Refined, listed until a key is pressed.
+ */
 export interface EndStep {
-  readonly cursor: number;
-  /** The ids of the candidates the maintainer unticked; every candidate starts ticked. */
-  readonly off: readonly string[];
-  /** Set once `planning.ready` answered; the session's end is then on its way. */
-  readonly outcome: ReadyOutcome | null;
+  readonly stayed: readonly StayedRefined[] | null;
 }
 
 export interface Planning {
@@ -114,7 +111,7 @@ export interface Planning {
   readonly transcript: Transcript;
   /** What is under way: a start, a message or an end; null otherwise. */
   readonly sending: Sending | null;
-  /** The Ready step, or null while the conversation has the keys. */
+  /** The end question, or null while the conversation has the keys. */
   readonly ending: EndStep | null;
   /** The fold under the focus bar and the folds that are open (DIPO-486), by number. */
   readonly focus: number | null;
@@ -303,51 +300,25 @@ function filedWords(result: unknown): string {
   return Array.isArray(stories) && stories.length > 0 ? `: ${stories.join(", ")}` : "";
 }
 
-/** The stories a Ready step offers: those the session filed or edited, not set Ready yet. */
-export function readyCandidates(view: PlanningView): { story: string; title: string }[] {
-  const taken = new Set(
-    (view.ready ?? [])
-      .filter((r) => r.state === "set" || r.state === "setting")
-      .map((r) => r.story),
+/**
+ * Pure: the stories the session filed or edited that stayed Refined, each with the gate's first
+ * message (DIPO-497). The lane's gate line of a story that stayed Refined reads `<ID> is Refined:
+ * <messages>`, and its messages are joined with `; `.
+ */
+export function stayedRefined(view: PlanningView): StayedRefined[] {
+  const marker = " is Refined: ";
+  return (view.proposals ?? []).flatMap((item) =>
+    (item.gate ?? []).flatMap((line): StayedRefined[] => {
+      const at = line.indexOf(marker);
+      if (at < 0) return [];
+      const message = line.slice(at + marker.length).split("; ")[0] ?? "";
+      return [{ story: line.slice(0, at), message }];
+    }),
   );
-  const found = new Map<string, string>();
-  for (const item of view.proposals ?? []) {
-    if (item.state !== "filed") continue;
-    const { title, tier } = proposalHead(item.proposal);
-    for (const story of item.stories ?? []) {
-      if (!taken.has(story) && !found.has(story)) {
-        found.set(story, `${title}${tier === undefined ? "" : ` · ${tier}`}`);
-      }
-    }
-  }
-  return [...found].map(([story, title]) => ({ story, title }));
 }
 
 /** The text that asks to end the session; it is typed in the input, with no key of its own. */
 const END_COMMAND = "/end";
-
-/** What `planning.ready` answered for the `stories` the step sent. */
-function readyOutcome(stories: readonly string[], result: unknown): ReadyOutcome {
-  const r = result as {
-    queued?: string[];
-    refused?: { story: string; messages?: string[] }[];
-  } | null;
-  return {
-    stories,
-    queued: r?.queued ?? [],
-    refused: (r?.refused ?? []).map((x) => ({ story: x.story, messages: x.messages ?? [] })),
-  };
-}
-
-/** The words for a Ready step's result. */
-function readyWords(outcome: ReadyOutcome): string {
-  return [
-    outcome.queued.length === 0 ? "no story set Ready" : `${outcome.queued.join(", ")} set Ready`,
-    ...(outcome.refused.length === 0
-      ? []
-      : [`refused: ${outcome.refused.map((x) => x.story).join(", ")}`]),
-  ].join("; ");
-}
 
 type CardKey = "up" | "down" | "leave" | "tab" | "confirm" | "decline" | "edit" | "ignore" | "type";
 
@@ -501,7 +472,11 @@ function useResets(
   useEffect(() => setDraft(""), [office]);
 }
 
-/** The keys of the Ready step (DIPO-487): it takes every key while it is open. */
+/**
+ * The keys of the end question (DIPO-487, DIPO-497): it takes every key while it is open. `Y`
+ * ends the session, and when stories stayed Refined the list stays up until a key is pressed;
+ * any other key keeps the session open.
+ */
 function useEnd(
   args: PlanningArgs,
   send: Send,
@@ -509,60 +484,22 @@ function useEnd(
   ending: EndStep | null,
   setEnding: (ending: EndStep | null) => void,
 ): (input: string, key: Key) => void {
-  const view = args.state.planning;
-  const candidates = view === null ? [] : readyCandidates(view);
-  const end = (words: string) => {
+  const end = () => {
     if (sending || args.refusedOffline()) return;
+    const stayed = args.state.planning === null ? [] : stayedRefined(args.state.planning);
     send("end", "planning.end", {}, () => {
-      args.setMessage(`${words}planning session ended`);
-      setEnding(null);
+      args.setMessage("planning session ended");
+      setEnding(stayed.length === 0 ? null : { stayed });
     });
   };
-  const keep = () => {
-    args.setMessage("the session stays open");
-    setEnding(null);
-  };
-  const move = (step: EndStep, by: number) => {
-    const cursor = Math.max(0, Math.min(candidates.length - 1, step.cursor + by));
-    setEnding({ ...step, cursor });
-  };
-  const tick = (step: EndStep) => {
-    const story = candidates[step.cursor]?.story;
-    if (story === undefined || step.outcome !== null) return;
-    const off = step.off.includes(story)
-      ? step.off.filter((id) => id !== story)
-      : [...step.off, story];
-    setEnding({ ...step, off });
-  };
-  // Y: the ticked stories go Ready, and once that answers the session ends.
-  const accept = (step: EndStep) => {
-    const stories = candidates.map((c) => c.story).filter((id) => !step.off.includes(id));
-    if (step.outcome !== null) end(`${readyWords(step.outcome)}; `);
-    else if (stories.length === 0) end("no story set Ready; ");
-    else if (!sending && !args.refusedOffline()) {
-      send("proposal", "planning.ready", { stories }, (result) => {
-        const done = readyOutcome(stories, result);
-        setEnding({ ...step, outcome: done });
-        args.setMessage(readyWords(done));
-        send("end", "planning.end", {}, () => {
-          args.setMessage(`${readyWords(done)}; planning session ended`);
-          setEnding(null);
-        });
-      });
-    }
-  };
-  return (input, key) => {
+  return (input) => {
     if (ending === null) return;
-    const yes = input === "y" || input === "Y";
-    if (ending.outcome === null && candidates.length === 0) {
-      if (yes) end("");
-      else keep();
-    } else if (key.escape) keep();
-    else if (key.upArrow || key.downArrow) move(ending, key.upArrow ? -1 : 1);
-    else if (input === " ") tick(ending);
-    else if ((input === "n" || input === "N") && ending.outcome === null)
-      end("no story set Ready; ");
-    else if (yes) accept(ending);
+    if (ending.stayed !== null) setEnding(null);
+    else if (input === "y" || input === "Y") end();
+    else {
+      args.setMessage("the session stays open");
+      setEnding(null);
+    }
   };
 }
 
@@ -638,7 +575,7 @@ export function usePlanning(args: PlanningArgs): Planning {
     }
     if (view !== null && text === END_COMMAND) {
       setDraft("");
-      setEnding({ cursor: 0, off: [], outcome: null });
+      setEnding({ stayed: null });
       return;
     }
     if (args.refusedOffline()) return;
@@ -720,27 +657,6 @@ export function headLines(view: PlanningView, columns: number, display: Display)
     spendLine(view, dot),
   ];
   return lines;
-}
-
-/** Pure: the stories chosen to go Ready, each with its state and the gate's messages (DIPO-451). */
-export function readyLines(view: PlanningView, columns: number, display: Display): string[] {
-  const chosen: readonly PlanningReadyView[] = view.ready ?? [];
-  if (chosen.length === 0) return [];
-  const { ellipsis } = glyphs(display.ascii);
-  const width = Math.max(10, columns - 4);
-  return chosen.map((item) =>
-    truncate(
-      `ready ${item.story}: ${item.state}${
-        item.state === "refused"
-          ? ` and stays as it is: ${(item.messages ?? []).join("; ")}`
-          : item.detail === undefined
-            ? ""
-            : `: ${item.detail}`
-      }`,
-      width,
-      ellipsis,
-    ),
-  );
 }
 
 /** Pure: the line of the latest refused proposal block and its problems; none without one. */
@@ -913,76 +829,44 @@ export function railRows(view: PlanningView, columns: number, display: Display):
       role: item.state === "filed" ? "ok" : item.state === "declined" ? "dim" : "fg",
     });
   }
-  const left = readyCandidates(view).length;
+  const left = stayedRefined(view).length;
   rows.push(
     { text: "ON END", role: "dim" },
     {
       text:
         left === 0
-          ? "  nothing is left to set Ready; /end ends the session"
-          : `  ${left} filed, not Ready yet ${dot} /end opens the Ready step`,
+          ? "  nothing stayed Refined; /end ends the session"
+          : `  ${left} stayed Refined ${dot} /end lists them`,
     },
   );
   return rows;
 }
 
-/** Pure: the Ready step (DIPO-487): the stories to tick, or each story's result once sent. */
-export function readyStepRows(
-  view: PlanningView,
-  step: EndStep,
-  columns: number,
-  display: Display,
-): Row[] {
-  const { ellipsis, bar, dot } = glyphs(display.ascii);
+/** Pure: the end question, or once ended the stories that stayed Refined (DIPO-497). */
+export function endRows(step: EndStep, columns: number, display: Display): Row[] {
+  const { ellipsis, dot } = glyphs(display.ascii);
   const width = Math.max(10, columns - 4);
-  const candidates = readyCandidates(view);
-  const { outcome } = step;
-  if (outcome === null && candidates.length === 0) {
-    return [
-      { text: `Ready step ${dot} nothing is left to set Ready`, role: "acc", bold: true },
-      { text: "End the planning session? [y/N]" },
-    ];
-  }
-  if (outcome !== null) {
-    const chosen = view.ready ?? [];
-    return [
-      { text: `Ready step ${dot} ${outcome.stories.length} sent`, role: "acc", bold: true },
-      ...outcome.stories.map((story): Row => {
-        const refused = outcome.refused.find((x) => x.story === story);
-        const state = chosen.find((r) => r.story === story)?.state;
-        const text =
-          refused !== undefined
-            ? `  ${story} refused and stays as it is: ${refused.messages.join("; ")}`
-            : `  ${story} ${state === "set" || state === "setting" ? state : outcome.queued.includes(story) ? "queued" : "sent"}`;
-        return {
-          text: truncate(text, width, ellipsis),
-          role: refused === undefined ? "ok" : "err",
-        };
-      }),
-    ];
-  }
-  const ticked = candidates.filter((c) => !step.off.includes(c.story)).length;
+  if (step.stayed === null) return [{ text: "End the planning session? [y/N]" }];
+  const count = step.stayed.length;
   return [
     {
-      text: `Ready step ${dot} ${ticked} of ${candidates.length} ticked ${dot} Y sets them Ready and ends`,
+      text: `Ended ${dot} ${count === 1 ? "1 story stayed" : `${count} stories stayed`} Refined`,
       role: "acc",
       bold: true,
     },
-    ...candidates.map((candidate, i): Row => {
-      const on = !step.off.includes(candidate.story);
-      return {
+    ...step.stayed.flatMap(({ story, message }): Row[] => [
+      { text: truncate(`  ${story} stays Refined: ${message}`, width, ellipsis), role: "err" },
+      {
         text: truncate(
-          `${i === step.cursor ? bar : " "} [${on ? "x" : " "}] ${candidate.story} ${candidate.title}`,
+          `    set it Ready later: space and Y in the Queue, or dipo ready ${story}`,
           width,
           ellipsis,
         ),
-        role: i === step.cursor ? "hi" : "fg",
-        bold: i === step.cursor,
-      };
-    }),
+        role: "dim",
+      },
+    ]),
   ];
 }
-
 /** The last `room` rows of the conversation; a focused fold above them pulls the window up to it. */
 function conversationRows(planning: Planning, columns: number, display: Display, room: number) {
   const { dot, ellipsis, bar, live } = glyphs(display.ascii);
@@ -1064,22 +948,14 @@ export function PlanningMode(props: PlanningModeProps) {
   const head = viewHead(planning, columns, display);
   const inputRows = planning.editing === null ? COMPOSER_ROWS : FORM_ROWS;
   const step =
-    view !== null && planning.ending !== null
-      ? readyStepRows(view, planning.ending, columns, display)
-      : null;
+    view !== null && planning.ending !== null ? endRows(planning.ending, columns, display) : null;
   const dialog =
     planning.dialog === null
       ? null
       : dialogRows(planning.dialog.block, planning.dialog.state, columns, display);
   const inputLength = dialog?.length ?? composerRows(planning.draft, columns, inputRows).length;
   const foot = step?.length ?? inputLength + (planning.editing === null ? 0 : 1);
-  const extra: Row[] =
-    view === null
-      ? []
-      : [
-          ...readyLines(view, columns, display).map((text): Row => ({ text })),
-          ...(planning.rail ? railRows(view, columns, display) : []),
-        ];
+  const extra: Row[] = view === null || !planning.rail ? [] : railRows(view, columns, display);
   const blocks =
     view === null ? [] : proposalBlocks(view, planning.focused, columns, display, props.lane);
   const space = Math.max(1, props.height - head.length - foot - 2);
@@ -1134,11 +1010,9 @@ export function PlanningMode(props: PlanningModeProps) {
   );
 }
 
-/** Which keys the Ready step takes: those of a list to tick, or of a question to end (DIPO-487). */
-export function endingKind(planning: Planning): "ready" | "empty" | null {
-  const { ending, view } = planning;
+/** The keys the end question takes: its question, or the stories that stayed Refined (DIPO-497). */
+export function endingKind(planning: Planning): "ask" | "listed" | null {
+  const { ending } = planning;
   if (ending === null) return null;
-  return ending.outcome === null && (view === null || readyCandidates(view).length === 0)
-    ? "empty"
-    : "ready";
+  return ending.stayed === null ? "ask" : "listed";
 }
