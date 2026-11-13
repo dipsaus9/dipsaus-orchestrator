@@ -3,10 +3,10 @@ id: DIPO-490
 title: >-
   The planning view shows one conversation per session across its fresh model
   sessions
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 11:06'
+updated_date: '2026-11-13 11:27'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -25,6 +25,23 @@ references:
   - packages/engine/test/run/planning-world.ts
   - docs/decisions/0022-planning-sessions.md
   - docs/decisions/0009-tui.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/decisions/0022-planning-sessions.md
+  - packages/client/src/store/office-store.ts
+  - packages/client/test/unit/office-store.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/test/run/planning-record.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/transcript.test.ts
+  - packages/tui/src/transcript.ts
 priority: high
 type: bug
 ordinal: 462000
@@ -84,3 +101,18 @@ test_plan:
 - [x] #5 The TUI-only you> lines are removed; a model line that starts with you> renders as the model's text
 - [x] #6 ADR 0022's decision-record line and ADR 0009's Planning line describe one conversation per session across its model sessions
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 11:27 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 145,820 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
