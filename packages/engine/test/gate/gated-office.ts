@@ -93,6 +93,7 @@ export function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> 
       const offices = {
         get: (office: OfficeId) => setup?.manager.get(office),
         config: (office: OfficeId) => setup?.manager.config(office),
+        roster: (office: OfficeId) => setup?.manager.roster(office) ?? [],
       };
       const changed: OfficeId[] = [];
       const warnings: Warning[] = [];

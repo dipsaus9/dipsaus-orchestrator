@@ -28,7 +28,7 @@ import { findStoryByKey } from "../records/story-keys";
 import { StoryStoreError } from "../story-store/errors";
 import type { StoryStore } from "../story-store/store";
 import { evaluateGate, ruleCount } from "../gate/evaluate";
-import type { GateConfig, GateMode, GateResult, GateTask } from "../gate/types";
+import type { GateConfig, GateMode, GateResult, GateRole, GateTask } from "../gate/types";
 
 import { baseSha, cachedGateTasks } from "./cache";
 import { type GateDecisionRecord, storeGateDecision } from "./decisions";
@@ -44,6 +44,8 @@ export interface GateStoreDeps {
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
+    /** The roster of the role files on the office's base (DIPO-471). */
+    roster(office: OfficeId): readonly GateRole[];
   };
   readonly clock: Clock;
   readonly ids: IdSource;
@@ -174,7 +176,7 @@ export class GateStore {
     }
     return {
       story,
-      result: evaluateGate(input, mode),
+      result: evaluateGate({ ...input, roster: this.#deps.offices.roster(office) }, mode),
       contentHash: gateContentHash(input.story),
       touches: input.story.references,
     };

@@ -81,12 +81,12 @@ Scenarios whose outcome code decides from git, CI or the reviewer are engine tes
 
 ### 5. Format and files
 
-YAML 1.2, parsed with `Bun.YAML.parse` behind the platform module and validated with zod. YAML gives comments, readable nesting, the same format as Backlog.md's `config.yml`, and the natural frontmatter for role files (M4).
+YAML 1.2, parsed with `Bun.YAML.parse` behind the platform module and validated with zod. YAML gives comments, readable nesting, the same format as Backlog.md's `config.yml`, and the natural frontmatter for role files.
 
 ```
 <repo>/.dipo/
   office.yaml        # the office's configuration (committed)
-  roles/<name>.md    # role files from M4: YAML frontmatter plus instructions
+  roles/<name>.md    # a role: YAML frontmatter plus instructions (committed)
   .gitignore         # office.local.yaml
   office.local.yaml  # machine-local; never committed
 <state>/config.yaml  # software settings: daemon.autostart, spend alerts, notify.desk (0005, 0009)
@@ -114,6 +114,14 @@ base: main                                                         # 0010
 worktree: { root: "../{repo}.worktrees" }                          # 0010
 scripts: { verify: bun run verify }                                # 0013
 ```
+
+**Role files.** `.dipo/roles/<name>.md` holds one role. The name is the file name without `.md` and is a role name: lowercase letters, digits and hyphens, starting with a letter. `reviewer`, `planner`, `auditor` and `scanner` are reserved because they stay engine code; a file with one of them is an error. The file is YAML frontmatter between `---` lines, then the instructions as Markdown. The frontmatter keys:
+
+- `version`: required integer, `1` (section 7).
+- `purpose`: required, one line.
+- `model`, `effort`: optional; they override the tier's for this role (vision). They are read and kept; a later story uses them.
+
+The frontmatter is a strict schema as in section 6: an unknown key is an error naming the file, the key path and that the key may need a newer dipo. Allowed tools are not a key; the adapter names the tools per kind (0008). The body is the role's instructions, and an empty body is an error. The files are read at the base commit from git's objects, never the checkout, as `office.yaml` is, and again when they change on the base through the same poll. An invalid file leaves only that role out of the roster and raises one notice naming the file and the problem; the other roles and the office's runs are unaffected. Every file role is a code role; non-code roles come with M4.
 
 ### 6. Precedence and validation
 

@@ -44,6 +44,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const offices = {
           get: (id: OfficeId) => s.manager.get(id),
           config: (id: OfficeId) => s.manager.config(id),
+          roster: (id: OfficeId) => s.manager.roster(id),
         };
         const deps = { git: engineGit, index, offices, clock: s.clock, ids: s.ids };
         const broken = new GateStore({
