@@ -3892,6 +3892,11 @@
                               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                             }
                           },
+                          "role": {
+                            "description": "the role that runs the story from now on, one of the office's roster",
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -3976,6 +3981,11 @@
                                   "type": "string",
                                   "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
+                              },
+                              "role": {
+                                "description": "the role that runs the story from now on, one of the office's roster",
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$"
                               }
                             },
                             "additionalProperties": false,
@@ -5154,6 +5164,11 @@
                               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                             }
                           },
+                          "role": {
+                            "description": "the role that runs the story from now on, one of the office's roster",
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -5238,6 +5253,11 @@
                                   "type": "string",
                                   "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
+                              },
+                              "role": {
+                                "description": "the role that runs the story from now on, one of the office's roster",
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$"
                               }
                             },
                             "additionalProperties": false,
@@ -6403,6 +6423,11 @@
                               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                             }
                           },
+                          "role": {
+                            "description": "the role that runs the story from now on, one of the office's roster",
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -6487,6 +6512,11 @@
                                   "type": "string",
                                   "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
+                              },
+                              "role": {
+                                "description": "the role that runs the story from now on, one of the office's roster",
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$"
                               }
                             },
                             "additionalProperties": false,
@@ -7674,6 +7704,11 @@
                               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                             }
                           },
+                          "role": {
+                            "description": "the role that runs the story from now on, one of the office's roster",
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -7758,6 +7793,11 @@
                                   "type": "string",
                                   "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
+                              },
+                              "role": {
+                                "description": "the role that runs the story from now on, one of the office's roster",
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$"
                               }
                             },
                             "additionalProperties": false,
@@ -8941,6 +8981,11 @@
                               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                             }
                           },
+                          "role": {
+                            "description": "the role that runs the story from now on, one of the office's roster",
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -9025,6 +9070,11 @@
                                   "type": "string",
                                   "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
+                              },
+                              "role": {
+                                "description": "the role that runs the story from now on, one of the office's roster",
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$"
                               }
                             },
                             "additionalProperties": false,

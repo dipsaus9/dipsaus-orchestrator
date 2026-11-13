@@ -50,6 +50,7 @@ import { gateContentHash } from "../../gate/hash";
 import { gateStoryFromView } from "../../gate/input";
 import { recordStoryEntry } from "../../records/planning-record";
 import { BLOCK_OPEN, FieldBlockError, locateBlock } from "../../story-store/fields/block";
+import { readLabels } from "../../story-store/fields/labels";
 import {
   FILE_KIND,
   FileTarget,
@@ -314,6 +315,7 @@ interface Revised {
   readonly criteria?: readonly string[];
   readonly references?: readonly string[];
   readonly dependencies?: readonly string[];
+  readonly role?: string;
 }
 
 /** The fields `target` asks of the story `view`; throws `FieldBlockError` (R02). */
@@ -327,8 +329,13 @@ function revisedOf(view: PlainTask, target: ReviseTarget): Revised {
       : { criteria: target.criteria.map((text) => text.trim()) }),
     ...(target.references === undefined ? {} : { references: target.references }),
     ...(target.dependencies === undefined ? {} : { dependencies: target.dependencies }),
+    ...(target.role === undefined ? {} : { role: target.role }),
   };
 }
+
+/** The `role:` labels of a view. */
+const roleLabels = (view: PlainTask): string[] =>
+  readLabels(view.labels).roles.map((name) => `role:${name}`);
 
 /** The fields of `view` that differ from `revised`, by name. */
 function differences(view: PlainTask, revised: Revised): string[] {
@@ -355,6 +362,9 @@ function differences(view: PlainTask, revised: Revised): string[] {
   ) {
     differ.push("dependencies");
   }
+  if (revised.role !== undefined && !sameSet(roleLabels(view), [`role:${revised.role}`])) {
+    differ.push("role");
+  }
   return differ;
 }
 
@@ -371,6 +381,14 @@ function revisionCalls(view: PlainTask, revised: Revised): string[][] {
     }
     if (field === "references") {
       calls.push((revised.references ?? []).flatMap((path) => ["--ref", path]));
+    }
+    if (field === "role") {
+      const labels = roleLabels(view).filter((label) => label !== `role:${revised.role}`);
+      calls.push([
+        ...labels.flatMap((label) => ["--remove-label", label]),
+        "--add-label",
+        `role:${revised.role}`,
+      ]);
     }
     if (field === "dependencies") {
       // 1.53 replaces the whole list; `--dep ""` clears it.
@@ -416,7 +434,9 @@ export const reviseKind: LaneOpKind = {
       }
       throw error;
     }
-    for (const args of revisionCalls(view, revised)) {
+    const roleChanged = differences(view, revised).includes("role");
+    const calls = revisionCalls(view, revised);
+    for (const args of calls) {
       await runBacklog(ctx.cli, ctx.cwd, ["task", "edit", ctx.story, ...args]);
     }
     const left = differences(await viewStory(story, false), revised);
@@ -424,8 +444,17 @@ export const reviseKind: LaneOpKind = {
       throw new FieldWriteError(ctx.story, `the revision reads back wrong: its ${left.join(", ")}`);
     }
     // A Ready story is gated again on its revised content (DIPO-495); any other keeps its status.
-    const notice =
-      view.status === READY ? await gateToReady(ctx, ctx.story, ctx.entry.key) : undefined;
+    // A new role sends it back to Refined for the daemon's Ready gate to decide under that role.
+    let notice: string | undefined;
+    // A revision that changes nothing moves nothing.
+    if (view.status === READY && (roleChanged || calls.length > 0)) {
+      if (roleChanged) {
+        await setStatus(ctx, ctx.story, REFINED);
+        notice = `${ctx.story} is Refined: its role changed to ${target.role}; the Ready gate decides it again`;
+      } else {
+        notice = await gateToReady(ctx, ctx.story, ctx.entry.key);
+      }
+    }
     const office = ctx.office;
     if (office !== undefined) {
       office.immediate(() =>

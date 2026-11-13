@@ -124,7 +124,11 @@ function roleProblems(
 }
 
 /** The problem when `role` is not in the roster of the base's role files (DIPO-476). */
-function rosterProblems(role: string, facts: RoleFacts | undefined, where: string): string[] {
+export function rosterProblems(
+  role: string,
+  facts: RoleFacts | undefined,
+  where: string,
+): string[] {
   if (facts === undefined) return ["this office's role files are not loaded yet; try again soon"];
   const names = loadRoleFiles(facts.files).roles.map((candidate) => candidate.name);
   return names.includes(role)
@@ -147,7 +151,10 @@ export function proposalProblems(proposal: PlanningProposal, roles?: RoleFacts):
         ...rosterProblems(proposal.role, roles, "role"),
       ];
     case "edit":
-      return lineProblems(proposal.storyLine, isSpikeLine(proposal.storyLine), "storyLine");
+      return [
+        ...lineProblems(proposal.storyLine, isSpikeLine(proposal.storyLine), "storyLine"),
+        ...(proposal.role === undefined ? [] : rosterProblems(proposal.role, roles, "role")),
+      ];
     case "split":
       return [
         ...lineProblems(
@@ -161,6 +168,9 @@ export function proposalProblems(proposal: PlanningProposal, roles?: RoleFacts):
           "story.storyLine",
         ),
         ...rosterProblems(proposal.story.role, roles, "story.role"),
+        ...(proposal.edit.role === undefined
+          ? []
+          : rosterProblems(proposal.edit.role, roles, "edit.role")),
       ];
     case "refine":
       return [
@@ -279,6 +289,7 @@ export function reviseTargetOf(
     ...(edit.dependencies === undefined
       ? {}
       : { dependencies: [...new Set(edit.dependencies.map((id) => id.toUpperCase()))] }),
+    ...(edit.role === undefined ? {} : { role: edit.role }),
   };
 }
 
