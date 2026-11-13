@@ -21,6 +21,7 @@ import {
 import { cleanDoorStrings, doorKeysClean } from "../box/door";
 import { checkStoryLine } from "../gate/rules";
 import { editRoleFile, renderRoleFile, roleFilePath } from "../roles/file";
+import { loadRoleFiles } from "../roles/base";
 import { parseRoleFile } from "../roles/parse";
 import {
   type FileTarget,
@@ -122,6 +123,17 @@ function roleProblems(
   return loaded.ok ? [] : [loaded.message];
 }
 
+/** The problem when `role` is not in the roster of the base's role files (DIPO-476). */
+function rosterProblems(role: string, facts: RoleFacts | undefined, where: string): string[] {
+  if (facts === undefined) return ["this office's role files are not loaded yet; try again soon"];
+  const names = loadRoleFiles(facts.files).roles.map((candidate) => candidate.name);
+  return names.includes(role)
+    ? []
+    : [
+        `${where}: the role \`${role}\` is not in the roster; the roster has ${names.join(", ") || "no roles"}`,
+      ];
+}
+
 /** The engine's checks beyond the schema: the Story lines (0012 R05) and the roles (DIPO-474). */
 export function proposalProblems(proposal: PlanningProposal, roles?: RoleFacts): string[] {
   switch (proposal.kind) {
@@ -130,7 +142,10 @@ export function proposalProblems(proposal: PlanningProposal, roles?: RoleFacts):
     case "role-remove":
       return roleProblems(proposal, roles);
     case "story":
-      return lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine");
+      return [
+        ...lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine"),
+        ...rosterProblems(proposal.role, roles, "role"),
+      ];
     case "edit":
       return lineProblems(proposal.storyLine, isSpikeLine(proposal.storyLine), "storyLine");
     case "split":
@@ -145,9 +160,13 @@ export function proposalProblems(proposal: PlanningProposal, roles?: RoleFacts):
           proposal.story.type === "spike",
           "story.storyLine",
         ),
+        ...rosterProblems(proposal.story.role, roles, "story.role"),
       ];
     case "refine":
-      return lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine");
+      return [
+        ...lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine"),
+        ...rosterProblems(proposal.role, roles, "role"),
+      ];
     case "drop":
       return [];
   }
@@ -233,6 +252,7 @@ export function fileTargetOf(
     type: story.type,
     milestone: story.milestone.trim(),
     tier: story.tier,
+    role: story.role,
     description: storyDescription(story.storyLine, story.context),
     criteria: story.criteria.map((text) => text.trim()),
     references: [...new Set(story.references)],

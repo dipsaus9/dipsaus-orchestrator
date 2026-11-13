@@ -13,7 +13,7 @@
    No discovery and no plugins. Two stories:
 [ok]   ✓ filed as DIPO-488 · Copy referenced skills into the box[/]
 [dim]     filing… waiting for backlog PR #656, CI running · Show the skill list in the story card[/]
- [sel][acc]▌[/] [hi]**◆ Refuse a story whose skill is missing · S**[/][/]
+ [sel][acc]▌[/] [hi]**◆ Refuse a story whose skill is missing · S · developer**[/][/]
 [sel][dim]     As maintainer I want the Ready gate to fail when a skill the story names is not in the repository so th…[/][/]
 [sel][acc]     c confirm   e edit   x decline   esc to the input[/][/]
 

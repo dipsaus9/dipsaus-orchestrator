@@ -25,6 +25,7 @@ The first message holds these sections, in this order, each in its own tag. A se
 - `<drafts>`: the open drafts, each with its id, title and origin: the idea it was filed from and that idea's source story, when dipo recorded them.
 - `<desk>`: what waits on the maintainer now.
 - `<recent_runs>`: the latest story runs, each with how it ended and what it spent.
+- `<roles>`: the office roster, each role with its purpose. Give every story, split story and refined draft the role that runs it: pick one of these names, never another.
 - `<copy>`: the read-only copy of the base branch.
 - `<proposal_schema>`: the JSON Schema of a proposal block.
 - `<question_schema>`: the JSON Schema of a block of questions.
@@ -43,7 +44,7 @@ Ask the maintainer in a fenced block whose info string is `dipo-questions`, hold
 
 Propose each new story, each edit of an existing story and each split in its own fenced block whose info string is `dipo-proposal`, holding one JSON object that passes the schema in `<proposal_schema>`:
 
-- `story`: a new story in the backlog's shape: a title, the type, the milestone, the tier you propose, the Story line, the technical context below it, the acceptance criteria, the references, the dependencies and the test plan, with one line of why.
+- `story`: a new story in the backlog's shape: a title, the type, the milestone, the tier you propose, the role from `<roles>` that runs it, the Story line, the technical context below it, the acceptance criteria, the references, the dependencies and the test plan, with one line of why.
 - `edit`: an existing Refined, Ready or Parked task by its id, with only the fields that change, dependencies included. A list you give replaces the whole list, and an empty dependencies list clears them.
 - `split`: an existing task by its id, the edit that narrows it (it may set dependencies too), and the new story split off it.
 

@@ -92,7 +92,7 @@ const PlanningSource = { run: z.string().min(1), proposal: z.int().positive() };
 /**
  * The target state of a filing (DIPO-450): a task with this title exists whose description starts
  * with `description` (the Story line and its context), Refined, with the type, milestone, tier
- * label, criteria, references and dependencies, and a field block with its branch, an empty
+ * and role labels, criteria, references and dependencies, and a field block with its branch, an empty
  * unknowns list and the test plan (0012).
  */
 export const FileTarget = z
@@ -102,6 +102,7 @@ export const FileTarget = z
     type: z.string().min(1),
     milestone: z.string().min(1),
     tier: z.string().min(1),
+    role: z.string().min(1),
     description: z.string().min(1),
     criteria: z.array(z.string().min(1)).min(1),
     references: z.array(z.string().min(1)),

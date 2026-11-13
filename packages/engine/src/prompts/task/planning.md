@@ -20,6 +20,10 @@ goal: {{goal}}
 {{runs}}
 </recent_runs>
 
+<roles>
+{{roles}}
+</roles>
+
 <retro>
 {{retro}}
 </retro>

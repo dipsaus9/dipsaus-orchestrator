@@ -14,6 +14,7 @@ const STORY: PlanningProposal = {
   type: "feature",
   milestone: "m-3",
   tier: "M",
+  role: "developer",
   storyLine:
     "As maintainer I want to export the stories as a CSV file so that I can share the backlog with people outside dipo.",
   context: "The export reads the base.\n\nIt writes UTF-8.",
@@ -38,6 +39,7 @@ const SPLIT: PlanningProposal = {
     type: "spike",
     milestone: "m-3",
     tier: "S",
+    role: "developer",
     storyLine: "We need to decide the JSON lines format so that scripts read one story per line.",
     criteria: ["docs/decisions/0030-json-lines.md records the format"],
     references: ["docs/decisions/0030-json-lines.md"],

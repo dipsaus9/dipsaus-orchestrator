@@ -30,6 +30,7 @@ import { proxiedUsageLedger } from "../../src/records/proxied-usage";
 import { type LaunchedHost, recordWorkerHost } from "../../src/records/worker-hosts";
 import { claudeWorkerPort } from "../../src/workers/claude-cli/adapter";
 import type { HostOp, LaunchPlan } from "../../src/workers/types";
+import { renderRoleFile } from "../../src/roles/file";
 import { FakeBoxes } from "../box/fake-boxes";
 import { addOffice, type TestState } from "../commands/helpers";
 
@@ -348,7 +349,12 @@ export function planningWorld(
     },
     desk: () => w.desk,
     ...(options.lane === undefined ? {} : { lane: options.lane }),
+<<<<<<< 515b56b7b1e5b5210ec423daf39d50c0b5e28000
     ...(options.roleFiles === undefined ? {} : { roleFiles: options.roleFiles }),
+=======
+    ...(options.gate === undefined ? {} : { gate: options.gate }),
+    roleFiles: options.roleFiles ?? (() => ROSTER_FILES),
+>>>>>>> 356ae81852ad4b08a1cfa01a437e87658169ce39
     onIdea: (id) => w.ideas.push(id),
     info: (message, fields) => w.infos.push({ message, fields }),
     baseCommit: async () => BASE_COMMIT,
@@ -399,6 +405,14 @@ export function planningRun(office: OfficeHandle, run: RunId | string) {
   );
 }
 
+/** The role files of a world's office unless a test gives its own: one developer role (DIPO-476). */
+export const ROSTER_FILES: ReadonlyMap<string, string | undefined> = new Map([
+  [
+    ".dipo/roles/developer.md",
+    renderRoleFile({ purpose: "Builds the story", instructions: "Build." }),
+  ],
+]);
+
 /** A new story a planning session proposes (DIPO-450). */
 export const STORY_PROPOSAL = {
   kind: "story",
@@ -406,6 +420,7 @@ export const STORY_PROPOSAL = {
   type: "feature",
   milestone: "m-3",
   tier: "M",
+  role: "developer",
   storyLine:
     "As maintainer I want to export the stories as a CSV file so that I can share the backlog with people outside dipo.",
   context: "The export reads the base, as the queue does.",
@@ -435,7 +450,7 @@ export const blocksOf = (...values: unknown[]): string =>
 /**
  * The office's real Ready gate over the lane's office git and Backlog CLI (DIPO-495), as the lane's
  * planning kinds run it on `_backlog`: `GateStore.recordLaneDecision` with the default office
- * configuration and no role files. No index pass runs in it.
+ * configuration and the developer role in its roster. No index pass runs in it.
  */
 export function laneGate(s: {
   readonly t: TestState;
@@ -446,7 +461,11 @@ export function laneGate(s: {
   return new GateStore({
     git: { forOffice: () => s.git },
     stories: backlogStoryStore(s.cli),
-    offices: { get: () => s.office, config: () => OFFICE_DEFAULTS, roster: () => [] },
+    offices: {
+      get: () => s.office,
+      config: () => OFFICE_DEFAULTS,
+      roster: () => [{ name: "developer", code: true }],
+    },
     clock: s.t.clock,
     ids: s.t.ids,
     index: {

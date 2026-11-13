@@ -62,6 +62,31 @@ async function setup(repo: TempRepoWithRemote, proposals: readonly unknown[]) {
   const lane = s.lane();
   const indexed = [task("TASK-1", { title: "Add the CSV export command" })];
   pass(s.t, s.office, indexed);
+<<<<<<< 515b56b7b1e5b5210ec423daf39d50c0b5e28000
+=======
+  // The gate reads the story in the lane's worktree, which sits on the merged base.
+  const gate: PlanningGate = {
+    async recordGateDecision(_office, story, mode) {
+      const identity = findStoryByKey(s.office, story);
+      const input = await readGateInput(
+        backlogStoryStore(s.cli),
+        lane.worktreePath(),
+        identity?.story ?? "",
+        DEFAULT_CONFIG,
+      );
+      const result = evaluateGate({ ...input, roster: [{ name: "developer", code: true }] }, mode);
+      const stored = s.office.immediate(() =>
+        storeGateDecision(s.office, s.t.ids, {
+          key: story,
+          result,
+          contentHash: gateContentHash(input.story),
+          at: s.t.clock.now(),
+        }),
+      );
+      return { ...stored, story: input.story.id as never, result };
+    },
+  };
+>>>>>>> 356ae81852ad4b08a1cfa01a437e87658169ce39
   const w = planningWorld(s.t, repo.root, {
     office: s.office,
     lane: () => planningLane(lane),

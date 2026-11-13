@@ -29,9 +29,13 @@ import {
   commandContext,
   planningWorld,
   type PlanningWorld,
+  ROSTER_FILES,
   STORY_PROPOSAL,
   until,
 } from "./planning-world";
+
+const readRostered = (text: string) =>
+  readProposals(text, { files: ROSTER_FILES, openStories: () => [] });
 
 const withWorld = (fn: (w: PlanningWorld) => Promise<void>) =>
   withTempDir(async (dir) => {
@@ -62,7 +66,7 @@ describe("reading proposal blocks (DIPO-450)", () => {
   });
 
   it("takes a valid proposal and refuses one that fails the schema, with every problem", () => {
-    const reads = readProposals(
+    const reads = readRostered(
       blocksOf(STORY_PROPOSAL, {
         ...STORY_PROPOSAL,
         tier: "XL",
@@ -84,8 +88,45 @@ describe("reading proposal blocks (DIPO-450)", () => {
     );
   });
 
+  it("refuses a story, split and refine without a role, and one whose role is not in the roster (DIPO-476)", () => {
+    const { role: _role, ...bare } = STORY_PROPOSAL;
+    const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
+    const { role: _storyRole, ...bareStory } = story;
+    const reads = readRostered(
+      blocksOf(
+        bare,
+        {
+          kind: "split",
+          id: "TASK-2",
+          edit: { dependencies: [] },
+          story: bareStory,
+          why: "Split.",
+        },
+        { ...bare, kind: "refine", draft: "DRAFT-1" },
+        { ...STORY_PROPOSAL, role: "designer" },
+        {
+          kind: "split",
+          id: "TASK-2",
+          edit: { dependencies: [] },
+          story: { ...story, role: "x" },
+          why: "Split.",
+        },
+        { ...STORY_PROPOSAL, kind: "refine", draft: "DRAFT-1", role: "designer" },
+        { ...STORY_PROPOSAL, role: "developer" },
+      ),
+    );
+    const problems = reads.map((read) => (read.ok ? [] : [...read.problems]));
+    expect(problems[0]?.join(" ")).toContain("role");
+    expect(problems[1]?.join(" ")).toContain("story.role");
+    expect(problems[2]?.join(" ")).toContain("role");
+    expect(problems[3]).toEqual([expect.stringContaining("roster has developer")]);
+    expect(problems[4]).toEqual([expect.stringContaining("roster has developer")]);
+    expect(problems[5]).toEqual([expect.stringContaining("roster has developer")]);
+    expect(reads[6]?.ok).toBe(true);
+  });
+
   it("refuses a Story line the Ready gate would fail, JSON that does not parse and an empty edit", () => {
-    const reads = readProposals(
+    const reads = readRostered(
       [
         blocksOf({ ...STORY_PROPOSAL, storyLine: "Export as CSV" }),
         "```dipo-proposal\n{ not json\n```",
@@ -101,7 +142,7 @@ describe("reading proposal blocks (DIPO-450)", () => {
 
   it("takes an edit or split with only dependencies, and an empty list, and refuses too many", () => {
     const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
-    const reads = readProposals(
+    const reads = readRostered(
       blocksOf(
         { kind: "edit", id: "TASK-2", dependencies: ["TASK-1"], why: "Order." },
         { kind: "edit", id: "TASK-2", dependencies: [], why: "Clear." },
@@ -142,6 +183,7 @@ describe("a proposal as planning-lane targets (DIPO-450)", () => {
       type: "feature",
       milestone: "m-3",
       tier: "M",
+      role: "developer",
       description: `Story: ${STORY_PROPOSAL.storyLine}\n\nThe export reads the base, as the queue does.`,
       criteria: [...STORY_PROPOSAL.criteria],
       references: [...STORY_PROPOSAL.references],

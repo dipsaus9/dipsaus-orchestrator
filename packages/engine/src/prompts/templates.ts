@@ -205,6 +205,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "drafts",
   "desk",
   "recent_runs",
+  "roles",
   "copy",
   // DIPO-450: the proposal schema of a planning session's first message.
   "proposal_schema",
