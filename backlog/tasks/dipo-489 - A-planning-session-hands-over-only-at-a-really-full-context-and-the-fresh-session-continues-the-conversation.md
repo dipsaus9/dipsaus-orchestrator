@@ -3,10 +3,10 @@ id: DIPO-489
 title: >-
   A planning session hands over only at a full context and continues the
   conversation
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 10:12'
+updated_date: '2026-11-13 10:15'
 labels:
   - 'tier:M'
 milestone: m-3
