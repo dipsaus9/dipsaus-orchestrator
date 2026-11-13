@@ -1,10 +1,10 @@
 ---
 id: DIPO-495
 title: Confirming a planning proposal files it Ready when it passes the gate
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 09:40'
+updated_date: '2026-11-13 11:36'
 labels:
   - 'tier:L'
 milestone: m-3
