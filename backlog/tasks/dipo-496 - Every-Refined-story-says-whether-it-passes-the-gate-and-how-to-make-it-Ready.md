@@ -1,10 +1,10 @@
 ---
 id: DIPO-496
 title: Every Refined story says whether it passes the gate and how to make it Ready
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 13:43'
+updated_date: '2026-11-13 13:48'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -71,9 +71,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A passing Refined row in the Queue reads gate passes with the key to set it Ready, a failing row keeps its first failure, and the preview of a Refined story ends with one line naming the next step
-- [ ] #2 A gate decision counts for a Refined story only when its content hash is the story's current one; without one the row reads gate not checked yet
-- [ ] #3 When Refined stories pass for their current content the desk shows one READY TO SET item with their count, ids and dipo ready command, after NEXT UP, and none when there are none
-- [ ] #4 dipo desk prints the READY TO SET item with its command line
-- [ ] #5 ADR 0009's Queue line and ADR 0020's desk order describe the row's step and the new item
+- [x] #1 A passing Refined row in the Queue reads gate passes with the key to set it Ready, a failing row keeps its first failure, and the preview of a Refined story ends with one line naming the next step
+- [x] #2 A gate decision counts for a Refined story only when its content hash is the story's current one; without one the row reads gate not checked yet
+- [x] #3 When Refined stories pass for their current content the desk shows one READY TO SET item with their count, ids and dipo ready command, after NEXT UP, and none when there are none
+- [x] #4 dipo desk prints the READY TO SET item with its command line
+- [x] #5 ADR 0009's Queue line and ADR 0020's desk order describe the row's step and the new item
 <!-- AC:END -->
