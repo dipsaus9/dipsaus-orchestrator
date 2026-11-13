@@ -21,7 +21,7 @@ A story has a fixed set of fields, stored natively in Backlog.md where possible 
 | F9 | Inputs | Files or URLs the worker reads but does not change | Optional | Native documentation |
 | F10 | Unknowns | Questions to answer before Ready, each `open` or `resolved` with its answer | From Refined on; none `open` at Ready | Field block |
 | F11 | Tier | `S`, `M` or `L`; chooses model and caps (0008) | Exactly one | Label `tier:<t>` |
-| F12 | Role | The role that does the work, naming a role file of the office (0017); a story with no label has no role | Optional | Label `role:<name>` |
+| F12 | Role | The role that does the work, naming a role file of the office (0017); the story runs as that role file (0014) | Exactly one | Label `role:<name>` |
 | F13 | Test before merge | The maintainer tests before merge (0002); set only by the maintainer | Optional | Label `test-before-merge` |
 | F14 | Test plan | Automated entries (tests the worker writes) and manual entries (steps with an expected result), or "not applicable" with a reason | Every non-spike story; a manual entry when F13 is set | Field block |
 | F15 | Branch | `<ID>/<slug>`, frozen when the story gets its id | Yes | Field block |
@@ -94,7 +94,7 @@ Every other transition is refused. Three more rules:
 | R14 | No dependency cycle through the story |
 | R15 | The unknowns list exists, none is `open`, and every resolved one has an answer |
 | R16 | Exactly one tier from the configured set |
-| R17 | At most one role, naming a roster role |
+| R17 | Exactly one role, naming a roster role; with none, the message lists the roster's roles |
 | R18 | Branch matches `^<ID>/[a-z0-9]+(-[a-z0-9]+)*$` with a slug of at most 40 characters |
 | R19 | No other active task has the same branch |
 | R20 | A non-spike story has a test plan: entries each with a kind, a check of at least 10 characters and, for manual entries, an expected result; or `not_applicable` with a reason of at least 10 characters |
@@ -126,6 +126,7 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 - R27, which failed criteria that named a step the worker cannot take, matched by a phrase list (2026-10-18). Removed (2026-10-24): it is a judgment for refine and the reviewer, and a phrase list is a blunt way to make it.
 - R28, which failed stories labelled `dropped` or `on-hold` (2026-10-20). Removed (2026-10-24): a set-aside story is Parked `by-maintainer`, and a dropped story is Removed (0020). There are no such labels.
 - R29 as a hard rule (2026-10-20). Made a warning (2026-10-22), because references are a forecast.
+- R17 as at most one role, so a story with no role label passed (2026-10-24). Replaced by exactly one role (2026-11-13), because every story runs as the role its label names; office init labels the open stories (0017).
 - Story size left wholly to judgment, with no gate output on it (2026-10-24). Replaced by the size warning against the tier's ceilings (2026-11-08).
 - References as a write fence with a scope check at done, scope requests and `needs-scope` (2026-10-10, 2026-10-16). Replaced by references as a forecast (2026-10-21).
 - The park reasons `on-hold`, `stopped`, `interrupted` and `needs-permission`, and `hold` as its own transition. Replaced by the eight reasons of 0001 and `dipo park` (2026-10-24).

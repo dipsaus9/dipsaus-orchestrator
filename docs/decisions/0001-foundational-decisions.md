@@ -72,7 +72,7 @@ Losing the database loses history, never the project. At daemon start dipo recon
 
 ## Roles
 
-An agent is created from a role: purpose, instructions, and an optional model and effort. The adapter names the tools (0008). A role is a versioned file in the office's repository (0017), and adding the file adds the role to the office's roster, which the Ready gate reads (0012). The reviewer, planner, auditor and scanner stay engine code. Code chooses the role per story without asking a model. Every role works the same way: all work is a story, and all output lives in the repository on a branch, is reviewed against the story's criteria and is merged.
+An agent is created from a role: purpose, instructions, and an optional model and effort. The adapter names the tools (0008). A role is a versioned file in the office's repository (0017), and adding the file adds the role to the office's roster, which the Ready gate reads (0012). The reviewer, planner, auditor and scanner stay engine code. Every story names its role with one label, and code runs it as that role file without asking a model: the run takes the file's instructions, and its model and effort when the file sets them, from the base it claims, and keeps them for all its sessions. The tier still sets the caps. Every role works the same way: all work is a story, and all output lives in the repository on a branch, is reviewed against the story's criteria and is merged.
 
 ## Build our own
 
@@ -93,3 +93,4 @@ Stories live in Backlog.md, and project rules in `CLAUDE.md`. How this repositor
 - Eleven park reasons, including `stopped`, `on-hold`, `interrupted` and `needs-permission`. Replaced by the eight above (2026-10-24): `by-maintainer` covers stop and hold, `worker-failed` covers interrupted, and a box worker never needs a permission.
 - A first command list (`plan`, `refine`, `estimate`, `ready`, `run`, `review`, `retro`). The rituals now live in the milestones (0003).
 - No Claude names anywhere outside the adapter (2026-10-24). Replaced by three named places (2026-11-03), because the box image installs the CLI and the model proxy forwards to its API.
+- Every story run as the bundled developer, with the tier's model and effort (2026-10-24). Replaced by each story running as the role file its label names (2026-11-13).
