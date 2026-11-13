@@ -118,12 +118,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const branch = first.result.branch as string;
           expect(findPr(base.office, 1)?.check).toBe("passed");
           expect(host.prs.get(1)?.title).toBe(
-            "chore(backlog): init statuses, init defaultStatus, init settings, init To Do tasks, init .dipo/.gitignore",
+            "chore(backlog): init statuses, init defaultStatus, init settings, init To Do tasks, init .dipo/roles/developer.md, init role:developer labels, init .dipo/.gitignore",
           );
           expect(
             (await inRemote(repo, "diff", "--name-only", "main", branch)).trim().split("\n"),
           ).toEqual([
             ".dipo/.gitignore",
+            ".dipo/roles/developer.md",
             "backlog/config.yml",
             "backlog/tasks/task-1 - Add-the-CSV-export-command.md",
             "backlog/tasks/task-2 - Rename-the-export-setting.md",
