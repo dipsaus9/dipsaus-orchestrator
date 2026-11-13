@@ -10,7 +10,7 @@ export interface RunStart {
   readonly story: string;
   readonly agent: string;
   readonly tier: string;
-  /** The role it runs as, from the story's role label (DIPO-477, migration 13). */
+  /** The role it runs as, from the story's role label (DIPO-477, migration 14). */
   readonly role: string;
   readonly model: string;
   readonly loopCap: number;
