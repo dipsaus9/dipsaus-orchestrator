@@ -1,10 +1,10 @@
 ---
 id: DIPO-492
 title: Confirming a planning proposal answers at once and files in the background
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:58'
+updated_date: '2026-11-13 09:59'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -18,6 +18,24 @@ references:
   - packages/engine/test/run/planning-world.ts
   - packages/engine/test/run/planning-filing.test.ts
   - packages/tui/src/planning.tsx
+modified_files:
+  - packages/cli/src/story-commands.test.ts
+  - packages/client/src/ready-text.ts
+  - packages/client/test/unit/ready-text.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/planning.ts
+  - packages/engine/test/run/planning-background-flush.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/engine/test/run/story-ready.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/queue.test.tsx
 priority: high
 type: bug
 ordinal: 464000
@@ -74,3 +92,18 @@ test_plan:
 - [x] #5 The Queue's ready result names the backlog PR a queued story waits on from the store's lane progress, not from a command result
 - [x] #6 Confirms and ready commands flush in journal order, and a held branch still applies nothing (0010)
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 09:59 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 174,493 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
