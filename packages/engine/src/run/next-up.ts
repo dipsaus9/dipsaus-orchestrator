@@ -1,6 +1,8 @@
 // Next up (0010, DIPO-440): how a free run slot gets its story. While a slot is free and a Ready
 // story can start, dipo offers one story per free slot as a NEXT UP item on the desk, naming the
-// story and one line of why. Nothing starts until the maintainer confirms one.
+// story and one line of why. With `nextUp.autoStart: none` (the default) nothing starts until the
+// maintainer confirms one; with `no-overlap` dipo starts an offer that shares no files with the
+// running stories by itself (`#autoStart`), through the same start as the confirm.
 //
 // - Order. The Ready stories on `_base` of the earliest milestone, by milestone number, that still
 //   has one, then priority, ordinal and id (`comparePickup`); a milestone without a number after the

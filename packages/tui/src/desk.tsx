@@ -427,7 +427,7 @@ export function listLines(
     if (n > 0) lines.push([]);
     lines.push([seg(groupName(group.kind, ctx.narrow), "dim")]);
     if (group.items.some((item) => item.autoStart !== undefined)) {
-      lines.push([seg(NEXT_UP_AUTO_START_LINE, "dim")]);
+      lines.push([seg(truncate(NEXT_UP_AUTO_START_LINE, ctx.width, g.ellipsis), "dim")]);
     }
     for (const item of group.items) {
       const focused = index === ctx.selected;

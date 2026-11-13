@@ -884,6 +884,24 @@ function running(scope: readonly string[], free = 1): RunId {
 }
 
 describe("nextUp.autoStart: none and no-overlap", () => {
+  it("the desk's NEXT UP items say the office starts them by itself only with no-overlap", async () => {
+    w.mode = "no-overlap";
+    running(["src/a.ts"]);
+    story("DIPO-1", { references: ["src"] });
+    await settle();
+    const read = (mode: "none" | "no-overlap") =>
+      desk(w.office, () => true, {
+        ...deskSources(),
+        nextUpAutoStart: () => mode,
+      }).filter((one) => one.kind === "NEXT UP");
+    await settle();
+    expect(read("no-overlap").map((one) => one.autoStart)).toEqual(["no-overlap"]);
+    expect(read("no-overlap")[0]?.detail).toContain(
+      "not started by itself: shares src with DIPO-9",
+    );
+    expect(read("none").map((one) => one.autoStart)).toEqual([undefined]);
+  });
+
   it("none starts nothing by itself: the offer waits for a confirm", async () => {
     story("DIPO-1", { references: ["src/a.ts"] });
     expect(await settle()).toEqual(["DIPO-1"]);
@@ -1100,16 +1118,16 @@ describe("what the auto start counts", () => {
   });
 });
 
+const stays = () => {
+  expect(w.started).toEqual([]);
+  expect(offered()).toEqual(["DIPO-1"]);
+  expect(whyOf("DIPO-1")).toContain("could not be read");
+};
+
 describe("fail closed", () => {
   beforeEach(() => {
     w.mode = "no-overlap";
   });
-
-  const stays = () => {
-    expect(w.started).toEqual([]);
-    expect(offered()).toEqual(["DIPO-1"]);
-    expect(whyOf("DIPO-1")).toContain("could not be read");
-  };
 
   it("a changed-files read that throws starts nothing", async () => {
     running(["src/a.ts"]);
@@ -1167,16 +1185,16 @@ describe("fail closed", () => {
   });
 });
 
+/** Changes the story's task file: its hash differs. */
+function touch(id: string): void {
+  const found = w.tasks.find((one) => one.id === id) as PlainTask;
+  w.tasks[w.tasks.indexOf(found)] = { ...found, description: `${found.description} More.` };
+}
+
 describe("no retry loop", () => {
   beforeEach(() => {
     w.mode = "no-overlap";
   });
-
-  /** Changes the story's task file: its hash differs. */
-  function touch(id: string): void {
-    const found = w.tasks.find((one) => one.id === id) as PlainTask;
-    w.tasks[w.tasks.indexOf(found)] = { ...found, description: `${found.description} More.` };
-  }
 
   it("a story whose pickup check fails is tried once, keeps the refusal in its why and is tried again only when its task file changes", async () => {
     running([]);

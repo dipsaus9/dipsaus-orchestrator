@@ -338,6 +338,23 @@ describe("dipo watch", () => {
     expect(await done).toBe(1);
   });
 
+  it("prints each story dipo started by itself (nextUp.autoStart)", async () => {
+    const ctx = fake({ running: false });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.subscriptions.length === 1);
+    ctx.out.length = 0;
+    ctx.emit("engine.notice", {
+      level: "info",
+      code: "run.nextUpStarted",
+      text: "started DIPO-7 by itself: it shares no files with the running stories",
+    });
+    expect(ctx.out).toEqual([
+      `${T} notice info run.nextUpStarted: started DIPO-7 by itself: it shares no files with the running stories`,
+    ]);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
   it("counts the office's running stories in the header and shows scan sessions apart (DIPO-446)", async () => {
     // Two developers and one reviewer hold three slots; the header says so, as `daemon status` does.
     const ctx = fake({ running: true, summary: { running: 3, sessions: 1 } });
