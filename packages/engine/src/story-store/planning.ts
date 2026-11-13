@@ -119,7 +119,8 @@ export type RefineTarget = z.infer<typeof RefineTarget>;
 /**
  * The target state of a revision (DIPO-450): each field given replaces the story's, while its
  * status is one of `from`. `storyLine` replaces the `Story:` line and `context` the text between it
- * and the field block; `criteria` and `references` are whole lists.
+ * and the field block; `criteria`, `references` and `dependencies` are whole lists (an empty
+ * `dependencies` clears them).
  */
 export const ReviseTarget = z
   .object({
@@ -130,6 +131,7 @@ export const ReviseTarget = z
     context: z.string().min(1).optional(),
     criteria: z.array(z.string().min(1)).min(1).optional(),
     references: z.array(z.string().min(1)).min(1).optional(),
+    dependencies: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export type ReviseTarget = z.infer<typeof ReviseTarget>;

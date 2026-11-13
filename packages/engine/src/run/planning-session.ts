@@ -102,6 +102,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
+import { cycleThrough } from "../gate/rules";
 import { baseCommit } from "../box/image";
 import { retro } from "../records/retro";
 import { REVIEW_CODE_DIR } from "../box/review-box";
@@ -459,6 +460,11 @@ function filingText(filing: PlannedFiling): string {
         ? []
         : ["Acceptance criteria:", ...edit.criteria.map((text, i) => `${i + 1}. ${text}`)]),
       ...(edit.references === undefined ? [] : [`References: ${edit.references.join(", ")}`]),
+      ...(edit.dependencies === undefined
+        ? []
+        : [
+            `Dependencies: ${edit.dependencies.length === 0 ? "none" : edit.dependencies.join(", ")}`,
+          ]),
     ].join("\n");
   }
   const story = filing.target;
@@ -1095,6 +1101,7 @@ export class PlanningSessions {
       }
       case "edit": {
         const identity = this.#revisable(handle, proposal.id);
+        this.#checkEditDependencies(open, item, identity.story, proposal.dependencies ?? []);
         const change = await lane.reviseStory(
           identity,
           reviseTargetOf(run, item.n, editFieldsOf(proposal)),
@@ -1104,6 +1111,7 @@ export class PlanningSessions {
       case "split": {
         const identity = this.#revisable(handle, proposal.id);
         this.#checkNewStory(open, item, proposal.story.title, proposal.story.dependencies ?? []);
+        this.#checkEditDependencies(open, item, identity.story, proposal.edit.dependencies ?? []);
         const filed = await lane.fileStory(fileTargetOf(run, item.n, proposal.story));
         let revised: PlannedChange;
         try {
@@ -1179,6 +1187,12 @@ export class PlanningSessions {
         { proposal: item.n },
       );
     }
+    this.#checkDependencies(open, item, dependencies);
+  }
+
+  /** Refuses a dependency the office does not know and this session did not file. */
+  #checkDependencies(open: Open, item: OpenProposal, dependencies: readonly string[]): void {
+    const { handle } = open;
     for (const dependency of dependencies) {
       const id = dependency.toUpperCase();
       const found = handle.deferred(() => resolveStoryRef(handle, id));
@@ -1191,6 +1205,55 @@ export class PlanningSessions {
           { proposal: item.n, story: dependency },
         );
       }
+    }
+  }
+
+  /**
+   * Refuses an edit's dependencies the office cannot hold: an unknown one, the edited task itself,
+   * or one that closes a dependency cycle with the backlog's other dependencies (DIPO-493).
+   */
+  #checkEditDependencies(
+    open: Open,
+    item: OpenProposal,
+    story: string,
+    dependencies: readonly string[],
+  ): void {
+    this.#checkDependencies(open, item, dependencies);
+    const self = story.toUpperCase();
+    const wanted = dependencies.map((dependency) => dependency.toUpperCase());
+    if (wanted.includes(self)) {
+      throw new CommandError(
+        "planning.dependencyInvalid",
+        `Proposal ${item.n} makes ${self} depend on itself; a story cannot depend on itself.`,
+        { proposal: item.n, story: self },
+      );
+    }
+    const rows = open.handle.deferred(() =>
+      open.handle.all<{ story_id: string; deps: string | null }>(
+        `select s.story_id as story_id, coalesce(m.gate_dependencies, m.waiting_on) as deps
+           from stories s
+           join backlog_mirror m on m.office_id = s.office_id and m.key = s.key
+          where s.office_id = $office_id and s.removed_at is null`,
+      ),
+    );
+    const edges = new Map<string, readonly string[]>();
+    for (const row of rows) {
+      const ids = row.deps === null ? [] : (JSON.parse(row.deps) as unknown);
+      edges.set(
+        row.story_id.toUpperCase(),
+        Array.isArray(ids)
+          ? ids.filter((id): id is string => typeof id === "string").map((id) => id.toUpperCase())
+          : [],
+      );
+    }
+    edges.set(self, wanted);
+    const cycle = cycleThrough(self, edges);
+    if (cycle !== undefined) {
+      throw new CommandError(
+        "planning.dependencyInvalid",
+        `Proposal ${item.n} would make a dependency cycle (${cycle.join(" -> ")}); drop the dependency ${cycle[1] ?? ""} or change the order.`,
+        { proposal: item.n, story: cycle[1] ?? self },
+      );
     }
   }
 
