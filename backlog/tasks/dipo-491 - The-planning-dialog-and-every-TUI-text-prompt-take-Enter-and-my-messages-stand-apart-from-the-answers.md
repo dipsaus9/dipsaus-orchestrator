@@ -1,10 +1,10 @@
 ---
 id: DIPO-491
 title: 'The planning dialog and TUI prompts take Enter, and my messages stand apart'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 11:36'
+updated_date: '2026-11-13 11:43'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -78,11 +78,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In the question dialog Enter on an option picks it and moves to the next unanswered question, a final Submit row lists every answer and Enter on it sends planning.answer, and Left and Right still change an answer
-- [ ] #2 Esc while choosing leaves the block unanswered; the free-text row keeps Enter to open and to take the text; Ctrl-S and Ctrl-N no longer act in the dialog
-- [ ] #3 Every Composer prompt (desk answer and notes, steer, top-up note) sends on Enter and adds a line on Option+Enter, a trailing backslash or kitty Shift+Enter; Esc cancels; Ctrl-S no longer sends; the enterSends switch is gone
-- [ ] #4 On the top-up prompt the first Enter shows the caps and the next sends the resume confirmed
-- [ ] #5 A maintainer message shows as its own block with a blank line before and after and a > prefix on an existing role's background; each answer starts with a ● marker with its fold lines under it, dim
-- [ ] #6 The footer and prompt hints, keymap.json and spec.md show the new keys, and a test checks the hints name no ctrl- key
-- [ ] #7 ADR 0009's Planning line names the dialog keys and the message style, with one Replaced line for Ctrl-S and Ctrl-N in the dialog and the Composer
+- [x] #1 In the question dialog Enter on an option picks it and moves to the next unanswered question, a final Submit row lists every answer and Enter on it sends planning.answer, and Left and Right still change an answer
+- [x] #2 Esc while choosing leaves the block unanswered; the free-text row keeps Enter to open and to take the text; Ctrl-S and Ctrl-N no longer act in the dialog
+- [x] #3 Every Composer prompt (desk answer and notes, steer, top-up note) sends on Enter and adds a line on Option+Enter, a trailing backslash or kitty Shift+Enter; Esc cancels; Ctrl-S no longer sends; the enterSends switch is gone
+- [x] #4 On the top-up prompt the first Enter shows the caps and the next sends the resume confirmed
+- [x] #5 A maintainer message shows as its own block with a blank line before and after and a > prefix on an existing role's background; each answer starts with a ● marker with its fold lines under it, dim
+- [x] #6 The footer and prompt hints, keymap.json and spec.md show the new keys, and a test checks the hints name no ctrl- key
+- [x] #7 ADR 0009's Planning line names the dialog keys and the message style, with one Replaced line for Ctrl-S and Ctrl-N in the dialog and the Composer
 <!-- AC:END -->
