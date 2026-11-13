@@ -20,10 +20,14 @@ import {
 
 import { cleanDoorStrings, doorKeysClean } from "../box/door";
 import { checkStoryLine } from "../gate/rules";
+import { editRoleFile, renderRoleFile, roleFilePath } from "../roles/file";
+import { parseRoleFile } from "../roles/parse";
 import {
   type FileTarget,
   type RefineTarget,
   type ReviseTarget,
+  type RoleAddTarget,
+  type RoleEditTarget,
   storyDescription,
 } from "../story-store/planning";
 
@@ -77,9 +81,54 @@ function lineProblems(text: string | undefined, spike: boolean, where: string): 
     : checkStoryLine(text, spike).map((problem) => `${where}: ${problem}`);
 }
 
-/** The engine's checks beyond the schema: the Story lines (0012 R05). */
-export function proposalProblems(proposal: PlanningProposal): string[] {
+/** What the role proposals are checked against: the base's role files and the open stories. */
+export interface RoleFacts {
+  /** The text of every role file on the base, by path (`BaseRoles.files`); undefined: no file. */
+  readonly files: ReadonlyMap<string, string | undefined>;
+  /** The ids of the stories that are not Done and have the label `role:<name>`. */
+  readonly openStories: (name: string) => readonly string[];
+}
+
+/** The engine's checks of a role proposal beyond the schema (DIPO-474). */
+function roleProblems(
+  proposal: Extract<PlanningProposal, { kind: "role" | "role-edit" | "role-remove" }>,
+  facts: RoleFacts | undefined,
+): string[] {
+  if (facts === undefined) return ["this office's role files are not loaded yet; try again soon"];
+  const path = roleFilePath(proposal.name);
+  const exists = facts.files.has(path);
+  if (proposal.kind === "role") {
+    if (exists)
+      return [`the role \`${proposal.name}\` already has a file, ${path}; propose a role-edit`];
+    const { kind: _kind, why: _why, ...fields } = proposal;
+    const loaded = parseRoleFile(path, renderRoleFile(fields));
+    return loaded.ok ? [] : [loaded.message];
+  }
+  if (!exists) return [`the role \`${proposal.name}\` has no file ${path} on the base`];
+  if (proposal.kind === "role-remove") {
+    const stories = facts.openStories(proposal.name);
+    return stories.length === 0
+      ? []
+      : [
+          `the role \`${proposal.name}\` is still the label of ${stories.join(", ")}, which ${stories.length === 1 ? "is" : "are"} not Done`,
+        ];
+  }
+  const current = facts.files.get(path);
+  if (current === undefined) return [`${path}: not a regular file`];
+  const { kind: _kind, why: _why, name: _name, ...changes } = proposal;
+  const text = editRoleFile(current, changes);
+  if (text === null) return [`${path}: no YAML frontmatter between --- lines at the top`];
+  const loaded = parseRoleFile(path, text);
+  return loaded.ok ? [] : [loaded.message];
+}
+
+/** The engine's checks beyond the schema: the Story lines (0012 R05) and the roles (DIPO-474). */
+export function proposalProblems(proposal: PlanningProposal, roles?: RoleFacts): string[] {
   switch (proposal.kind) {
+    case "role":
+    case "role-edit":
+    case "role-remove":
+      return roleProblems(proposal, roles);
     case "story":
       return lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine");
     case "edit":
@@ -110,7 +159,7 @@ function isSpikeLine(text: string | undefined): boolean {
 }
 
 /** Pure: a proposal as the maintainer or the session wrote it, checked: valid, or its problems. */
-export function checkProposal(value: unknown): ProposalRead {
+export function checkProposal(value: unknown, roles?: RoleFacts): ProposalRead {
   if (!doorKeysClean(value)) {
     return { ok: false, problems: ["a key holds characters dipo does not accept"] };
   }
@@ -123,12 +172,12 @@ export function checkProposal(value: unknown): ProposalRead {
       ),
     };
   }
-  const problems = proposalProblems(parsed.data);
+  const problems = proposalProblems(parsed.data, roles);
   return problems.length > 0 ? { ok: false, problems } : { ok: true, proposal: parsed.data };
 }
 
 /** Pure: every proposal block of an answer, read and checked. */
-export function readProposals(text: string): ProposalRead[] {
+export function readProposals(text: string, roles?: RoleFacts): ProposalRead[] {
   return proposalBlocks(text).map((block): ProposalRead => {
     if (block === null) return { ok: false, problems: ["the block is not closed with ```"] };
     if (block.length > PROPOSAL_BLOCK_MAX_CHARS) {
@@ -144,7 +193,7 @@ export function readProposals(text: string): ProposalRead[] {
       const why = error instanceof Error ? error.message : String(error);
       return { ok: false, problems: [`the block is not one JSON object: ${cleanText(why)}`] };
     }
-    return checkProposal(value);
+    return checkProposal(value, roles);
   });
 }
 
@@ -245,4 +294,38 @@ export function refineTargetOf(
   draftTitle: string,
 ): RefineTarget {
   return { ...fileTargetOf(run, proposal, story), draftTitle };
+}
+
+/** Pure: the `role-add` target of a confirmed role proposal. */
+export function roleAddTargetOf(
+  run: string,
+  proposal: number,
+  role: Extract<PlanningProposal, { kind: "role" }>,
+): RoleAddTarget {
+  return {
+    run,
+    proposal,
+    name: role.name,
+    purpose: role.purpose.trim(),
+    ...(role.model === undefined ? {} : { model: role.model.trim() }),
+    ...(role.effort === undefined ? {} : { effort: role.effort.trim() }),
+    instructions: role.instructions.trim(),
+  };
+}
+
+/** Pure: the `role-edit` target of a confirmed role-edit proposal: only the fields it names. */
+export function roleEditTargetOf(
+  run: string,
+  proposal: number,
+  edit: Extract<PlanningProposal, { kind: "role-edit" }>,
+): RoleEditTarget {
+  return {
+    run,
+    proposal,
+    name: edit.name,
+    ...(edit.purpose === undefined ? {} : { purpose: edit.purpose.trim() }),
+    ...(edit.model === undefined ? {} : { model: edit.model.trim() }),
+    ...(edit.effort === undefined ? {} : { effort: edit.effort.trim() }),
+    ...(edit.instructions === undefined ? {} : { instructions: edit.instructions.trim() }),
+  };
 }

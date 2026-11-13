@@ -5,7 +5,8 @@
 //
 // - `backlog-only`: every changed path is a Backlog file, a `.md` file under `backlog/` or
 //   `backlog/config.yml`, except a new `.dipo/.gitignore`, the one file office init adds outside
-//   it (0007, 0010; DIPO-36). Changing or removing an existing one fails the
+//   it (0007, 0010; DIPO-36), and the role files `.dipo/roles/<name>.md` a planning session's
+//   confirmed role proposals add, change or remove (0022, DIPO-474). Changing or removing an existing one fails the
 //   rule. Every changed entry is a regular file on both sides: a symlink, a submodule or an
 //   executable fails it, under `backlog/` too (DIPO-341).
 // - `parses` (R02): every changed task or draft that still exists parses: its view, and its `dipo`
@@ -76,6 +77,14 @@ export const ADDED_OUTSIDE_BACKLOG: readonly string[] = [
  * side where the file is absent (an add or a delete).
  */
 export const REGULAR_MODES: readonly string[] = ["100644", "000000"];
+
+/**
+ * A role file (`.dipo/roles/<name>.md`, 0017) a backlog PR may add, change or remove: the files a
+ * planning session's confirmed role proposals write (0022, DIPO-474).
+ */
+export function isRoleFile(path: string): boolean {
+  return /^\.dipo\/roles\/[a-z0-9][a-z0-9-]*\.md$/.test(path);
+}
 
 /** A Backlog file a backlog PR may change: a `.md` file under `backlog/`, or `backlog/config.yml`. */
 export function isBacklogFile(path: string): boolean {
@@ -230,12 +239,15 @@ export function checkBacklogPr(diff: PrDiff, facts: PrFacts): CheckResult {
 
   const added = new Set(diff.added ?? []);
   const outside = diff.paths.filter(
-    (path) => !isBacklogFile(path) && !(ADDED_OUTSIDE_BACKLOG.includes(path) && added.has(path)),
+    (path) =>
+      !isBacklogFile(path) &&
+      !isRoleFile(path) &&
+      !(ADDED_OUTSIDE_BACKLOG.includes(path) && added.has(path)),
   );
   if (outside.length > 0) {
     failures.push({
       rule: "backlog-only",
-      message: `the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): ${outside.join(", ")}`,
+      message: `the PR changes paths that are not Backlog files (a .md file under backlog/, backlog/config.yml, or a role file .dipo/roles/<name>.md): ${outside.join(", ")}`,
     });
   }
   const irregular = diff.irregular ?? [];

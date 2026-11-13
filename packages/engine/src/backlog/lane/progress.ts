@@ -22,6 +22,9 @@ import {
   REFINE_KIND,
   RESUME_KIND,
   REVISE_KIND,
+  ROLE_ADD_KIND,
+  ROLE_EDIT_KIND,
+  ROLE_REMOVE_KIND,
 } from "../../story-store/planning";
 import { openPrs } from "../pr/records";
 
@@ -37,6 +40,9 @@ const WHAT: Readonly<Record<string, string>> = {
   [REVISE_KIND]: "a story edited",
   [REFINE_KIND]: "a draft refined into a story",
   [EDIT_KIND]: "a story edited",
+  [ROLE_ADD_KIND]: "a role added",
+  [ROLE_EDIT_KIND]: "a role edited",
+  [ROLE_REMOVE_KIND]: "a role removed",
   [READY_KIND]: "a story set Ready",
   [DONE_KIND]: "a story set Done",
   [HOLD_KIND]: "a story parked",

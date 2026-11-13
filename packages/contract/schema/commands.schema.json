@@ -1608,6 +1608,132 @@
                         "properties": {
                           "kind": {
                             "type": "string",
+                            "const": "role"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "description": "the role's name, which is its file name without .md"
+                          },
+                          "purpose": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line: what the role is for"
+                          },
+                          "model": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the model this role uses"
+                          },
+                          "effort": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the effort this role uses"
+                          },
+                          "instructions": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 20000,
+                            "description": "the role's instructions, Markdown"
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": ["kind", "name", "purpose", "instructions", "why"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "role-edit"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "description": "the role's name, which is its file name without .md"
+                          },
+                          "purpose": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line: what the role is for"
+                          },
+                          "model": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the model this role uses"
+                          },
+                          "effort": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the effort this role uses"
+                          },
+                          "instructions": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 20000,
+                            "description": "the role's instructions, Markdown"
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": ["kind", "name", "why"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "role-remove"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "description": "the role's name, which is its file name without .md"
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": ["kind", "name", "why"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
                             "const": "story"
                           },
                           "title": {
@@ -2736,6 +2862,132 @@
                   },
                   "proposal": {
                     "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "role"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "description": "the role's name, which is its file name without .md"
+                          },
+                          "purpose": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line: what the role is for"
+                          },
+                          "model": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the model this role uses"
+                          },
+                          "effort": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the effort this role uses"
+                          },
+                          "instructions": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 20000,
+                            "description": "the role's instructions, Markdown"
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": ["kind", "name", "purpose", "instructions", "why"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "role-edit"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "description": "the role's name, which is its file name without .md"
+                          },
+                          "purpose": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line: what the role is for"
+                          },
+                          "model": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the model this role uses"
+                          },
+                          "effort": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the effort this role uses"
+                          },
+                          "instructions": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 20000,
+                            "description": "the role's instructions, Markdown"
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": ["kind", "name", "why"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "role-remove"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "description": "the role's name, which is its file name without .md"
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": ["kind", "name", "why"],
+                        "additionalProperties": false
+                      },
                       {
                         "type": "object",
                         "properties": {
@@ -3941,6 +4193,132 @@
         },
         "edited": {
           "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "role"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "the role's name, which is its file name without .md"
+                },
+                "purpose": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "one line: what the role is for"
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "the model this role uses"
+                },
+                "effort": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "the effort this role uses"
+                },
+                "instructions": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20000,
+                  "description": "the role's instructions, Markdown"
+                },
+                "why": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "one line of why"
+                }
+              },
+              "required": ["kind", "name", "purpose", "instructions", "why"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "role-edit"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "the role's name, which is its file name without .md"
+                },
+                "purpose": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "one line: what the role is for"
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "the model this role uses"
+                },
+                "effort": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "the effort this role uses"
+                },
+                "instructions": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20000,
+                  "description": "the role's instructions, Markdown"
+                },
+                "why": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "one line of why"
+                }
+              },
+              "required": ["kind", "name", "why"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "role-remove"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "the role's name, which is its file name without .md"
+                },
+                "why": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "pattern": "^[^\\r\\n]*$",
+                  "description": "one line of why"
+                }
+              },
+              "required": ["kind", "name", "why"],
+              "additionalProperties": false
+            },
             {
               "type": "object",
               "properties": {
