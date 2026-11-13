@@ -131,7 +131,7 @@ describe("queue view", () => {
       /^dipo \/ dipsaus-orchestrator {3}\+1 elsewhere · O +● daemon live {4}\d\d:\d\d$/,
     );
     expect(frame.slice(1, 15)).toEqual([
-      "1 Desk 2    2 Floor 3    3 Queue 2·1    4 Retro",
+      "1 Desk 2    2 Floor 3    3 Queue 2·1    4 Retro    5 Plan    6 Roles",
       "─".repeat(119),
       "READY                                                      2  │  READY · tier S · offered as next up",
       "▌ → DIPO-30   Add park reasons to digest      S  next up      │  DIPO-30 Add park reasons to digest",

@@ -45,6 +45,7 @@ import { clockSleep, spawnGitExec } from "../git/runner";
 import type { GateRole } from "../gate/types";
 import type { Logger } from "../log/logger";
 import type { MountReader } from "../platform/sqlite";
+import type { RolesView } from "../roles/view";
 import { type BaseRoles, readBaseRoles, rosterOf } from "../roles/base";
 import type { SoftwareStream } from "../software-stream";
 import { checkoutFiles } from "../story-store/folder";
@@ -181,6 +182,14 @@ function committedSettings(base: string | undefined): GitSettings {
 }
 
 const ROW_COLUMNS = "office_id, path, display_name, added_at, forgotten_at";
+
+/** True when both maps hold the same paths with the same text. */
+function sameFiles(
+  a: ReadonlyMap<string, string | undefined>,
+  b: ReadonlyMap<string, string | undefined>,
+): boolean {
+  return a.size === b.size && [...a].every(([path, text]) => b.has(path) && b.get(path) === text);
+}
 
 export class OfficeManager implements OfficeDirectory {
   readonly #deps: OfficeManagerDeps;
@@ -535,6 +544,7 @@ export class OfficeManager implements OfficeDirectory {
     if (read === null) return;
     const before = instance.roles.files;
     instance.roles = read;
+    if (!sameFiles(before, read.files)) this.#rolesChanged(instance);
     for (const problem of read.problems) {
       const path = problem.slice(0, problem.indexOf(":"));
       if (before.has(path) && before.get(path) === read.files.get(path)) continue;
@@ -549,6 +559,30 @@ export class OfficeManager implements OfficeDirectory {
   /** The roster of the role files on the base of `office` (0017); empty when it is not loaded. */
   roster(office: OfficeId): readonly GateRole[] {
     return rosterOf(this.#instances.get(office)?.roles.roles ?? []);
+  }
+
+  /** The roles and the refused role files of `office` for `office.roles` (DIPO-473). */
+  rolesView(office: OfficeId): RolesView {
+    const { roles, problems } = this.#instances.get(office)?.roles ?? { roles: [], problems: [] };
+    return {
+      office,
+      roles: roles.toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+      invalid: problems.map((problem) => {
+        const at = problem.indexOf(": ");
+        return at < 0
+          ? { path: problem, problem }
+          : { path: problem.slice(0, at), problem: problem.slice(at + 2) };
+      }),
+    };
+  }
+
+  /** The role files changed on the base: one `roles.changed` entry, so an open Roles room reads again. */
+  #rolesChanged(instance: OfficeInstance): void {
+    const { office } = instance;
+    office.immediate(() =>
+      appendEntries(office, [{ type: "roles.changed", delta: {} }], { at: this.#deps.clock.now() }),
+    );
+    this.#deps.onOfficeChanged?.(instance.officeId);
   }
 
   /** Tells every config-reload listener the configuration in force, when it is valid. */

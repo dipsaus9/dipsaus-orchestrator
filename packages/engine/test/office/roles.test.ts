@@ -8,6 +8,8 @@ import { join } from "node:path";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
+import { executeRead } from "../../src/reads/execute";
+import { nextRequestId } from "./helpers";
 import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { EngineGit } from "../../src/git";
@@ -71,6 +73,36 @@ describe("the roster from role files on the base", () => {
         // The same invalid file on the next poll raises no second notice.
         await s.manager.reloadIfChanged(office, git);
         expect(notices()).toHaveLength(1);
+
+        // `office.roles` (DIPO-473): the two roles and the invalid file with its problem.
+        const reply = await executeRead(s.deps, {
+          requestId: nextRequestId(),
+          name: "office.roles",
+          args: { office },
+        });
+        if (!reply.ok) throw new Error(reply.error.message);
+        const view = reply.result as {
+          roles: { name: string; purpose: string; instructions: string }[];
+          invalid: { path: string; problem: string }[];
+        };
+        expect(view.roles).toEqual([
+          { name: "developer", purpose: "Builds", instructions: "Do the work." },
+          { name: "tester", purpose: "Tests", instructions: "Do the work." },
+        ]);
+        expect(view.invalid).toHaveLength(1);
+        expect(view.invalid[0]?.path).toBe(".dipo/roles/broken.md");
+        expect(view.invalid[0]?.problem).toContain("purpose");
+
+        // The change put one `roles.changed` entry in the log, and the same files none more.
+        const changes = () => {
+          const result = replay(s.state.office(office), cursorAt(office, 0));
+          if (!result.ok) throw new Error(result.error.message);
+          return result.entries.filter((entry) => entry.type === "roles.changed").length;
+        };
+        expect(changes()).toBeGreaterThanOrEqual(1);
+        const seen = changes();
+        await s.manager.reloadIfChanged(office, git);
+        expect(changes()).toBe(seen);
       },
       { fixture: BACKLOG_FIXTURE },
     ));

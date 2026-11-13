@@ -650,6 +650,22 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       problem: null,
     },
   },
+  "office.roles": {
+    args: { office: ids.office },
+    result: {
+      office: ids.office,
+      roles: [
+        {
+          name: "developer",
+          purpose: "Builds a story",
+          instructions: "Do the work.",
+          model: "claude-sonnet-5-5",
+          effort: "medium",
+        },
+      ],
+      invalid: [{ path: ".dipo/roles/broken.md", problem: "key `purpose`: Required" }],
+    },
+  },
   "office.retro": {
     args: { office: ids.office },
     result: {
@@ -790,6 +806,7 @@ const officeEventFixtures: Record<string, unknown> = {
     reason: "context-full",
     view: { ...planningView, state: "working", turns: 0 },
   },
+  "roles.changed": {},
   "lane.progress": {
     lane: {
       ops: [

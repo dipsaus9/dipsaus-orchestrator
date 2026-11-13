@@ -275,6 +275,7 @@ describe("office commands and reads", () => {
         "office.desk",
         "office.ideas",
         "office.retro",
+        "office.roles",
       ].toSorted(),
     );
     const names = [...contractCommands, ...contractReads].map((d) => d.name);

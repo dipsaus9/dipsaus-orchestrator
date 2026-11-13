@@ -102,11 +102,11 @@ describe("the palette's rows", () => {
 });
 
 describe("the navigation keys", () => {
-  it("are exactly the keys that leave an overlay for a room: 1 to 5 and O", () => {
+  it("are exactly the keys that leave an overlay for a room: 1 to 6 and O", () => {
     const keys = NAV_KEYS.map((nav) => nav.key);
-    expect(keys.toSorted()).toEqual(["1", "2", "3", "4", "5", "O"]);
+    expect(keys.toSorted()).toEqual(["1", "2", "3", "4", "5", "6", "O"]);
     for (const key of keys) expect(leavesOverlay(key)).toBe(true);
-    for (const key of ["6", "o", "p", "P", ":", "?"]) expect(leavesOverlay(key)).toBe(false);
+    for (const key of ["7", "o", "p", "P", ":", "?"]) expect(leavesOverlay(key)).toBe(false);
   });
 });
 

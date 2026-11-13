@@ -34,7 +34,7 @@ afterEach(async () => {
 const HEADER = expect.stringMatching(
   /^dipo \/ dipsaus-orchestrator .*● daemon live {4}\d\d:\d\d$/,
 ) as unknown as string;
-const ROOMS = expect.stringMatching(/^1 Desk .*4 Retro$/) as unknown as string;
+const ROOMS = expect.stringMatching(/^1 Desk .*6 Roles$/) as unknown as string;
 const RULE = expect.stringMatching(/^─+$/) as unknown as string;
 
 function lines(frame: string): string[] {

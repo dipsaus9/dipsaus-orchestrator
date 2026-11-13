@@ -5,7 +5,7 @@
 // privacy settings and the agent detail, is `home.tsx`; the hints are `footer.ts`.
 //
 // Global keys (keymap.json, DIPO-458): `1` Desk, `2` Floor, `3` Queue, `4` Retro (`retro.tsx`,
-// DIPO-453), `5` the planning view (`planning.tsx`, DIPO-449), `O` Offices, `q` twice within 2 s
+// DIPO-453), `5` the planning view (`planning.tsx`, DIPO-449), `6` Roles (`roles.tsx`, DIPO-473), `O` Offices, `q` twice within 2 s
 // quits, Ctrl+C quits. `:` and Ctrl-K open the command palette (`palette.tsx`), which also lists
 // the settings, and `?` the keys overlay (`help.tsx`, DIPO-463). Action keys are off while offline.
 // On the daemon screens only their keys work: `r` restarts a stopped daemon, `l` opens its log,
@@ -52,6 +52,7 @@ import { initialMode, modeReducer, typesText } from "./mode";
 import { useOverlays } from "./overlays";
 import { usePlanning } from "./planning";
 import { type ReadRetro, useRetro } from "./retro";
+import { type ReadRoles, useRoles } from "./roles";
 import {
   type ModeKeys,
   onConfirmPrivacyKey,
@@ -64,6 +65,9 @@ import { Screen } from "./screen";
 import { daemonScreen } from "./states";
 import { glyphs, isOffline } from "./views";
 import type { DiffOutcome } from "./story-card";
+
+/** The global keys of the planning view, the retro room and the Roles room. */
+const ROOM_KEYS = { "4": "retro", "5": "planning", "6": "roles" } as const;
 
 export type ActionResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -141,6 +145,8 @@ export interface TuiActions {
   readDigest: ReadDigest;
   /** `office.retro` (DIPO-453). */
   readRetro: ReadRetro;
+  /** `office.roles` (DIPO-473). */
+  readRoles: ReadRoles;
   /** A fresh request id for a new action; a retry reuses the old one. */
   newRequestId(): RequestId;
   /** Puts text on the clipboard (`c`, DIPO-458). */
@@ -257,8 +263,9 @@ export function App(props: AppProps) {
     leave: goHome,
     open: () => dispatch({ type: "planning" }),
   });
-  const ro = { store, actions, state, active: mode.kind === "retro", leave: goHome };
-  const retro = useRetro({ ...ro, discuss: planning.discuss });
+  const ro = { store, actions, state, leave: goHome };
+  const retro = useRetro({ ...ro, active: mode.kind === "retro", discuss: planning.discuss });
+  const roles = useRoles({ ...ro, active: mode.kind === "roles" });
   const modeKeys: ModeKeys = {
     store,
     actions,
@@ -287,9 +294,8 @@ export function App(props: AppProps) {
     }
     home.clearRefusal();
     if (state.notice !== null) store.dismissNotice();
-    // An open action prompt takes every key (`actions.ts`).
-    if (acts.key(input, key)) return;
-    if (home.onSteerKey(input, key)) return;
+    // An open action prompt or a steer takes every key (`actions.ts`).
+    if (acts.key(input, key) || home.onSteerKey(input, key)) return;
     acts.setMessage(null);
     if (mode.kind === "path") onPathKey(mode, input, key, modeKeys);
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
@@ -297,14 +303,15 @@ export function App(props: AppProps) {
     else if (overlays.onKey(mode, input, key)) return;
     else if (onQuitKey(input)) return;
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
-    else if (input === "5") dispatch({ type: "planning" });
-    else if (input === "4") dispatch({ type: "retro" });
-    else if (mode.kind === "retro" && (leavesOverlay(input) || input === "O")) {
-      // A room key or Offices leaves the retro room for it.
-      goHome();
-      home.onKey(input, key);
-    } else if (mode.kind === "retro") retro.onKey(input, key);
-    else home.onKey(input, key);
+    else if (Object.hasOwn(ROOM_KEYS, input))
+      dispatch({ type: ROOM_KEYS[input as keyof typeof ROOM_KEYS] });
+    else if (mode.kind === "retro" || mode.kind === "roles") {
+      // A room key or Offices leaves the retro or Roles room for it.
+      if (leavesOverlay(input) || input === "O") {
+        goHome();
+        home.onKey(input, key);
+      } else (mode.kind === "retro" ? retro : roles).onKey(input, key);
+    } else home.onKey(input, key);
   };
 
   useKeys(typesText(mode) || acts.typing || home.steering.draft !== null, handleKey);
@@ -319,6 +326,7 @@ export function App(props: AppProps) {
       acts={acts}
       planning={planning}
       retro={retro}
+      roles={roles}
       message={message}
       {...(props.outputTailBytes === undefined ? {} : { outputTailBytes: props.outputTailBytes })}
     />

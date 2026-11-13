@@ -21,6 +21,7 @@ import type { SegLine } from "./segments";
 import { endingKind, type Planning, PlanningMode } from "./planning";
 import { dialogComplete } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
+import { type Roles, RolesMode } from "./roles";
 import type { Display } from "./options";
 import {
   DaemonStoppedBody,
@@ -41,6 +42,7 @@ export interface ScreenProps {
   readonly acts: ReturnType<typeof useActions>;
   readonly planning: Planning;
   readonly retro: Retro;
+  readonly roles: Roles;
   /** The ticker's message of the moment, such as "press q again to quit". */
   readonly message: string | null;
   readonly outputTailBytes?: number;
@@ -50,8 +52,8 @@ const overlaid = (mode: Mode) => mode.kind === "palette" || mode.kind === "help"
 
 /** The room the rooms band marks, or null where it does not show; an overlay keeps its room's. */
 function currentRoom(mode: Mode, home: Home): Room | null {
-  if (mode.kind === "retro") return "retro";
-  if ((mode.kind === "palette" || mode.kind === "help") && mode.back === "retro") return "retro";
+  if (mode.kind === "retro" || mode.kind === "roles") return mode.kind;
+  if ((mode.kind === "palette" || mode.kind === "help") && mode.back !== "home") return mode.back;
   if (mode.kind !== "home" && mode.kind !== "confirm-privacy" && !overlaid(mode)) return null;
   switch (home.view) {
     case "desk":
@@ -122,13 +124,17 @@ function StateBody(props: {
  */
 function panelRows(props: ScreenProps, columns: number): SegLine[] {
   const { mode, acts, home, display } = props;
-  const own = inSwitcherMode(mode) || mode.kind === "planning" || mode.kind === "retro";
+  const own =
+    inSwitcherMode(mode) ||
+    mode.kind === "planning" ||
+    mode.kind === "retro" ||
+    mode.kind === "roles";
   if (own || overlaid(mode) || acts.flow === null || home.promptInDesk) return [];
   return promptRows(acts.flow, { width: columns - 1, ascii: display.ascii, context: true });
 }
 
 export function Screen(props: ScreenProps) {
-  const { mode, state, clock, display, home, acts, planning, retro } = props;
+  const { mode, state, clock, display, home, acts, planning, retro, roles } = props;
   const { columns, rows } = useWindowSize();
   const offline = isOffline(state);
   const inSwitcher = inSwitcherMode(mode);
@@ -155,6 +161,7 @@ export function Screen(props: ScreenProps) {
       (offline && screen === null ? OFFLINE_LINES : 0);
 
   const retroBody = <RetroMode retro={retro} height={height} />;
+  const rolesBody = <RolesMode roles={roles} display={display} columns={columns} height={height} />;
   const homeBody = (
     <HomeMode
       home={home}
@@ -182,6 +189,7 @@ export function Screen(props: ScreenProps) {
         />
       }
       retro={retroBody}
+      roles={rolesBody}
       overlay={
         <OverlayOver
           mode={mode}
@@ -190,7 +198,7 @@ export function Screen(props: ScreenProps) {
           display={display}
           columns={columns}
           height={height}
-          behind={{ home: homeBody, retro: retroBody }}
+          behind={{ home: homeBody, retro: retroBody, roles: rolesBody }}
         />
       }
       home={homeBody}

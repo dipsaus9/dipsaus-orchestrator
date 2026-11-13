@@ -130,6 +130,8 @@ export class FakeSession implements TuiSession {
   readonly gates = new Map<string, unknown>();
   /** What `office.digest` answers; null answers with no digest read. */
   digest: unknown = null;
+  /** What `office.roles` answers; null answers with an error (DIPO-473). */
+  roles: unknown = null;
   /** What `office.retro` answers; null answers with an error (DIPO-453). */
   retro: unknown = null;
   /** What `story.diff` answers, by story key (DIPO-462). */
@@ -203,6 +205,11 @@ export class FakeSession implements TuiSession {
     if (definition.name === "story.losses") {
       const losses = this.losses.get(args.story ?? "") ?? { commits: [] };
       return { ok: true, result: { story: args.story, key: args.story, ...losses } };
+    }
+    if (definition.name === "office.roles") {
+      return this.roles === null
+        ? { ok: false, error: { code: "capability.missing", message: "none", retryable: false } }
+        : { ok: true, result: this.roles };
     }
     if (definition.name === "office.retro") {
       return this.retro === null

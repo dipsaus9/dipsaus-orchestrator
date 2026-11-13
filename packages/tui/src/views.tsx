@@ -292,16 +292,18 @@ export function Header(props: {
 }
 
 /** The rooms of an office, with the keys that switch to them. */
-export type Room = "desk" | "floor" | "queue" | "retro";
+export type Room = "desk" | "floor" | "queue" | "retro" | "plan" | "roles";
 
 const ROOMS: readonly { readonly room: Room; readonly key: string; readonly name: string }[] = [
   { room: "desk", key: "1", name: "Desk" },
   { room: "floor", key: "2", name: "Floor" },
   { room: "queue", key: "3", name: "Queue" },
   { room: "retro", key: "4", name: "Retro" },
+  { room: "plan", key: "5", name: "Plan" },
+  { room: "roles", key: "6", name: "Roles" },
 ];
 
-/** Each room's count as the engine sent it: needs you, running, Ready·waiting; none for Retro. */
+/** Each room's count as the engine sent it: needs you, running, Ready·waiting; none for Retro, Plan and Roles. */
 export function roomCounts(
   state: OfficeStoreState,
   ascii: boolean,
@@ -313,10 +315,12 @@ export function roomCounts(
     floor: summary === undefined ? "" : String(summary.running),
     queue: summary?.ready === undefined ? "" : `${summary.ready}${glyphs(ascii).dot}${waiting}`,
     retro: "",
+    plan: "",
+    roles: "",
   };
 }
 
-/** The rooms band as plain text: `1 Desk 6    2 Floor 2    3 Queue 1·4    4 Retro`. */
+/** The rooms band as plain text: `1 Desk 6    2 Floor 2    3 Queue 1·4    4 Retro    5 Plan    6 Roles`. */
 export function roomsText(state: OfficeStoreState, ascii: boolean): string {
   const counts = roomCounts(state, ascii);
   return ROOMS.map(
