@@ -1,10 +1,10 @@
 ---
 id: DIPO-478
 title: Let planning edit and split proposals change a story's role
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:18'
-updated_date: '2026-11-13 13:26'
+updated_date: '2026-11-13 13:35'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -19,6 +19,18 @@ references:
   - packages/engine/src/backlog/lane/stories.ts
   - packages/engine/src/story-store/fields/labels.ts
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0022-planning-sessions.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/engine/src/backlog/lane/stories.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/run/planning-role-change.test.ts
 type: feature
 ordinal: 451000
 ---
@@ -66,3 +78,18 @@ test_plan:
 - [x] #6 An edit that changes the role together with other fields applies all of them in one revision.
 - [x] #7 Decision 0022 describes the role field of edit and split proposals and the move of a Ready story to Refined.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 13:35 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 84,353 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
