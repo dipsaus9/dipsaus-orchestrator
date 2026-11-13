@@ -67,6 +67,8 @@ export interface RunPorts {
   readonly tempOwner?: () => string | undefined;
   readonly onChanged?: (office: Parameters<NonNullable<RunControlDeps["onChanged"]>>[0]) => void;
   readonly warn?: Warn;
+  /** The planning sessions' handover line (DIPO-489). */
+  readonly info?: Warn;
   readonly refreshStory?: RunControlDeps["refreshStory"];
   /** Ends a live claim whose worker did not start; the launcher's and the outcomes' release. */
   readonly release: RunLauncherDeps["release"];
@@ -844,6 +846,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
       ...given("tempOwner", ports.tempOwner),
       ...given("onChanged", ports.onChanged),
       ...given("warn", ports.warn),
+      ...given("info", ports.info),
     }),
     audits,
     auditSessions,

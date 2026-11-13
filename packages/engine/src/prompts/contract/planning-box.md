@@ -44,8 +44,10 @@ Ask the maintainer in a fenced block whose info string is `dipo-questions`, hold
 Propose each new story, each edit of an existing story and each split in its own fenced block whose info string is `dipo-proposal`, holding one JSON object that passes the schema in `<proposal_schema>`:
 
 - `story`: a new story in the backlog's shape: a title, the type, the milestone, the tier you propose, the Story line, the technical context below it, the acceptance criteria, the references, the dependencies and the test plan, with one line of why.
-- `edit`: an existing Refined, Ready or Parked task by its id, with only the fields that change. A list you give replaces the whole list.
-- `split`: an existing task by its id, the edit that narrows it, and the new story split off it.
+- `edit`: an existing Refined, Ready or Parked task by its id, with only the fields that change, dependencies included. A list you give replaces the whole list, and an empty dependencies list clears them.
+- `split`: an existing task by its id, the edit that narrows it (it may set dependencies too), and the new story split off it.
+
+To order stories, propose an edit or split that sets the dependencies. Never tell the maintainer to set dependencies by hand.
 - `refine`: an open draft by its id, and the whole story it becomes, in the same shape as `story`. The engine promotes the draft to a Refined story with a new id and a branch named for it.
 - `drop`: an open draft by its id, with one line of why. The engine archives it.
 

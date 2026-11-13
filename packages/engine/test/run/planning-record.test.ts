@@ -16,7 +16,6 @@ import {
   planningRecordText,
   readPlanningRecord,
 } from "../../src/records/planning-record";
-import { proxiedUsageLedger } from "../../src/records/proxied-usage";
 import { insertRun } from "../../src/records/run-records";
 import { addOffice, openTestState } from "../commands/helpers";
 import { draft, entriesAfter, pass } from "../stories/helpers";
@@ -63,28 +62,31 @@ const firstMessage = (w: PlanningWorld, n: number): string => {
   return first.message.content;
 };
 
-/** Counts far more tokens against the run than any context holds. */
-function overfill(w: PlanningWorld, run: string) {
-  const agent = w.sessions.view(officeOf(w))?.agent ?? "";
-  proxiedUsageLedger({ owner: () => null, office: () => w.office, clock: w.t.clock }).open(
-    { office: w.office.officeId as never, run: RunId.parse(run), agent: agent as never },
-    "opus",
-  )({
-    model: "claude-opus-5-5",
-    input: 500_000,
-    output: 0,
-    cacheCreate: 0,
-    cacheCreate5m: 0,
-    cacheCreate1h: 0,
-    cacheRead: 0,
-  });
-}
+/** The context size of one message, as the model proxy would count it for the same request. */
+const messageOf = (total: number) => ({
+  input: 10,
+  output: 100,
+  cacheCreate: 1_000,
+  cacheRead: total - 1_110,
+});
 
 const EXPECTED_RECORD = [
   "Decisions the maintainer confirmed:\n- Which tier?: M",
   "Stories filed or edited:\n- DIPO-501: filed\n- DIPO-501: edited",
   "Open questions:\n- Who owns the retro table?",
 ].join("\n\n");
+
+/** A record entry of a model session, for the pure text. */
+const recorded = (seq: number, kind: "started" | "ended" | "message" | "answer", text: string) => ({
+  seq,
+  kind,
+  run: "run-a",
+  subject: null,
+  proposal: null,
+  outputOffset: 0,
+  text,
+  at: seq * 1_000,
+});
 
 describe("the record of a planning session (DIPO-448)", () => {
   it("stores each confirmed choice, filed or edited story and open question in order", () =>
@@ -95,12 +97,13 @@ describe("the record of a planning session (DIPO-448)", () => {
       expect(entries.map((entry) => [entry.kind, entry.subject, entry.text])).toEqual([
         ["goal", "plan", "Plan the retro stories"],
         ["started", "start", ""],
+        ["answer", null, "Answer 1."],
         ["choice", "Which tier?", "M"],
         ["story", "DIPO-501", "filed"],
         ["question", null, "Who owns the retro table?"],
         ["story", "DIPO-501", "edited"],
       ]);
-      expect(entries.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(entries.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
       expect(planningRecordText(entries)).toBe(EXPECTED_RECORD);
       // A choice that answers a question closes it.
       w.sessions.record(officeOf(w), {
@@ -110,6 +113,73 @@ describe("the record of a planning session (DIPO-448)", () => {
       });
       expect(openQuestions(readPlanningRecord(w.office, run))).toEqual([]);
     }));
+
+  it("keeps each maintainer message and the last answer of each model session, with time, run and output offset", () =>
+    withWorld(async (w) => {
+      const { run } = await started(w);
+      w.t.clock.advance(1_000);
+      const sentAt = w.t.clock.now();
+      await w.sessions.message(commandContext(w), { text: "What about the retro table?" });
+      await until(() => {
+        w.t.clock.advance(1_000);
+        return readPlanningRecord(w.office, run).some((e) => e.text === "Answer 2.");
+      });
+      const kept = readPlanningRecord(w.office, run).filter(
+        (entry) => entry.kind === "message" || entry.kind === "answer",
+      );
+      // One answer per model session: the second replaced the first.
+      expect(kept.map((entry) => [entry.kind, entry.run, entry.text])).toEqual([
+        ["message", run, "What about the retro table?"],
+        ["answer", run, "Answer 2."],
+      ]);
+      expect(kept[0]?.at).toBe(sentAt);
+      expect(kept[0]?.outputOffset).toBeGreaterThan(0);
+      expect(kept[1]?.outputOffset).toBeGreaterThanOrEqual(kept[0]?.outputOffset ?? 0);
+      expect(kept[1]?.at).toBeGreaterThan(sentAt);
+    }));
+
+  it("keeps the sent answers of a question block as a maintainer message", () =>
+    withWorld(async (w) => {
+      const block = {
+        header: "Scope",
+        question: "Cover archived stories?",
+        purpose: "It decides the columns.",
+        options: [
+          { label: "No", description: "Active only." },
+          { label: "Yes", description: "All of them." },
+        ],
+      };
+      w.answerText = (n) =>
+        n === 1
+          ? `Questions.\n\n\`\`\`dipo-questions\n${JSON.stringify({ questions: [block] })}\n\`\`\``
+          : `Answer ${n}.`;
+      const { run } = await started(w);
+      await w.sessions.answer(commandContext(w), { block: 1, answers: [{ option: 0 }] });
+      const message = readPlanningRecord(w.office, run).findLast((e) => e.kind === "message");
+      expect(message).toMatchObject({ run, outputOffset: expect.any(Number) });
+      expect(message?.text).toContain("Cover archived stories?");
+      expect(message?.text).toContain("No");
+    }));
+
+  it("renders the last maintainer message, the last answer and the continue line for a fresh model session", () => {
+    const fresh = planningRecordText([
+      recorded(1, "started", ""),
+      recorded(2, "message", "Early message"),
+      recorded(3, "answer", "Early answer"),
+      recorded(4, "message", "Late message"),
+      recorded(5, "answer", "Late answer"),
+      recorded(6, "ended", "context-full"),
+      recorded(7, "started", ""),
+    ]);
+    expect(fresh).toContain("This continues the planning session");
+    expect(fresh).toContain("Late message");
+    expect(fresh).toContain("Late answer");
+    expect(fresh).not.toContain("Early");
+    // A first model session has no continue line.
+    expect(
+      planningRecordText([recorded(1, "started", ""), recorded(2, "message", "Hello")]),
+    ).not.toContain("continues");
+  });
 
   it("keeps the record of one session apart from another's and from another office's", () =>
     withTempDir(async (dir) => {
@@ -137,7 +207,8 @@ describe("the record of a planning session (DIPO-448)", () => {
       pass(w.t, w.office, [draft("DRAFT-1", { title: "Retro numbers" })]);
       const { run } = await started(w);
       fill(w);
-      overfill(w, run);
+      // The second answer's message is as big as the limit allows.
+      w.answerUsage = (n) => (n === 2 ? messageOf(100_000) : undefined);
       await w.sessions.message(commandContext(w), { text: "Go on." });
       // The answer ends the turn, then the stopped session's exit is read on the next pass.
       await until(() => {
@@ -150,7 +221,7 @@ describe("the record of a planning session (DIPO-448)", () => {
       expect(w.boxes.ended).toHaveLength(1);
       const text = firstMessage(w, 1);
       expect(text).toContain("goal: Plan the retro stories");
-      expect(text).toContain(`<record>\n${EXPECTED_RECORD}\n</record>`);
+      expect(text).toContain(`<record>\n${EXPECTED_RECORD}\n\nThis continues the planning session`);
       // The facts of the first message stay.
       expect(text).toContain(
         "<drafts>\n- DRAFT-1: Retro numbers (origin: not recorded; filed by hand or before dipo kept it)\n</drafts>",
@@ -161,7 +232,7 @@ describe("the record of a planning session (DIPO-448)", () => {
       ]);
       // The record goes on in the same session, with the fresh model session's start.
       const kinds = readPlanningRecord(w.office, run).map((entry) => entry.kind);
-      expect(kinds.slice(-2)).toEqual(["ended", "started"]);
+      expect(kinds.filter((kind) => kind !== "answer").slice(-2)).toEqual(["ended", "started"]);
       expect(w.sessions.liveRuns()).toEqual([fresh?.run ?? ""]);
     }));
 
@@ -182,7 +253,9 @@ describe("the record of a planning session (DIPO-448)", () => {
       const outcome = await w.sessions.continue(commandContext(w));
       expect(outcome.result.run).not.toBe(run);
       expect(w.plans).toHaveLength(2);
-      expect(firstMessage(w, 1)).toContain(`<record>\n${EXPECTED_RECORD}\n</record>`);
+      expect(firstMessage(w, 1)).toContain(
+        `<record>\n${EXPECTED_RECORD}\n\nThis continues the planning session`,
+      );
       expect(planningEvents(w, "planning.continued").map((entry) => entry.delta)).toMatchObject([
         { run: outcome.result.run, previous: run, reason: "idle" },
       ]);
@@ -231,7 +304,9 @@ describe("the record of a planning session (DIPO-448)", () => {
       expect(w.sessions.recover([officeOf(w)])).toBe(1);
       expect(continuableSession(w.office)).toMatchObject({ session: run, previous: left });
       const outcome = await w.sessions.continue(commandContext(w));
-      expect(firstMessage(w, 1)).toContain(`<record>\n${EXPECTED_RECORD}\n</record>`);
+      expect(firstMessage(w, 1)).toContain(
+        `<record>\n${EXPECTED_RECORD}\n\nThis continues the planning session`,
+      );
       expect(planningEvents(w, "planning.continued").map((entry) => entry.delta)).toMatchObject([
         { run: outcome.result.run, previous: left, reason: "daemon-stopped" },
       ]);

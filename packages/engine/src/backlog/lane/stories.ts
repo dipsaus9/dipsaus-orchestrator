@@ -235,6 +235,7 @@ interface Revised {
   readonly description?: string;
   readonly criteria?: readonly string[];
   readonly references?: readonly string[];
+  readonly dependencies?: readonly string[];
 }
 
 /** The fields `target` asks of the story `view`; throws `FieldBlockError` (R02). */
@@ -247,6 +248,7 @@ function revisedOf(view: PlainTask, target: ReviseTarget): Revised {
       ? {}
       : { criteria: target.criteria.map((text) => text.trim()) }),
     ...(target.references === undefined ? {} : { references: target.references }),
+    ...(target.dependencies === undefined ? {} : { dependencies: target.dependencies }),
   };
 }
 
@@ -266,6 +268,15 @@ function differences(view: PlainTask, revised: Revised): string[] {
   if (revised.references !== undefined && !sameSet(view.references, revised.references)) {
     differ.push("references");
   }
+  if (
+    revised.dependencies !== undefined &&
+    !sameSet(
+      view.dependencies.map((dependency) => dependency.id.toUpperCase()),
+      revised.dependencies,
+    )
+  ) {
+    differ.push("dependencies");
+  }
   return differ;
 }
 
@@ -282,6 +293,11 @@ function revisionCalls(view: PlainTask, revised: Revised): string[][] {
     }
     if (field === "references") {
       calls.push((revised.references ?? []).flatMap((path) => ["--ref", path]));
+    }
+    if (field === "dependencies") {
+      // 1.53 replaces the whole list; `--dep ""` clears it.
+      const deps = revised.dependencies ?? [];
+      calls.push(deps.length === 0 ? ["--dep", ""] : deps.flatMap((dep) => ["--dep", dep]));
     }
   }
   return calls;

@@ -27,6 +27,16 @@ describe("the planning prompts", () => {
     expect(contract).toContain('is in the list but not in the copy is never "missing"');
   });
 
+  it("say an edit or split may set dependencies, and never to ask the maintainer to set them by hand", () => {
+    const contract = read("contract/planning-box.md");
+    expect(contract).toContain("an empty dependencies list clears them");
+    expect(contract).toContain("(it may set dependencies too)");
+    expect(contract).toContain("Never tell the maintainer to set dependencies by hand.");
+    expect(read("task/planning.md")).toContain(
+      "An edit or split may set an existing story's dependencies, as the whole list; never ask the maintainer to set dependencies by hand.",
+    );
+  });
+
   it("name no key of the terminal UI", () => {
     for (const file of PLANNING_PROMPTS) expect(read(file)).not.toMatch(KEY_NAME);
   });
