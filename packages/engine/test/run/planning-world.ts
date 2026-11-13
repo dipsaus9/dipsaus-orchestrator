@@ -24,6 +24,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate-decisions";
 import type { OfficeGit } from "../../src/git/office";
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
+import type { PlanningGate } from "../../src/run/ready-stories";
 import { PlanningSessions, type PlanningSessionsDeps } from "../../src/run/planning-session";
 import { AdapterPauses } from "../../src/run/starts-paused";
 import { proxiedUsageLedger } from "../../src/records/proxied-usage";
@@ -191,6 +192,8 @@ export interface PlanningWorldOptions {
   readonly office?: OfficeHandle;
   /** The office's planning lane (DIPO-450); none by default. */
   readonly lane?: PlanningSessionsDeps["lane"];
+  /** The Ready gate the lane's stories are checked with (DIPO-495); the office's own by default. */
+  readonly gate?: PlanningGate;
   /** The role files on the office's base (DIPO-474); none by default. */
   readonly roleFiles?: PlanningSessionsDeps["roleFiles"];
   /** The context size at which the session continues in a fresh model session (DIPO-448). */
@@ -349,12 +352,8 @@ export function planningWorld(
     },
     desk: () => w.desk,
     ...(options.lane === undefined ? {} : { lane: options.lane }),
-<<<<<<< 515b56b7b1e5b5210ec423daf39d50c0b5e28000
-    ...(options.roleFiles === undefined ? {} : { roleFiles: options.roleFiles }),
-=======
     ...(options.gate === undefined ? {} : { gate: options.gate }),
     roleFiles: options.roleFiles ?? (() => ROSTER_FILES),
->>>>>>> 356ae81852ad4b08a1cfa01a437e87658169ce39
     onIdea: (id) => w.ideas.push(id),
     info: (message, fields) => w.infos.push({ message, fields }),
     baseCommit: async () => BASE_COMMIT,

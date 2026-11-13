@@ -673,11 +673,7 @@ export function refusalLines(view: PlanningView, columns: number, display: Displ
   ];
 }
 
-<<<<<<< 515b56b7b1e5b5210ec423daf39d50c0b5e28000
-/** A proposal's title and proposed tier: what a card and the end list call it. */
-=======
-/** A proposal's title and proposed tier and role: what a card and the Ready step call it. */
->>>>>>> 356ae81852ad4b08a1cfa01a437e87658169ce39
+/** A proposal's title, proposed tier and role: what a card and the end list call it. */
 function proposalHead(proposal: PlanningProposalView["proposal"]): {
   title: string;
   tier?: string;

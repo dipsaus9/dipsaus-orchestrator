@@ -22,9 +22,16 @@ import {
   reviseKind,
 } from "../../src/backlog/lane";
 import { CommandError } from "../../src/commands/errors";
+import { evaluateGate } from "../../src/gate";
+import { gateContentHash } from "../../src/gate/hash";
+import { readGateInput, storeGateDecision } from "../../src/gate-decisions";
+import { findStoryByKey } from "../../src/records/story-keys";
 import { addPlanningEntry } from "../../src/records/planning-record";
 import { checkProposal } from "../../src/run/planning-proposals";
+import type { PlanningGate } from "../../src/run/ready-stories";
 import { BACKLOG_FIXTURE, laneSetup, publish, squashMergeOnRemote } from "../backlog/lane/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
+import { DEFAULT_CONFIG } from "../gate/fixtures";
 import { draft, pass, task } from "../stories/helpers";
 import {
   BASE_COMMIT,
@@ -62,8 +69,6 @@ async function setup(repo: TempRepoWithRemote, proposals: readonly unknown[]) {
   const lane = s.lane();
   const indexed = [task("TASK-1", { title: "Add the CSV export command" })];
   pass(s.t, s.office, indexed);
-<<<<<<< 515b56b7b1e5b5210ec423daf39d50c0b5e28000
-=======
   // The gate reads the story in the lane's worktree, which sits on the merged base.
   const gate: PlanningGate = {
     async recordGateDecision(_office, story, mode) {
@@ -86,10 +91,10 @@ async function setup(repo: TempRepoWithRemote, proposals: readonly unknown[]) {
       return { ...stored, story: input.story.id as never, result };
     },
   };
->>>>>>> 356ae81852ad4b08a1cfa01a437e87658169ce39
   const w = planningWorld(s.t, repo.root, {
     office: s.office,
     lane: () => planningLane(lane),
+    gate,
   });
   w.answerText = (n) => (n === 1 ? blocksOf(...proposals) : "Noted.");
   await w.sessions.start(commandContext(w), { kind: "plan", goal: "Export" });
