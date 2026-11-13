@@ -2,7 +2,7 @@
 // Markdown body. Strict like the office file: an unknown key is an error naming the file and the
 // key path. A refused file never throws; the result is a value with one message naming the file.
 
-import { RoleId } from "@dipsaus-orchestrator/contract";
+import { RoleId, RoleKind } from "@dipsaus-orchestrator/contract";
 import { z } from "zod";
 
 import { parseYamlDocument } from "../platform/yaml";
@@ -21,14 +21,16 @@ const roleFrontmatter = z
     purpose: z.string().trim().min(1),
     model: z.string().trim().min(1).optional(),
     effort: z.string().trim().min(1).optional(),
+    kind: RoleKind.default("code"),
   })
   .strict();
 
-/** A role loaded from its file. Every file role is a code role until M4 adds the others. */
+/** A role loaded from its file; a file without `kind` is a code role (0017). */
 export interface Role {
   readonly name: string;
   readonly purpose: string;
   readonly instructions: string;
+  readonly kind: RoleKind;
   /** Overrides the tier's model and effort for this role (vision), used by a later story. */
   readonly model?: string;
   readonly effort?: string;
@@ -49,6 +51,7 @@ function issueText(issue: z.core.$ZodIssue): string {
   if (issue.code === "unrecognized_keys") {
     return `unknown key ${issue.keys.map((k) => `\`${k}\``).join(", ")}; the key may need a newer dipo`;
   }
+  if (key === "kind") return "key `kind`: expected one of code, design, docs";
   return `key \`${key}\`: ${issue.message}`;
 }
 
@@ -83,13 +86,14 @@ export function parseRoleFile(path: string, text: string): RoleParse {
   const instructions = (split[2] ?? "").trim();
   if (instructions === "")
     return refuse(path, "the instructions (the body after the frontmatter) are empty");
-  const { purpose, model, effort } = parsed.data;
+  const { purpose, model, effort, kind } = parsed.data;
   return {
     ok: true,
     role: {
       name,
       purpose,
       instructions,
+      kind,
       ...(model === undefined ? {} : { model }),
       ...(effort === undefined ? {} : { effort }),
     },

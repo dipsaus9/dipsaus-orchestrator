@@ -1152,10 +1152,14 @@ export const officeRetro = defineRead({
 // The roles of the office (DIPO-473, 0017): each role file on the base that loaded, and each that
 // did not, with its problem, both in path order. The engine reads the roster it holds and does no
 // git read of its own.
+export const RoleKind = z.enum(["code", "design", "docs"]);
+export type RoleKind = z.infer<typeof RoleKind>;
+
 export const RoleView = z.object({
   name: z.string(),
   purpose: z.string(),
   instructions: z.string(),
+  kind: RoleKind,
   model: z.string().optional(),
   effort: z.string().optional(),
 });

@@ -647,6 +647,7 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
           name: "developer",
           purpose: "Builds a story",
           instructions: "Do the work.",
+          kind: "code",
           model: "claude-sonnet-5-5",
           effort: "medium",
         },
