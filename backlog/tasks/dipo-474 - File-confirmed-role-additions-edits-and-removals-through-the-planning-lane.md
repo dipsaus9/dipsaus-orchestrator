@@ -1,10 +1,10 @@
 ---
 id: DIPO-474
 title: 'File confirmed role additions, edits and removals through the planning lane'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 09:13'
+updated_date: '2026-11-13 12:07'
 labels:
   - 'tier:M'
 milestone: m-4
