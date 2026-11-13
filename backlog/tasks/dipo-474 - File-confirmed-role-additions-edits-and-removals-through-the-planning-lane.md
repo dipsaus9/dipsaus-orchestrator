@@ -1,10 +1,10 @@
 ---
 id: DIPO-474
 title: 'File confirmed role additions, edits and removals through the planning lane'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 12:14'
+updated_date: '2026-11-13 12:28'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -19,6 +19,36 @@ references:
   - packages/engine/src/story-store/planning.ts
   - packages/engine/src/roles/
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0010-backlog-and-git-integration.md
+  - docs/decisions/0022-planning-sessions.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/engine/src/backlog/lane/feature.ts
+  - packages/engine/src/backlog/lane/index.ts
+  - packages/engine/src/backlog/lane/lane.ts
+  - packages/engine/src/backlog/lane/ops.ts
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/backlog/lane/progress.ts
+  - packages/engine/src/backlog/lane/roles.ts
+  - packages/engine/src/backlog/pr/check.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/records/role-stories.ts
+  - packages/engine/src/roles/file.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/backlog/lane/roles.test.ts
+  - packages/engine/test/backlog/pr/check.test.ts
+  - packages/engine/test/run/planning-roles.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - scripts/check-backlog-pr.test.ts
 type: feature
 ordinal: 447000
 ---
@@ -80,3 +110,18 @@ test_plan:
 - [x] #9 A target whose check fails at apply time does not apply and records why.
 - [x] #10 The next turn's [dipo] lines name each role added, edited or removed.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 12:28 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 206,699 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 2
+<!-- SECTION:FINAL_SUMMARY:END -->
