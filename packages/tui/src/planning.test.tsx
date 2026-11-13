@@ -94,6 +94,8 @@ describe("the planning view", () => {
     await ui.press("5");
     const form = await ui.waitFor("no open planning session");
     expect(form).toContain("[plan]  refine  triage");
+    // The Roles room starts the roles kind; the choice here does not offer it (DIPO-475).
+    expect(form).not.toContain("roles");
     expect(form).toContain("⏎ start");
 
     await ui.press("tab");
@@ -395,7 +397,7 @@ describe("the planning view", () => {
     await ui.press("tab");
     const unfolded = await ui.waitFor("IN THIS PLAN");
     expect(unfolded).toContain("DIPO-31 Export as CSV · filed");
-    expect(unfolded).toContain("1 filed, not Ready yet");
+    expect(unfolded).toContain("nothing stayed Refined; /end ends the session");
     expect(unfolded.match(/^ > /gm)).toHaveLength(1);
     await ui.press("tab");
     await Bun.sleep(50);
@@ -485,7 +487,7 @@ describe("the planning view", () => {
     expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
   });
 
-  it("opens the Ready step on /end, ticks and unticks, sets the ticked stories Ready and ends (DIPO-487)", async () => {
+  it("asks to end on /end then Enter; y ends the session and lists each story that stayed Refined (DIPO-497)", async () => {
     const snapshots = new Map([
       [
         OFFICES.dipsaus,
@@ -493,11 +495,17 @@ describe("the planning view", () => {
           ...golden(),
           planning: planningView({
             proposals: [
-              filed(1, "Export as CSV", "DIPO-31"),
-              filed(2, "Export as XML", "DIPO-32"),
-              filed(3, "Export as JSON", "DIPO-33"),
+              {
+                ...filed(1, "Export as CSV", "DIPO-31"),
+                gate: ["DIPO-31 is Ready: the Ready gate passed it"],
+              },
+              {
+                ...filed(2, "Export as XML", "DIPO-32"),
+                gate: [
+                  "DIPO-32 is Refined: R08: no acceptance criteria; set it Ready from the Queue once it is on the base",
+                ],
+              },
             ],
-            ready: [{ story: "DIPO-33", state: "set", at: "2026-10-14T10:06:00.000Z" }],
           } as Partial<PlanningView>),
         },
       ],
@@ -507,84 +515,34 @@ describe("the planning view", () => {
     await ui.waitFor("filed as DIPO-32");
     await ui.press("/end");
     await ui.press("enter");
-    const step = await ui.waitFor("2 of 2 ticked");
-    expect(step).toContain("▌ [x] DIPO-31 Export as CSV · M");
-    expect(step).toContain("[x] DIPO-32 Export as XML · M");
-    expect(step).not.toContain("DIPO-33 Export as JSON");
+    await ui.waitFor("End the planning session? [y/N]");
     expect(session.commands.some((c) => c.name.startsWith("planning."))).toBe(false);
-
-    await ui.press("down");
-    await ui.press(" ");
-    const some = await ui.waitFor("1 of 2 ticked");
-    expect(some).toContain("[ ] DIPO-32");
-    await ui.press(" ");
-    await ui.waitFor("2 of 2 ticked");
-    await ui.press(" ");
-    await ui.waitFor("1 of 2 ticked");
-
-    session.commandReply = (name) =>
-      name === "planning.ready"
-        ? { ok: true, result: { run: RUN, queued: ["DIPO-31"], refused: [] }, changed: true }
-        : undefined;
-    await ui.press("Y");
-    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.end"); i++) {
-      await Bun.sleep(5);
-    }
-    const names = session.commands.map((c) => c.name).filter((n) => n.startsWith("planning."));
-    expect(names).toEqual(["planning.ready", "planning.end"]);
-    expect(session.commands.find((c) => c.name === "planning.ready")?.args).toEqual({
-      stories: ["DIPO-31"],
-    });
-    await ui.waitFor("DIPO-31 set Ready; planning session ended");
-  });
-
-  it("shows each story the Ready step sent as set, queued or refused with the gate's messages (DIPO-487)", async () => {
-    const snapshots = new Map([
-      [
-        OFFICES.dipsaus,
-        {
-          ...golden(),
-          planning: planningView({
-            proposals: [filed(1, "Export as CSV", "DIPO-31"), filed(2, "Export as XML", "DIPO-32")],
-          } as Partial<PlanningView>),
-        },
-      ],
-    ]);
-    const { ui, session } = await open({ columns: 140, rows: 40, snapshots });
-    await ui.press("5");
-    await ui.waitFor("filed as DIPO-32");
-    await ui.press("/end");
-    await ui.press("enter");
-    await ui.waitFor("2 of 2 ticked");
-    session.commandReply = (name) =>
-      name === "planning.ready"
-        ? {
-            ok: true,
-            result: {
-              run: RUN,
-              queued: ["DIPO-31"],
-              refused: [{ story: "DIPO-32", messages: ["R08: no acceptance criteria"] }],
-            },
-            changed: true,
-          }
-        : name === "planning.end"
-          ? { ok: false, error: { code: "planning.notOpen", message: "no open session" } }
-          : undefined;
     await ui.press("y");
-    const result = await ui.waitFor(
-      "DIPO-32 refused and stays as it is: R08: no acceptance criteria",
-    );
-    expect(result).toContain("DIPO-31 queued");
+    const listed = await ui.waitFor("DIPO-32 stays Refined: R08: no acceptance criteria");
+    expect(listed).toContain("1 story stayed Refined");
+    expect(listed).toContain("set it Ready later: space and Y in the Queue, or dipo ready DIPO-32");
+    expect(listed).not.toContain("DIPO-31 stays Refined");
+    expect(
+      session.commands.filter((c) => c.name.startsWith("planning.")).map((c) => c.name),
+    ).toEqual(["planning.end"]);
+    await ui.press("escape");
+    await ui.waitFor("filed as DIPO-32");
+    expect(ui.frame()).not.toContain("stays Refined");
   });
 
-  it("ends with none Ready on n, keeps the session open on Esc, and asks to end when nothing is left (DIPO-487)", async () => {
+  it("only ends the session on y when no story stayed Refined (DIPO-497)", async () => {
     const snapshots = new Map([
       [
         OFFICES.dipsaus,
         {
           ...golden(),
           planning: planningView({
-            proposals: [filed(1, "Export as CSV", "DIPO-31")],
+            proposals: [
+              {
+                ...filed(1, "Export as CSV", "DIPO-31"),
+                gate: ["DIPO-31 is Ready: the Ready gate passed it"],
+              },
+            ],
           } as Partial<PlanningView>),
         },
       ],
@@ -594,49 +552,25 @@ describe("the planning view", () => {
     await ui.waitFor("filed as DIPO-31");
     await ui.press("/end");
     await ui.press("enter");
-    await ui.waitFor("1 of 1 ticked");
-    await ui.press("escape");
-    await ui.waitFor("the session stays open");
-    expect(ui.frame()).not.toContain("1 of 1 ticked");
-    expect(session.commands.some((c) => c.name.startsWith("planning."))).toBe(false);
-    await ui.press("/end");
-    await ui.press("enter");
-    await ui.waitFor("1 of 1 ticked");
-    await ui.press("n");
-    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.end"); i++) {
-      await Bun.sleep(5);
-    }
+    await ui.waitFor("End the planning session? [y/N]");
+    await ui.press("y");
+    await ui.waitFor("planning session ended");
+    expect(ui.frame()).not.toContain("stays Refined");
     expect(
       session.commands.filter((c) => c.name.startsWith("planning.")).map((c) => c.name),
     ).toEqual(["planning.end"]);
-    await ui.waitFor("no story set Ready; planning session ended");
   });
 
-  it("shows the gate's messages for a story that stays Refined (DIPO-451)", async () => {
-    const snapshots = new Map([
-      [
-        OFFICES.dipsaus,
-        {
-          ...golden(),
-          planning: planningView({
-            ready: [
-              {
-                story: "DIPO-32",
-                state: "refused",
-                messages: ["R08: no acceptance criteria"],
-                at: "2026-10-14T10:06:00.000Z",
-              },
-              { story: "DIPO-31", state: "set", at: "2026-10-14T10:06:00.000Z" },
-            ],
-          } as Partial<PlanningView>),
-        },
-      ],
-    ]);
-    const { ui } = await open({ columns: 140, rows: 34, snapshots });
+  it("keeps the session open on any other key than y (DIPO-497)", async () => {
+    const { ui, session } = await openSession();
     await ui.press("5");
-    const frame = await ui.waitFor("ready DIPO-32: refused");
-    expect(frame).toContain("stays as it is: R08: no acceptance criteria");
-    expect(frame).toContain("ready DIPO-31: set");
+    await ui.waitFor("Planning · plan");
+    await ui.press("/end");
+    await ui.press("enter");
+    await ui.waitFor("End the planning session? [y/N]");
+    await ui.press("n");
+    await ui.waitFor("the session stays open");
+    expect(session.commands.some((c) => c.name.startsWith("planning."))).toBe(false);
   });
 
   it("leaves the other views and keys as they were: Esc returns to the overview", async () => {

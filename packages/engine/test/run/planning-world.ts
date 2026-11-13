@@ -24,6 +24,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate-decisions";
 import type { OfficeGit } from "../../src/git/office";
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
+import type { PlanningGate } from "../../src/run/ready-stories";
 import { PlanningSessions, type PlanningSessionsDeps } from "../../src/run/planning-session";
 import { AdapterPauses } from "../../src/run/starts-paused";
 import { proxiedUsageLedger } from "../../src/records/proxied-usage";
@@ -191,8 +192,8 @@ export interface PlanningWorldOptions {
   readonly office?: OfficeHandle;
   /** The office's planning lane (DIPO-450); none by default. */
   readonly lane?: PlanningSessionsDeps["lane"];
-  /** The office's Ready gate (DIPO-451); none by default. */
-  readonly gate?: PlanningSessionsDeps["gate"];
+  /** The Ready gate the lane's stories are checked with (DIPO-495); the office's own by default. */
+  readonly gate?: PlanningGate;
   /** The role files on the office's base (DIPO-474); none by default. */
   readonly roleFiles?: PlanningSessionsDeps["roleFiles"];
   /** The context size at which the session continues in a fresh model session (DIPO-448). */

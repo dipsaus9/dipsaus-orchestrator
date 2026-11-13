@@ -1,6 +1,6 @@
 // The one function that sets Refined stories on the base Ready (0012, DIPO-451, DIPO-482):
-// `planning.ready` (the end of a planning session, for the stories it filed or edited) and
-// `story.ready` (any Refined story the office has on the base) both call it. For each story it
+// the planning confirm (for the story it files) and `story.ready` (any Refined story the office has
+// on the base) both call it. For each story it
 // evaluates the Ready gate against the story as the base branch holds it and stores the decision;
 // a story that passes is set Ready through the planning lane, in a backlog PR other than the one
 // that filed it; a story that fails stays as it is with the gate's messages. What the caller

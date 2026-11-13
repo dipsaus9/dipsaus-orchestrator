@@ -60,12 +60,6 @@
 // - `planning.edit` replaces an open proposal with the maintainer's version, checked the same way.
 // - `planning.decline` closes it; nothing is filed.
 //
-// - `planning.ready` (DIPO-451) is the final confirm: for each story of the session the maintainer
-//   chooses, the Ready gate is evaluated against the story as the base branch holds it (so its
-//   filing PR merged) and the decision stored; a story that passes is set Ready by a `ready` lane
-//   change, in a backlog PR of its own; one that fails, or has an edit still waiting, stays as it
-//   is and the planning view lists the gate's messages (`PlanningView.ready`).
-//
 // What the maintainer decided reaches the session with their next message, as `[dipo]` lines
 // before it, so it never proposes a filed or declined story again.
 
@@ -89,13 +83,11 @@ import {
   PLANNING_PROPOSAL_FENCE,
   planningConfirm,
   planningDecline,
-  planningReady,
   planningEdit,
   planningEnd,
   planningMessage,
   type PlanningProposal,
   type PlanningProposalView,
-  type PlanningReadyView,
   planningStart,
   type PlanningState,
   type PlanningMessageView,
@@ -109,7 +101,7 @@ import type { z } from "zod";
 
 import { cycleThrough } from "../gate/rules";
 import { baseCommit } from "../box/image";
-import { retro } from "../records/retro";
+import { retro, type RoleRunCounts, roleRunCounts, roleRunLines } from "../records/retro";
 import { loadRoleFiles } from "../roles/base";
 import { REVIEW_CODE_DIR } from "../box/review-box";
 import type { BoxSession, BoxWorkers } from "../box/workers";
@@ -125,7 +117,11 @@ import type { StorylessEvents } from "../ingest/pending";
 import { ensurePrivateDir } from "../platform/paths";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { renderSystemFile } from "../prompts/system";
+<<<<<<< 8adc49388915cff5acb4fdf2f29bbf77ddf2cfd8
 import { rendered, renderTemplate, ROLE_TEMPLATES, TASK_TEMPLATES } from "../prompts/templates";
+=======
+import { type Rendered, rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
+>>>>>>> c554aaedc63d3a6500f7da2db5f0b55b9397db5d
 import { recordAgent } from "../records/agents";
 import {
   addPlanningEntry,
@@ -148,7 +144,6 @@ import type { LaunchedHost } from "../records/worker-hosts";
 import { draftOrigins } from "../records/ideas";
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
-import { type PlanningGate, readyStories } from "./ready-stories";
 import {
   type PlannedChange,
   type PlannedFiling,
@@ -178,6 +173,7 @@ import {
   roleAddTargetOf,
   roleEditTargetOf,
   type RoleFacts,
+  rosterProblems,
   refineFieldsOf,
   refineTargetOf,
   refusalMessage,
@@ -206,8 +202,6 @@ type EditArgs = z.output<typeof planningEdit.args>;
 type EditResult = z.input<typeof planningEdit.result>;
 type DeclineArgs = z.output<typeof planningDecline.args>;
 type DeclineResult = z.input<typeof planningDecline.result>;
-type ReadyArgs = z.output<typeof planningReady.args>;
-type ReadyResult = z.input<typeof planningReady.result>;
 
 /** The session's system file in its run directory. */
 export const PLANNING_SYSTEM_FILE = "system-planning.md";
@@ -254,7 +248,17 @@ export interface PlanningFacts {
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
   /** The roster of the base's role files, each with its purpose (DIPO-476). */
-  readonly roles: readonly { readonly name: string; readonly purpose: string }[];
+  readonly roles: readonly {
+    readonly name: string;
+    readonly purpose: string;
+    readonly model?: string;
+    readonly effort?: string;
+    readonly instructions?: string;
+  }[];
+  /** A roles session (DIPO-475): each role file that failed to load, with its problem. */
+  readonly invalidRoles?: readonly string[];
+  /** A roles session: the recent runs of each role, counted by code (`roleRunCounts`). */
+  readonly roleRuns?: readonly RoleRunCounts[];
   /** The retro numbers as text (DIPO-453): counted by code, to explain and never to compute. */
   readonly retro: string;
   /** The base branch's commit the read-only copy holds. */
@@ -275,8 +279,66 @@ const listOr = (lines: readonly string[], none: string): string =>
 
 const day = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
+/** Pure: the schema of the role proposals only, from the schema of every proposal (DIPO-475). */
+export function roleProposalSchema(
+  schema: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const alternatives = schema.oneOf;
+  if (!Array.isArray(alternatives)) return schema;
+  const kinds = ["role", "role-edit", "role-remove"];
+  return {
+    ...schema,
+    oneOf: alternatives.filter((alternative) => {
+      const kind = (alternative as { properties?: { kind?: { const?: unknown } } }).properties?.kind
+        ?.const;
+      return typeof kind === "string" && kinds.includes(kind);
+    }),
+  };
+}
+
+/** Pure: the first message of a roles session: the roster, its runs and the role proposal schema. */
+function rolesFirstMessage(facts: PlanningFacts): string {
+  const runs = new Map((facts.roleRuns ?? []).map((counts) => [counts.role, counts]));
+  const roster = facts.roles.map((role) =>
+    [
+      `## ${role.name}`,
+      `purpose: ${role.purpose}`,
+      `model: ${role.model ?? "the tier's model"}`,
+      `effort: ${role.effort ?? "the tier's effort"}`,
+      `recent runs: ${roleRunLines(runs.get(role.name)).join("; ")}`,
+      "instructions:",
+      role.instructions ?? "",
+    ].join("\n"),
+  );
+  return renderTemplate(TASK_TEMPLATES.planningRoles, {
+    kind: facts.kind,
+    goal: facts.goal,
+    record: facts.record,
+    roles: roster.length === 0 ? "The office has no roles." : roster.join("\n\n"),
+    invalid: listOr(facts.invalidRoles ?? [], "Every role file loaded."),
+    commit: rendered(facts.commit),
+    dir: rendered(REVIEW_CODE_DIR),
+    fence: rendered(PLANNING_PROPOSAL_FENCE),
+    schema: rendered(JSON.stringify(roleProposalSchema(facts.proposalSchema))),
+    questions_fence: rendered(PLANNING_QUESTIONS_FENCE),
+    questions_schema: rendered(JSON.stringify(PLANNING_QUESTIONS_JSON_SCHEMA)),
+    preferences: preferencesSection(facts.preferences),
+  });
+}
+
+function preferencesSection(preferences: string | null): string | Rendered {
+  return preferences === null || preferences.trim() === ""
+    ? ""
+    : rendered(
+        `${renderTemplate(TASK_TEMPLATES.planningPreferences, {
+          text: preferences.trim().slice(0, PLANNING_PREFERENCES_MAX_CHARS),
+        })}\n`,
+      );
+}
+
 /** Pure: the session's first message, as text, from the facts code knows. */
 export function planningFirstMessage(facts: PlanningFacts): string {
+  if (facts.kind === "roles") return rolesFirstMessage(facts);
   return renderTemplate(TASK_TEMPLATES.planning, {
     kind: facts.kind,
     goal: facts.goal,
@@ -310,14 +372,7 @@ export function planningFirstMessage(facts: PlanningFacts): string {
     schema: rendered(JSON.stringify(facts.proposalSchema)),
     questions_fence: rendered(PLANNING_QUESTIONS_FENCE),
     questions_schema: rendered(JSON.stringify(PLANNING_QUESTIONS_JSON_SCHEMA)),
-    preferences:
-      facts.preferences === null || facts.preferences.trim() === ""
-        ? ""
-        : rendered(
-            `${renderTemplate(TASK_TEMPLATES.planningPreferences, {
-              text: facts.preferences.trim().slice(0, PLANNING_PREFERENCES_MAX_CHARS),
-            })}\n`,
-          ),
+    preferences: preferencesSection(facts.preferences),
   });
 }
 
@@ -394,8 +449,6 @@ export interface PlanningSessionsDeps {
   readonly tempOwner?: () => string | undefined;
   /** The office's planning lane (0010), which files the proposals the maintainer confirms. */
   readonly lane?: (office: OfficeId) => PlanningLane | undefined;
-  /** The office's Ready gate, which the final confirm evaluates and stores (DIPO-451). */
-  readonly gate?: (office: OfficeId) => PlanningGate | undefined;
   /** The role files on the base of the office (0017), for the role proposals' checks (DIPO-474). */
   readonly roleFiles?: (office: OfficeId) => ReadonlyMap<string, string | undefined> | undefined;
   readonly onChanged?: (office: OfficeId) => void;
@@ -405,8 +458,6 @@ export interface PlanningSessionsDeps {
   /** Each handover to a fresh model session is logged here (DIPO-489). */
   readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
-
-export type { PlanningGate };
 
 /** The model session a fresh one continues, and why that one ended. */
 interface Continued {
@@ -452,8 +503,6 @@ interface Open {
   proposals: OpenProposal[];
   /** The question blocks of the session, answered or not (DIPO-455). */
   questions: OpenQuestions[];
-  /** The stories chosen to go Ready, by story id (DIPO-451). */
-  ready: Map<string, OpenReady>;
   /** The refused proposal blocks, newest last. */
   refusals: { readonly at: number; readonly problems: readonly string[] }[];
   /** How many answers in a row dipo refused by itself (`AUTO_REFUSALS_MAX`). */
@@ -518,14 +567,6 @@ function filingText(filing: PlannedFiling): string {
           ]
         : [`Test plan: not applicable: ${plan.not_applicable}`]),
   ].join("\n");
-}
-
-/** A story the maintainer chose to go Ready (DIPO-451); no `changes` when it was refused. */
-interface OpenReady {
-  readonly story: string;
-  readonly changes: readonly PlannedChange[];
-  readonly messages: readonly string[];
-  readonly at: number;
 }
 
 /** A block of questions of an open session (DIPO-455). */
@@ -662,10 +703,6 @@ export class PlanningSessions {
         registry.addAsyncOfficeCommand({
           definition: planningDecline,
           handle: (ctx, args) => this.decline(ctx, args),
-        });
-        registry.addAsyncOfficeCommand({
-          definition: planningReady,
-          handle: (ctx, args) => this.ready(ctx, args),
         });
       },
     };
@@ -940,104 +977,6 @@ export class PlanningSessions {
     };
   }
 
-  // ---- the final confirm (DIPO-451) -------------------------------------------------------------
-
-  /**
-   * `planning.ready`: for each chosen story of the session, evaluates the Ready gate against the
-   * story as the base branch holds it and stores the decision; a story that passes is set Ready
-   * through the planning lane, a story that fails stays as it is with the gate's messages.
-   */
-  async ready(ctx: AsyncCommandContext, args: ReadyArgs): Promise<CommandOutcome<ReadyResult>> {
-    const open = this.#open.get(ctx.office.officeId as OfficeId);
-    if (open === undefined) throw notOpen("start one with planning.start");
-    if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
-    const lane = this.#deps.lane?.(open.office);
-    const gate = this.#deps.gate?.(open.office);
-    if (lane === undefined || gate === undefined) {
-      throw new CommandError(
-        "planning.notFiled",
-        "This office has no backlog lane yet, so nothing can be set Ready; try again once it loaded.",
-      );
-    }
-    // Every story is checked first, so a wrong one changes nothing.
-    const chosen: { story: string; key: StoryKey | null }[] = [];
-    for (const ref of args.stories) {
-      const filed = this.#sessionStory(open, ref);
-      if (filed === null) {
-        throw new CommandError(
-          "planning.storyUnknown",
-          `${ref} is not a story this planning session filed or edited.`,
-          { story: ref },
-        );
-      }
-      const identity = { story: filed.story, key: filed.key };
-      if (!chosen.some((other) => other.story === identity.story)) chosen.push(identity);
-    }
-    const at = this.#deps.clock.now();
-    const { queued, refused, last } = await readyStories(
-      { office: open.handle, lane, gate },
-      chosen,
-      {
-        settled: (identity) => {
-          const before = open.ready.get(identity.story);
-          return (
-            before !== undefined &&
-            before.changes.length > 0 &&
-            this.#readyState(open, before) !== "failed"
-          );
-        },
-        record: (identity, outcome) =>
-          open.ready.set(identity.story, {
-            story: identity.story,
-            changes: outcome.change === undefined ? [] : [outcome.change],
-            messages: outcome.messages,
-            at,
-          }),
-      },
-    );
-    this.#append(open, () => [this.#updated(open)]);
-    const flush = last === undefined ? null : await lane.flush(last);
-    this.#append(open, () => [this.#updated(open)]);
-    return {
-      result: {
-        run: open.run,
-        queued,
-        refused,
-        ...(flush === null ? {} : { flush }),
-      },
-      changed: true,
-    };
-  }
-
-  /** How far setting one story Ready got, from the lane. */
-  #readyState(open: Open, item: OpenReady): PlanningReadyView["state"] {
-    if (item.changes.length === 0) return "refused";
-    const lane = this.#deps.lane?.(open.office);
-    const outcomes = item.changes.map((change) => lane?.outcomeOf(change));
-    if (outcomes.some((outcome) => outcome?.outcome === "closed")) return "failed";
-    // A change the journal no longer has was applied and pruned.
-    return outcomes.every((outcome) => outcome === undefined || outcome.outcome === "applied")
-      ? "set"
-      : "setting";
-  }
-
-  #readyViews(open: Open): PlanningReadyView[] {
-    const lane = this.#deps.lane?.(open.office);
-    return [...open.ready.values()].map((item) => {
-      const state = this.#readyState(open, item);
-      const closed = item.changes
-        .map((change) => lane?.outcomeOf(change))
-        .find((outcome) => outcome?.outcome === "closed");
-      return {
-        story: item.story,
-        state,
-        ...(item.messages.length === 0 ? {} : { messages: [...item.messages] }),
-        ...(state === "failed" ? { detail: closed?.notice ?? "the backlog lane closed it" } : {}),
-        at: iso(item.at),
-      };
-    });
-  }
-
   /** `planning.edit`: the maintainer's version replaces an open proposal of the same kind. */
   async edit(ctx: AsyncCommandContext, args: EditArgs): Promise<CommandOutcome<EditResult>> {
     const { open, item } = this.#proposalOf(ctx, args.proposal);
@@ -1052,7 +991,7 @@ export class PlanningSessions {
         { proposal: item.n },
       );
     }
-    const checked = checkProposal(args.edited, this.#roleFacts(open));
+    const checked = checkProposal(args.edited, this.#roleFacts(open), open.kind);
     if (!checked.ok) {
       throw new CommandError(
         "planning.invalid",
@@ -1123,6 +1062,7 @@ export class PlanningSessions {
       }
       case "edit": {
         const identity = this.#revisable(handle, proposal.id);
+        this.#checkEditRole(open, item, proposal.role, "role");
         this.#checkEditDependencies(open, item, identity.story, proposal.dependencies ?? []);
         const change = await lane.reviseStory(
           identity,
@@ -1132,6 +1072,7 @@ export class PlanningSessions {
       }
       case "split": {
         const identity = this.#revisable(handle, proposal.id);
+        this.#checkEditRole(open, item, proposal.edit.role, "edit.role");
         this.#checkNewStory(open, item, proposal.story.title, proposal.story.dependencies ?? []);
         this.#checkEditDependencies(open, item, identity.story, proposal.edit.dependencies ?? []);
         const filed = await lane.fileStory(fileTargetOf(run, item.n, proposal.story));
@@ -1165,6 +1106,15 @@ export class PlanningSessions {
         return [await lane.editRole(roleEditTargetOf(run, item.n, proposal))];
       case "role-remove":
         return [await lane.removeRole({ run, proposal: item.n, name: proposal.name })];
+    }
+  }
+
+  /** Refuses an edit's role that is not in the roster of the base's role files now. */
+  #checkEditRole(open: Open, item: OpenProposal, role: string | undefined, where: string): void {
+    if (role === undefined) return;
+    const problems = rosterProblems(role, this.#roleFacts(open), where);
+    if (problems.length > 0) {
+      throw new CommandError("planning.notFiled", problems.join("; "), { proposal: item.n });
     }
   }
 
@@ -1455,7 +1405,7 @@ export class PlanningSessions {
         open.refusals.push({ at, problems: read.problems });
       }
     }
-    for (const read of readProposals(text, this.#roleFacts(open))) {
+    for (const read of readProposals(text, this.#roleFacts(open), open.kind)) {
       if (read.ok) {
         open.proposals.push({
           n: open.proposals.length + 1,
@@ -1640,7 +1590,6 @@ export class PlanningSessions {
       answer: [],
       proposals: [],
       questions: [],
-      ready: new Map(),
       refusals: [],
       autoRefusals: 0,
       notes: [],
@@ -1762,19 +1711,24 @@ export class PlanningSessions {
     const filed = this.#filedStories(open, commit);
     open.filedSeen = filedSignature(filed);
     const taskMessage = planningFirstMessage(
-      handle.deferred(() => ({
-        kind: open.kind,
-        goal: open.goal,
-        record: planningRecordText(readPlanningRecord(handle, open.session), filed),
-        drafts: planningDrafts(handle),
-        desk: deps.desk?.(handle, now) ?? [],
-        runs: recentStoryRuns(handle),
-        roles: loadRoleFiles(this.#roleFacts(open)?.files ?? new Map()).roles,
-        retro: retro(handle).lines.join("\n"),
-        commit,
-        proposalSchema: deps.worker.reportSchema.planning,
-        preferences,
-      })),
+      handle.deferred(() => {
+        const loaded = loadRoleFiles(this.#roleFacts(open)?.files ?? new Map());
+        return {
+          kind: open.kind,
+          goal: open.goal,
+          record: planningRecordText(readPlanningRecord(handle, open.session), filed),
+          drafts: planningDrafts(handle),
+          desk: deps.desk?.(handle, now) ?? [],
+          runs: recentStoryRuns(handle),
+          roles: loaded.roles,
+          invalidRoles: loaded.problems,
+          roleRuns: open.kind === "roles" ? roleRunCounts(handle) : [],
+          retro: retro(handle).lines.join("\n"),
+          commit,
+          proposalSchema: deps.worker.reportSchema.planning,
+          preferences,
+        };
+      }),
     );
     const systemFile = renderSystemFile("planning-box", ROLE_TEMPLATES.planner);
     const spec: WorkerSpec = {
@@ -2317,7 +2271,6 @@ export class PlanningSessions {
               .filter((block) => !block.answered)
               .map((block) => ({ n: block.n, questions: [...block.questions], at: iso(block.at) })),
           }),
-      ...(open.ready.size === 0 ? {} : { ready: this.#readyViews(open) }),
     };
   }
 }

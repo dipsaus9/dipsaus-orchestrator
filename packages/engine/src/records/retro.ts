@@ -275,3 +275,91 @@ export function retro(office: OfficeHandle): Retro {
     return { office: office.officeId, ...parts, lines: retroLines(parts) };
   });
 }
+
+/** How many of a role's latest ended story runs the roles session's first message counts. */
+export const ROLE_RUNS_RECENT = 30;
+
+/** What a role's recent runs came to (DIPO-475). */
+export interface RoleRunCounts {
+  readonly role: string;
+  readonly runs: number;
+  /** How the runs ended (0020), by ending. */
+  readonly endings: Readonly<Record<string, number>>;
+  readonly parks: Readonly<Record<string, number>>;
+  readonly reviewRounds: number;
+  readonly reviewRoundsFailed: number;
+  readonly ciAttempts: number;
+  readonly costMicros: number | null;
+}
+
+/**
+ * Per role: the counts of its latest `ROLE_RUNS_RECENT` ended story runs, from the runs joined to
+ * their outcome rows by the run's role; a run with no role counts as `developer`. Roles with no
+ * run are absent; the order is by role name.
+ */
+export function roleRunCounts(office: OfficeHandle): RoleRunCounts[] {
+  const rows = office.all<{
+    role: string;
+    outcome: string;
+    park_reasons: string;
+    review_rounds: number;
+    review_rounds_failed: number;
+    ci_attempts: number;
+    cost_micros: number | null;
+  }>(
+    `select coalesce(nullif(r.role, ''), 'developer') as role, o.outcome, o.park_reasons,
+            o.review_rounds, o.review_rounds_failed, o.ci_attempts, o.cost_micros
+       from runs r
+       join run_outcomes o on o.office_id = r.office_id and o.run_id = r.run_id
+      where r.office_id = $office_id and r.kind = 'story'
+      order by o.ended_at desc, o.run_id desc`,
+  );
+  type Built = { -readonly [K in keyof RoleRunCounts]: RoleRunCounts[K] } & {
+    endings: Record<string, number>;
+    parks: Record<string, number>;
+  };
+  const built = new Map<string, Built>();
+  for (const row of rows) {
+    let entry = built.get(row.role);
+    if (entry === undefined) {
+      entry = {
+        role: row.role,
+        runs: 0,
+        endings: {},
+        parks: {},
+        reviewRounds: 0,
+        reviewRoundsFailed: 0,
+        ciAttempts: 0,
+        costMicros: null,
+      };
+      built.set(row.role, entry);
+    }
+    if (entry.runs >= ROLE_RUNS_RECENT) continue;
+    entry.runs += 1;
+    entry.endings[row.outcome] = (entry.endings[row.outcome] ?? 0) + 1;
+    for (const reason of parkReasons(row.park_reasons)) {
+      entry.parks[reason] = (entry.parks[reason] ?? 0) + 1;
+    }
+    entry.reviewRounds += row.review_rounds;
+    entry.reviewRoundsFailed += row.review_rounds_failed;
+    entry.ciAttempts += row.ci_attempts;
+    if (row.cost_micros !== null) entry.costMicros = (entry.costMicros ?? 0) + row.cost_micros;
+  }
+  return [...built.values()].toSorted((a, b) => a.role.localeCompare(b.role));
+}
+
+const counted = (counts: Readonly<Record<string, number>>): string => {
+  const entries = Object.entries(counts).toSorted(([a, x], [b, y]) => y - x || a.localeCompare(b));
+  return entries.length === 0 ? "none" : entries.map(([word, n]) => `${word} ${n}`).join(", ");
+};
+
+/** Pure: one role's recent runs as lines, the text the roles session's first message holds. */
+export function roleRunLines(counts: RoleRunCounts | undefined): string[] {
+  if (counts === undefined) return ["No story run has ended yet."];
+  return [
+    `${counts.runs} recent ${counts.runs === 1 ? "run" : "runs"}; ended: ${counted(counts.endings)}`,
+    `parks: ${counted(counts.parks)}`,
+    `review rounds failed ${counts.reviewRoundsFailed} of ${counts.reviewRounds}, CI attempts ${counts.ciAttempts}`,
+    `cost: ${counts.costMicros === null ? "not reported" : dollars(counts.costMicros)}`,
+  ];
+}

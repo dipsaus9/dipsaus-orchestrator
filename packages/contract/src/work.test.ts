@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { PlanningView } from "./work";
 
 import {
   contractCommands,
@@ -226,6 +227,11 @@ describe("views", () => {
 });
 
 describe("office commands and reads", () => {
+  it("has no planning.ready and no ready field on the planning view (DIPO-497)", () => {
+    expect(officeCommands.map((d): string => d.name)).not.toContain("planning.ready");
+    expect(Object.keys(PlanningView.shape)).not.toContain("ready");
+  });
+
   it("defines every command and read of this story", () => {
     expect(officeCommands.map((d): string => d.name).toSorted()).toEqual(
       [
@@ -256,7 +262,6 @@ describe("office commands and reads", () => {
         "planning.confirm",
         "planning.edit",
         "planning.decline",
-        "planning.ready",
       ].toSorted(),
     );
     expect(officeReads.map((d): string => d.name).toSorted()).toEqual(

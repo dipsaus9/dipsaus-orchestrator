@@ -379,8 +379,8 @@ export interface FooterContext {
   readonly planning: {
     readonly session: boolean;
     readonly sending: boolean;
-    /** The Ready step is open: with stories to tick, or with none and a question to end (DIPO-487). */
-    readonly ending: "ready" | "empty" | null;
+    /** The end question is open (`ask`), or the stories that stayed Refined are listed (DIPO-497). */
+    readonly ending: "ask" | "listed" | null;
     /** A card has focus (DIPO-487). */
     readonly card: boolean;
     /** The number of the proposal whose form the input holds (DIPO-450). */
@@ -416,14 +416,14 @@ export interface FooterKey {
 
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
 const NEVER = 100;
-const asking = (ctx: FooterContext) => ctx.planning.ending === "empty";
-const stepping = (ctx: FooterContext) => ctx.planning.ending === "ready";
+const asking = (ctx: FooterContext) => ctx.planning.ending === "ask";
+const listed = (ctx: FooterContext) => ctx.planning.ending === "listed";
 const ended = (ctx: FooterContext) => ctx.planning.ending !== null;
 /** The question dialog has the keys (DIPO-455); the input's keys wait under it. */
 const inDialog = (ctx: FooterContext) => !ended(ctx) && ctx.planning.dialog !== null;
 const typingAnswer = (ctx: FooterContext) => inDialog(ctx) && ctx.planning.dialog?.typing === true;
 const choosing = (ctx: FooterContext) => inDialog(ctx) && ctx.planning.dialog?.typing === false;
-/** The input has the keys: no Ready step, no dialog, no card in focus. */
+/** The input has the keys: no end question, no dialog, no card in focus. */
 const inInput = (ctx: FooterContext) =>
   !ended(ctx) && ctx.planning.dialog === null && !ctx.planning.card;
 const free = (ctx: FooterContext) => inInput(ctx) && ctx.planning.editing === null;
@@ -591,43 +591,11 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 85,
   },
   {
-    id: "readyYes",
-    key: "Y",
-    label: "set the ticked Ready and end",
+    id: "listedClose",
+    key: "any key",
+    label: "close the list",
     views: ["planning"],
-    when: stepping,
-    priority: NEVER,
-  },
-  {
-    id: "readyNone",
-    key: "n",
-    label: "end, none Ready",
-    views: ["planning"],
-    when: stepping,
-    priority: 90,
-  },
-  {
-    id: "readyTick",
-    key: "space",
-    label: "tick",
-    views: ["planning"],
-    when: stepping,
-    priority: 88,
-  },
-  {
-    id: "readyMove",
-    key: "↑↓",
-    label: "story",
-    views: ["planning"],
-    when: stepping,
-    priority: 80,
-  },
-  {
-    id: "readyKeep",
-    key: "esc",
-    label: "keep open",
-    views: ["planning"],
-    when: stepping,
+    when: listed,
     priority: 85,
   },
   {
@@ -710,6 +678,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "retroDiscuss", key: "d", label: "discuss in a plan", views: ["retro"], priority: 50 },
   { id: "rolesMove", key: "↑↓", label: "move", views: ["roles"], priority: 30 },
   { id: "rolesScroll", key: "PgUp PgDn", label: "scroll", views: ["roles"], priority: 25 },
+  { id: "rolesChat", key: "c", label: "chat", views: ["roles"], priority: 50 },
   {
     id: "switcherMove",
     key: "↑↓",

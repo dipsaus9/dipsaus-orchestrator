@@ -1,5 +1,5 @@
 // `story.ready` (DIPO-482, 0012): any Refined story on the base is set Ready through the planning
-// lane when it passes the Ready gate, by the one function `planning.ready` shares. Fast and local:
+// lane when it passes the Ready gate, by the one function the planning confirm shares. Fast and local:
 // a migrated state database with stories mirrored from a pretend base, a lane that journals into
 // the real journal, and a gate whose verdict per story the test sets. The real lane, gate and
 // Backlog CLI run in planning-ready.test.ts.
@@ -260,14 +260,13 @@ describe("story.ready (DIPO-482)", () => {
 });
 
 describe("the one Ready function (DIPO-482)", () => {
-  it("is what planning.ready and story.ready both call", async () => {
+  it("is what story.ready calls, from the command in planning.ts", async () => {
     const [session, planning] = await Promise.all([
       source("planning-session.ts"),
       source("planning.ts"),
     ]);
-    expect(session).toContain("readyStories(");
     expect(planning).toContain("readyStories(");
-    expect(session).not.toContain("recordGateDecision(open");
+    expect(session).not.toContain("readyStories(");
     expect(planning).not.toContain("recordGateDecision(");
   });
 

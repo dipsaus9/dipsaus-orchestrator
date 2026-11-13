@@ -1,4 +1,4 @@
-// The planning prompts (DIPO-480): the contract names the planning view's Ready step in words, says
+// The planning prompts (DIPO-480): the contract says how a story is set Ready in words, says
 // the box copy is not refreshed and a listed story is never missing, and no planning prompt names a
 // key of the terminal UI.
 
@@ -19,9 +19,10 @@ const read = (file: string) => readFileSync(join(root, file), "utf8");
 const KEY_NAME = /\b(?:ctrl|control|alt|cmd|shift)[-+ ][a-z]\b|`[A-Za-z]`/i;
 
 describe("the planning prompts", () => {
-  it("name the Ready step in words, and say a listed story may be missing from the copy", () => {
+  it("say how a story is set Ready in words, and say a listed story may be missing from the copy", () => {
     const contract = read("contract/planning-box.md");
-    expect(contract).toContain("the planning view's Ready step");
+    expect(contract).toContain("the terminal UI lists the stories that stayed Refined and why");
+    expect(contract).toContain("runs the `dipo ready` command with its ID");
     expect(contract).toContain("Never name a key");
     expect(contract).toContain("never refreshed");
     expect(contract).toContain('is in the list but not in the copy is never "missing"');

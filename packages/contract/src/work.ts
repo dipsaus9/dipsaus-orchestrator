@@ -405,7 +405,9 @@ export type TestEndReason = z.infer<typeof TestEndReason>;
 // goal, talked to turn by turn. It has no story, so its events carry the planning view, never a
 // `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the drafts with
 // their origin and refines each into a story or drops it (DIPO-454).
-export const PLANNING_KINDS = ["plan", "refine", "triage"] as const;
+// `roles` talks through the office's roles and takes only role proposals (DIPO-475); the Roles room
+// starts it, so the planning view's kind choice does not offer it.
+export const PLANNING_KINDS = ["plan", "refine", "triage", "roles"] as const;
 export const PlanningKind = openEnum(PLANNING_KINDS);
 export type PlanningKind = z.infer<typeof PlanningKind>;
 
@@ -629,6 +631,9 @@ const editShape = {
     .describe(
       "the whole list of stories that must be Done first, replacing the old one; an empty list clears them",
     ),
+  role: storyShape.role
+    .optional()
+    .describe("the role that runs the story from now on, one of the office's roster"),
 };
 
 type EditShape = z.infer<z.ZodObject<typeof editShape>>;
@@ -806,24 +811,6 @@ export const PlanningProposalView = z.object({
 });
 export type PlanningProposalView = z.infer<typeof PlanningProposalView>;
 
-// How far setting one story of a planning session Ready got (DIPO-451): `refused` when the gate
-// failed it or it cannot be set yet (its `messages` say why) and it stays as it was, `setting`
-// while the lane change is journaled and not yet applied, `set` once the lane applied it, or
-// `failed` when the lane closed it with the reason in `detail`.
-export const KNOWN_READY_STATES = ["refused", "setting", "set", "failed"] as const;
-export const PlanningReadyState = openEnum(KNOWN_READY_STATES);
-export type PlanningReadyState = z.infer<typeof PlanningReadyState>;
-
-export const PlanningReadyView = z.object({
-  story: z.string(),
-  state: PlanningReadyState,
-  // The gate's messages for a refused story.
-  messages: z.array(z.string()).optional(),
-  detail: z.string().optional(),
-  at: Timestamp,
-});
-export type PlanningReadyView = z.infer<typeof PlanningReadyView>;
-
 // A proposal block the engine refused, with its problems, as the message to the session listed them.
 export const PlanningRefusal = z.object({ at: Timestamp, problems: z.array(z.string()) });
 export type PlanningRefusal = z.infer<typeof PlanningRefusal>;
@@ -880,8 +867,6 @@ export const PlanningView = z.object({
   refusals: z.array(PlanningRefusal).optional(),
   // The question blocks the maintainer has not answered yet (DIPO-455).
   questions: z.array(PlanningQuestionBlock).optional(),
-  // The stories the maintainer chose to go Ready, and how far each got (DIPO-451).
-  ready: z.array(PlanningReadyView).optional(),
 });
 export type PlanningView = z.infer<typeof PlanningView>;
 

@@ -36,6 +36,7 @@ import safeChainRefusals from "./task/safe-chain-refusals.md" with { type: "text
 import previousFindings from "./task/previous-findings.md" with { type: "text" };
 import planning from "./task/planning.md" with { type: "text" };
 import planningPreferences from "./task/planning-preferences.md" with { type: "text" };
+import planningRoles from "./task/planning-roles.md" with { type: "text" };
 import reviewCommit from "./task/review-commit.md" with { type: "text" };
 import reviewScope from "./task/review-scope.md" with { type: "text" };
 import reviewTestPlan from "./task/review-test-plan.md" with { type: "text" };
@@ -119,6 +120,8 @@ export const TASK_TEMPLATES = {
   planning,
   // The office's planning file, a section of that first message (DIPO-455).
   planningPreferences,
+  // The first message of a roles session (DIPO-475).
+  planningRoles,
   // The first message of an idea's audit session, and each idea in it (DIPO-452).
   audit,
   auditIdea,
@@ -211,6 +214,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "desk",
   "recent_runs",
   "roles",
+  "invalid_roles",
   "copy",
   // DIPO-450: the proposal schema of a planning session's first message.
   "proposal_schema",

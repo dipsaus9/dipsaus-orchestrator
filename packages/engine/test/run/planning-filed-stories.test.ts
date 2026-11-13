@@ -21,17 +21,17 @@ import {
   REVISE_KIND,
   reviseKind,
 } from "../../src/backlog/lane";
-import { backlogStoryStore } from "../../src/backlog/store";
 import { CommandError } from "../../src/commands/errors";
 import { evaluateGate } from "../../src/gate";
 import { gateContentHash } from "../../src/gate/hash";
 import { readGateInput, storeGateDecision } from "../../src/gate-decisions";
+import { findStoryByKey } from "../../src/records/story-keys";
 import { addPlanningEntry } from "../../src/records/planning-record";
 import { checkProposal } from "../../src/run/planning-proposals";
-import { findStoryByKey } from "../../src/records/story-keys";
-import type { PlanningGate } from "../../src/run/planning-session";
-import { DEFAULT_CONFIG } from "../gate/fixtures";
+import type { PlanningGate } from "../../src/run/ready-stories";
 import { BACKLOG_FIXTURE, laneSetup, publish, squashMergeOnRemote } from "../backlog/lane/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
+import { DEFAULT_CONFIG } from "../gate/fixtures";
 import { draft, pass, task } from "../stories/helpers";
 import {
   BASE_COMMIT,
@@ -94,7 +94,7 @@ async function setup(repo: TempRepoWithRemote, proposals: readonly unknown[]) {
   const w = planningWorld(s.t, repo.root, {
     office: s.office,
     lane: () => planningLane(lane),
-    gate: () => gate,
+    gate,
   });
   w.answerText = (n) => (n === 1 ? blocksOf(...proposals) : "Noted.");
   await w.sessions.start(commandContext(w), { kind: "plan", goal: "Export" });
@@ -163,12 +163,6 @@ describe("a planning session knows the stories it filed (DIPO-480)", () => {
           merged.match(new RegExp(`state: filed, on the base since commit ${BASE_COMMIT}`, "g")),
         ).toHaveLength(2);
         expect(merged).toContain("Story: As maintainer I want to export the stories as a CSV file");
-
-        // Ready on one final confirm sets both Ready.
-        const ready = await w.sessions.ready(ctx, { stories: ["TASK-4", "task-5"] });
-        expect(ready.result.refused).toEqual([]);
-        expect(ready.result.queued).toEqual(["TASK-4", "TASK-5"]);
-        expect(allEntries(s.office).filter((entry) => entry.kind === READY_KIND)).toHaveLength(2);
       },
       { fixture: BACKLOG_FIXTURE },
     );

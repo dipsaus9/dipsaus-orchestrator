@@ -1361,7 +1361,7 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["plan", "refine", "triage"]
+          "enum": ["plan", "refine", "triage", "roles"]
         },
         "goal": {
           "type": "string",
@@ -1396,7 +1396,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"
@@ -1973,6 +1973,11 @@
                               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                             }
                           },
+                          "role": {
+                            "description": "the role that runs the story from now on, one of the office's roster",
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -2057,6 +2062,11 @@
                                   "type": "string",
                                   "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
+                              },
+                              "role": {
+                                "description": "the role that runs the story from now on, one of the office's roster",
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$"
                               }
                             },
                             "additionalProperties": false,
@@ -2574,43 +2584,6 @@
                   }
                 },
                 "required": ["n", "questions", "at"]
-              }
-            },
-            "ready": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "story": {
-                    "type": "string"
-                  },
-                  "state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": ["refused", "setting", "set", "failed"]
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ]
-                  },
-                  "messages": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "detail": {
-                    "type": "string"
-                  },
-                  "at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                  }
-                },
-                "required": ["story", "state", "at"]
               }
             }
           },
@@ -2673,7 +2646,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["plan", "refine", "triage"]
+                  "enum": ["plan", "refine", "triage", "roles"]
                 },
                 {
                   "type": "string"
@@ -3250,6 +3223,11 @@
                               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                             }
                           },
+                          "role": {
+                            "description": "the role that runs the story from now on, one of the office's roster",
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]*$"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -3334,6 +3312,11 @@
                                   "type": "string",
                                   "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                                 }
+                              },
+                              "role": {
+                                "description": "the role that runs the story from now on, one of the office's roster",
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$"
                               }
                             },
                             "additionalProperties": false,
@@ -3851,43 +3834,6 @@
                   }
                 },
                 "required": ["n", "questions", "at"]
-              }
-            },
-            "ready": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "story": {
-                    "type": "string"
-                  },
-                  "state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": ["refused", "setting", "set", "failed"]
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ]
-                  },
-                  "messages": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "detail": {
-                    "type": "string"
-                  },
-                  "at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                  }
-                },
-                "required": ["story", "state", "at"]
               }
             }
           },
@@ -4591,6 +4537,11 @@
                     "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                   }
                 },
+                "role": {
+                  "description": "the role that runs the story from now on, one of the office's roster",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
                 "why": {
                   "type": "string",
                   "minLength": 1,
@@ -4675,6 +4626,11 @@
                         "type": "string",
                         "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
                       }
+                    },
+                    "role": {
+                      "description": "the role that runs the story from now on, one of the office's roster",
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
                     }
                   },
                   "additionalProperties": false,
@@ -5087,171 +5043,6 @@
         }
       },
       "required": ["run", "proposal", "state"]
-    },
-    "planning.ready.args": {
-      "type": "object",
-      "properties": {
-        "stories": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      },
-      "required": ["stories"]
-    },
-    "planning.ready.result": {
-      "type": "object",
-      "properties": {
-        "run": {
-          "type": "string",
-          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-        },
-        "queued": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "refused": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "story": {
-                "type": "string"
-              },
-              "messages": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            },
-            "required": ["story", "messages"]
-          }
-        },
-        "flush": {
-          "oneOf": [
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "opened"
-                },
-                "branch": {
-                  "type": "string"
-                },
-                "pr": {
-                  "type": "string"
-                }
-              },
-              "required": ["state", "branch", "pr"]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "updated"
-                },
-                "branch": {
-                  "type": "string"
-                },
-                "pr": {
-                  "type": "string"
-                }
-              },
-              "required": ["state", "branch", "pr"]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "pushed"
-                },
-                "branch": {
-                  "type": "string"
-                }
-              },
-              "required": ["state", "branch"]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "merged"
-                }
-              },
-              "required": ["state"]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "held"
-                },
-                "branch": {
-                  "type": "string"
-                },
-                "reason": {
-                  "type": "string"
-                }
-              },
-              "required": ["state", "branch", "reason"]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "waiting"
-                },
-                "branch": {
-                  "type": "string"
-                },
-                "reason": {
-                  "type": "string"
-                }
-              },
-              "required": ["state", "reason"]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "failed"
-                },
-                "reason": {
-                  "type": "string"
-                }
-              },
-              "required": ["state", "reason"]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "state": {
-                  "type": "string",
-                  "const": "closed"
-                },
-                "reason": {
-                  "type": "string"
-                }
-              },
-              "required": ["state", "reason"]
-            }
-          ]
-        }
-      },
-      "required": ["run", "queued", "refused"]
     },
     "office.infer.args": {
       "type": "object",
