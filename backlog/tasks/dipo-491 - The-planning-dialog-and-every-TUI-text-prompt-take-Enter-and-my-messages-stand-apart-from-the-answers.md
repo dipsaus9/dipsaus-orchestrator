@@ -1,10 +1,10 @@
 ---
 id: DIPO-491
 title: 'The planning dialog and TUI prompts take Enter, and my messages stand apart'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:40'
+updated_date: '2026-11-13 12:07'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -27,6 +27,34 @@ references:
   - docs/design/tui-v2/spec.md
   - docs/design/tui-v2/roles.json
   - docs/decisions/0009-tui.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/design/tui-v2/keymap.json
+  - docs/design/tui-v2/screens/03-run.txt
+  - docs/design/tui-v2/screens/07-plan.txt
+  - docs/design/tui-v2/screens/11-desk-previews.txt
+  - docs/design/tui-v2/spec.md
+  - packages/tui/src/actions.ts
+  - packages/tui/src/checklist.test.tsx
+  - packages/tui/src/colour.tsx
+  - packages/tui/src/composer.test.tsx
+  - packages/tui/src/composer.tsx
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/detail.tsx
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/keys.ts
+  - packages/tui/src/palette.test.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/prompt-box.ts
+  - packages/tui/src/question-dialog.test.ts
+  - packages/tui/src/question-dialog.ts
+  - packages/tui/src/screen.tsx
+  - packages/tui/src/spans.tsx
+  - packages/tui/src/steering.ts
+  - packages/tui/src/transcript.test.ts
+  - packages/tui/src/transcript.ts
 priority: high
 type: bug
 ordinal: 463000
@@ -78,11 +106,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In the question dialog Enter on an option picks it and moves to the next unanswered question, a final Submit row lists every answer and Enter on it sends planning.answer, and Left and Right still change an answer
-- [ ] #2 Esc while choosing leaves the block unanswered; the free-text row keeps Enter to open and to take the text; Ctrl-S and Ctrl-N no longer act in the dialog
-- [ ] #3 Every Composer prompt (desk answer and notes, steer, top-up note) sends on Enter and adds a line on Option+Enter, a trailing backslash or kitty Shift+Enter; Esc cancels; Ctrl-S no longer sends; the enterSends switch is gone
-- [ ] #4 On the top-up prompt the first Enter shows the caps and the next sends the resume confirmed
-- [ ] #5 A maintainer message shows as its own block with a blank line before and after and a > prefix on an existing role's background; each answer starts with a ● marker with its fold lines under it, dim
-- [ ] #6 The footer and prompt hints, keymap.json and spec.md show the new keys, and a test checks the hints name no ctrl- key
-- [ ] #7 ADR 0009's Planning line names the dialog keys and the message style, with one Replaced line for Ctrl-S and Ctrl-N in the dialog and the Composer
+- [x] #1 In the question dialog Enter on an option picks it and moves to the next unanswered question, a final Submit row lists every answer and Enter on it sends planning.answer, and Left and Right still change an answer
+- [x] #2 Esc while choosing leaves the block unanswered; the free-text row keeps Enter to open and to take the text; Ctrl-S and Ctrl-N no longer act in the dialog
+- [x] #3 Every Composer prompt (desk answer and notes, steer, top-up note) sends on Enter and adds a line on Option+Enter, a trailing backslash or kitty Shift+Enter; Esc cancels; Ctrl-S no longer sends; the enterSends switch is gone
+- [x] #4 On the top-up prompt the first Enter shows the caps and the next sends the resume confirmed
+- [x] #5 A maintainer message shows as its own block with a blank line before and after and a > prefix on an existing role's background; each answer starts with a ● marker with its fold lines under it, dim
+- [x] #6 The footer and prompt hints, keymap.json and spec.md show the new keys, and a test checks the hints name no ctrl- key
+- [x] #7 ADR 0009's Planning line names the dialog keys and the message style, with one Replaced line for Ctrl-S and Ctrl-N in the dialog and the Composer
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 12:07 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 148,352 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

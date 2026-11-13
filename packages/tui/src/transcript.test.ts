@@ -54,14 +54,16 @@ describe("the planning conversation", () => {
   it("folds thinking and tool lines to one line each, and opens one on demand (#1)", () => {
     expect(foldCount(ANSWER)).toBe(2);
     const shut = transcriptRows(ANSWER, 80, options({ focus: 1 }));
-    expect(text(shut)).toHaveLength(3);
-    expect(text(shut)[0]).toContain("2 thoughts · 0.8k tokens");
-    expect(text(shut)[1]).toMatch(/^▌ .*read /);
-    expect(text(shut)[1]).toContain("⏎ full");
-    expect(text(shut)[2]).toBe("Here is the plan.");
-    expect(shut.map((row) => row.fold)).toEqual([0, 1, undefined]);
+    // The answer's marker, then its folds and text indented under it (DIPO-491).
+    expect(text(shut)).toHaveLength(4);
+    expect(text(shut)[0]).toBe("●");
+    expect(text(shut)[1]).toContain("2 thoughts · 0.8k tokens");
+    expect(text(shut)[2]).toMatch(/^▌ .*read /);
+    expect(text(shut)[2]).toContain("⏎ full");
+    expect(text(shut)[3]).toBe("  Here is the plan.");
+    expect(shut.map((row) => row.fold)).toEqual([undefined, 0, 1, undefined]);
     const opened = transcriptRows(ANSWER, 80, options({ open: new Set([1]) }));
-    expect(text(opened).length).toBeGreaterThan(3);
+    expect(text(opened).length).toBeGreaterThan(4);
     expect(text(opened).join(" ")).not.toContain("⏎ full");
     expect(text(opened).join("").replaceAll(" ", "")).toContain(TARGET);
   });
@@ -209,14 +211,47 @@ describe("the planning conversation", () => {
   });
 });
 
-describe("who wrote a line (DIPO-490)", () => {
+describe("who wrote a line (DIPO-490, DIPO-491)", () => {
   it("renders a model line that starts with you> as the model's text, not as a maintainer message", () => {
     const rows = transcriptRows("you> is how the model starts a line\n", 60, options());
-    expect(text(rows)).toEqual(["you> is how the model starts a line"]);
-    // The maintainer's prefix is a green `ok` span; the model's line has none.
-    expect(rows[0]?.spans.some((span) => span.role === "ok")).toBe(false);
-    const own = transcriptRows([{ kind: "you", text: "a question" }], 60, options());
-    expect(text(own)).toEqual(["you> a question"]);
-    expect(own[0]?.spans.some((span) => span.role === "ok")).toBe(true);
+    expect(text(rows)).toEqual(["● you> is how the model starts a line"]);
+    expect(rows[0]?.spans.some((span) => span.shade === true)).toBe(false);
+  });
+
+  it("shows a maintainer message as its own block: blank rows around it, a > prefix, the shade background (#5)", () => {
+    const parts = [
+      { kind: "model", text: "First answer.\n" },
+      { kind: "you", text: "confirmed right?" },
+      { kind: "model", text: "[thinking] 1.6s ~100 tokens\nYes.\n" },
+    ] as const;
+    const rows = transcriptRows(parts, 60, options());
+    expect(text(rows)).toEqual([
+      "● First answer.",
+      "",
+      "> confirmed right?",
+      "",
+      "●",
+      expect.stringContaining("thinking 1.6s"),
+      "  Yes.",
+    ]);
+    const own = rows[2]?.spans ?? [];
+    expect(own.every((span) => span.shade === true)).toBe(true);
+    // The prefix is on the shade background and keeps a role of roles.json; the answer is not shaded.
+    expect(own[0]).toMatchObject({ text: "> ", role: "acc", shade: true });
+    expect(rows[0]?.spans.some((span) => span.shade === true)).toBe(false);
+    // A fold line sits dim under the marker.
+    expect(rows[5]?.spans.some((span) => span.role === "dim")).toBe(true);
+  });
+
+  it("falls back to an ASCII marker and keeps the blank rows and prefix without colour", () => {
+    const rows = transcriptRows(
+      [
+        { kind: "model", text: "Answer.\n" },
+        { kind: "you", text: "hi" },
+      ],
+      60,
+      options({ bullet: "*" }),
+    );
+    expect(text(rows)).toEqual(["* Answer.", "", "> hi", ""]);
   });
 });

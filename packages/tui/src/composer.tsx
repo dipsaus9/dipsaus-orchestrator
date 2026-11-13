@@ -1,7 +1,7 @@
-// The Composer (0009, DIPO-457): the one multi-line input of the TUI. Enter adds a line, Ctrl-S
-// sends, Esc cancels, Backspace erases, and a paste keeps its line breaks. The planning view
-// (DIPO-479) reads it the chat way instead: Enter sends, and a new line is Shift+Enter,
-// Option+Enter or a backslash before Enter. Other views mount it for answers, notes and steering.
+// The Composer (0009, DIPO-457, DIPO-491): the one multi-line input of the TUI, with the planning
+// input's keys everywhere: Enter sends; a new line is Option+Enter (ESC CR), a backslash before
+// Enter or, where the terminal sends it, kitty's Shift+Enter; Esc cancels; Backspace erases, and a
+// paste keeps its line breaks. Views mount it for the planning input, answers, notes and steering.
 
 import type { Key } from "ink";
 import { Box, Text } from "ink";
@@ -22,12 +22,9 @@ function typed(input: string): string {
   return text;
 }
 
-/**
- * The draft after `key`, or null when the key is not an edit. Enter adds a line; the send key
- * (Ctrl-S) and Esc are not edits.
- */
+/** The draft after `key`, or null when the key is not an edit: Enter, Esc and Ctrl keys are not. */
 export function editDraft(draft: string, input: string, key: Key): string | null {
-  if (key.return) return `${draft}\n`;
+  if (key.return) return null;
   if (key.backspace || key.delete) return draft.slice(0, -1);
   if (key.ctrl || key.meta || key.escape || key.tab) return null;
   if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return null;
@@ -46,10 +43,11 @@ export type ComposerEvent =
 const SHIFT_ENTER_OTHER_KEYS = "[27;2;13~";
 
 /**
- * `enterSends`: Enter sends and a new line is Shift+Enter (kitty `CSI 13;2u` or `CSI 27;2;13~`),
- * Option+Enter (ESC CR) or a trailing backslash before Enter; Ctrl-S is not a send key then.
+ * Reads one key: Enter sends and a new line is Shift+Enter (kitty `CSI 13;2u` or `CSI 27;2;13~`),
+ * Option+Enter (ESC CR) or a trailing backslash before Enter; Esc cancels; anything else is an
+ * edit or not the Composer's.
  */
-function enterSendsKey(draft: string, input: string, key: Key): ComposerEvent {
+export function composerKey(draft: string, input: string, key: Key): ComposerEvent {
   if (key.escape) return { kind: "cancel" };
   if (input === SHIFT_ENTER_OTHER_KEYS) return { kind: "edit", draft: `${draft}\n` };
   if (!key.return) {
@@ -59,20 +57,6 @@ function enterSendsKey(draft: string, input: string, key: Key): ComposerEvent {
   if (key.shift || key.meta) return { kind: "edit", draft: `${draft}\n` };
   if (draft.endsWith("\\")) return { kind: "edit", draft: `${draft.slice(0, -1)}\n` };
   return { kind: "send" };
-}
-
-/** Reads one key: Ctrl-S sends, Esc cancels, anything else is an edit or not the Composer's. */
-export function composerKey(
-  draft: string,
-  input: string,
-  key: Key,
-  enterSends = false,
-): ComposerEvent {
-  if (enterSends) return enterSendsKey(draft, input, key);
-  if (key.escape) return { kind: "cancel" };
-  if (key.ctrl && input === "s") return { kind: "send" };
-  const next = editDraft(draft, input, key);
-  return next === null ? { kind: "other" } : { kind: "edit", draft: next };
 }
 
 /** The draft as rows: the last `rows`, a prompt on the first, the cursor on the last. */

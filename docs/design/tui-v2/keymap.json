@@ -920,16 +920,17 @@
     },
     {
       "id": "composerNewLine",
-      "key": "⏎",
+      "key": "⌥⏎",
       "label": "new line",
       "views": [
         "composer"
       ],
+      "when": "Option+Enter, a trailing backslash before Enter, or Shift+Enter where the terminal sends it (DIPO-491)",
       "priority": 2
     },
     {
       "id": "composerSend",
-      "key": "ctrl-s",
+      "key": "⏎",
       "label": "send",
       "views": [
         "composer"
@@ -1135,6 +1136,8 @@
     "y copy id": "c",
     "P plan": "5",
     "ctrl-s send in the plan": "⏎",
+    "ctrl-s send in a Composer prompt, ctrl-s send in the question dialog": "⏎ (DIPO-491); the dialog sends from its Submit row",
+    "ctrl-n leave the question dialog": "esc",
     "ctrl-e end in the plan": "/end"
   }
 }

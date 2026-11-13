@@ -89,23 +89,34 @@ export function roleStyle(role: Role, display: Display): TextProps {
   return { color: paint.color, ...(paint.faint === true ? { dimColor: true } : {}) };
 }
 
+/** The Ink style that paints a background in the shade role (a maintainer's message block); empty without colour. */
+export function shadeBackground(display: Display): TextProps {
+  if (!display.color) return {};
+  const tone = display.tone ?? "dark";
+  if (display.classical === true) return { backgroundColor: TRUECOLOR.shade[tone] };
+  return { backgroundColor: tone === "dark" ? "black" : "white" };
+}
+
 export interface ColoredProps {
   readonly display: Display;
   /** No colour when undefined: the text is plain, also on a colour display. */
   readonly role?: Role | undefined;
   readonly bold?: boolean;
   readonly underline?: boolean;
+  /** Painted on the shade role's background. */
+  readonly shade?: boolean;
   readonly wrap?: TextProps["wrap"];
   readonly children: ReactNode;
 }
 
 /** `children` in `role`, bold and underlined as asked; plain, bar bold and underline, without colour. */
 export function Colored(props: ColoredProps) {
-  const { display, role, bold, underline, wrap, children } = props;
+  const { display, role, bold, underline, shade, wrap, children } = props;
   const style: TextProps = {
     ...(role === undefined ? {} : roleStyle(role, display)),
     ...(bold === true ? { bold } : {}),
     ...(underline === true ? { underline } : {}),
+    ...(shade === true ? shadeBackground(display) : {}),
   };
   return (
     <Text {...style} {...(wrap === undefined ? {} : { wrap })}>

@@ -1,11 +1,13 @@
 // The dialog of a planning session's question block (DIPO-455, 0022), pure. A block holds one to
 // four questions, each with its purpose, two to four described options and, always, a free answer
 // as the last row. Up and Down move over the rows of the question, Enter (or the row's digit)
-// picks one; on the free row Enter opens a text the maintainer types, and Enter again takes it.
-// Left and Right go to the previous and next question, to change an answer. Ctrl-S sends the
-// answers once every question has one (`planning.answer`); Ctrl-N leaves the block unanswered to
-// write a plain message instead. The free answer is edited by the Composer's `editDraft` (DIPO-457)
-// on one line: Enter takes it. The footer keys come from the key registry (`FOOTER_KEYS`).
+// picks one and moves to the next unanswered question; on the free row Enter opens a text the
+// maintainer types, and Enter again takes it (Esc goes back to the options). After the last
+// question a Submit row lists every answer, and Enter on it sends them (`planning.answer`). Left
+// and Right go to the previous and next question, to change an answer. Esc while choosing leaves
+// the block unanswered to write a plain message instead (DIPO-491). The free answer is edited by
+// the Composer's `editDraft` (DIPO-457) on one line. The footer keys come from the key registry
+// (`FOOTER_KEYS`).
 
 import type { PlanningQuestionBlock } from "@dipsaus-orchestrator/contract";
 import type { Key } from "ink";
@@ -63,15 +65,26 @@ function rowOf(block: PlanningQuestionBlock, state: DialogState, index: number):
 export const dialogComplete = (state: DialogState): boolean =>
   state.answers.every((answer) => answer !== null);
 
+/** True on the Submit row, the step after the last question. */
+export const dialogOnSubmit = (state: DialogState): boolean => state.index >= state.answers.length;
+
 /** The answers to send; empty until `dialogComplete`. */
 export function dialogAnswers(state: DialogState): DialogAnswer[] {
   return state.answers.flatMap((answer) => (answer === null ? [] : [answer]));
 }
 
-/** Answers the question under the cursor and moves to the next one, if any. */
+/** Answers the question under the cursor and moves to the next unanswered one, else to Submit. */
 function pick(block: PlanningQuestionBlock, state: DialogState, answer: DialogAnswer): DialogState {
   const answers = state.answers.map((old, i) => (i === state.index ? answer : old));
-  const next = state.index + 1 < block.questions.length ? state.index + 1 : state.index;
+  const count = block.questions.length;
+  let next = count;
+  for (let step = 1; step < count; step += 1) {
+    const candidate = (state.index + step) % count;
+    if (answers[candidate] === null) {
+      next = candidate;
+      break;
+    }
+  }
   const moved = { ...state, answers, typing: null };
   return { ...moved, index: next, cursor: rowOf(block, moved, next) };
 }
@@ -93,23 +106,30 @@ function typingKey(block: PlanningQuestionBlock, state: DialogState, input: stri
   return { state: { ...state, typing: next.replace(/\n/g, " ") }, action: null } as const;
 }
 
-/** The keys that move over the rows and questions or pick a row. */
+/** The keys that move over the rows and questions, pick a row or send from Submit. */
 function rowKey(
   block: PlanningQuestionBlock,
   state: DialogState,
   input: string,
   key: Key,
 ): DialogStep | null {
+  const count = block.questions.length;
   const free = block.questions[state.index]?.options.length ?? 0;
   const go = (index: number): DialogStep => ({
     state: { ...state, index, cursor: rowOf(block, state, index) },
     action: null,
   });
   const move = (cursor: number): DialogStep => ({ state: { ...state, cursor }, action: null });
+  if (key.leftArrow) return go(Math.max(0, state.index - 1));
+  if (key.rightArrow) return go(Math.min(count, state.index + 1));
+  if (dialogOnSubmit(state)) {
+    if (!key.return) return null;
+    return dialogComplete(state)
+      ? { state, action: "send" }
+      : { state, action: null, message: "answer every question first" };
+  }
   if (key.upArrow) return move(Math.max(0, state.cursor - 1));
   if (key.downArrow) return move(Math.min(free, state.cursor + 1));
-  if (key.leftArrow) return go(Math.max(0, state.index - 1));
-  if (key.rightArrow) return go(Math.min(block.questions.length - 1, state.index + 1));
   const row = key.return ? state.cursor : /^[1-9]$/.test(input) ? Number(input) - 1 : null;
   if (row === null || row > free) return null;
   if (row === free) return { state: { ...state, cursor: row, typing: "" }, action: null };
@@ -126,15 +146,10 @@ export function dialogKey(
   input: string,
   key: Key,
 ): DialogStep | null {
-  if (block.questions[state.index] === undefined) return null;
+  if (state.index > block.questions.length) return null;
   if (state.typing !== null) return typingKey(block, state, input, key);
-  if (key.ctrl && input === "s") {
-    return dialogComplete(state)
-      ? { state, action: "send" }
-      : { state, action: null, message: "answer every question first" };
-  }
-  if (key.ctrl && input === "n") return { state, action: "dismiss" };
-  if (key.ctrl || key.meta || key.escape) return null;
+  if (key.escape) return { state, action: "dismiss" };
+  if (key.ctrl || key.meta) return null;
   return rowKey(block, state, input, key);
 }
 
@@ -144,6 +159,34 @@ function answerWords(block: PlanningQuestionBlock, index: number, state: DialogS
   if (answer === null || answer === undefined) return "not answered";
   if ("free" in answer) return `free: ${answer.free}`;
   return block.questions[index]?.options[answer.option]?.label ?? "?";
+}
+
+/** The answer of every question, so a choice is seen before sending and changed with Left and Right. */
+function answersRows(
+  block: PlanningQuestionBlock,
+  state: DialogState,
+  width: number,
+  mark: (on: boolean) => Span,
+  met: string,
+): Span[][] {
+  const rows: Span[][] = [[{ text: "answers", role: "dim" }]];
+  for (const [i, other] of block.questions.entries()) {
+    const words = answerWords(block, i, state);
+    const done = state.answers[i] !== null;
+    rows.push(
+      ...wrapSpans(
+        [
+          { text: other.header, role: i === state.index ? "hi" : "dim" },
+          { text: ": " },
+          { text: words, role: done ? "ok" : "dim" },
+          ...(done ? [{ text: ` ${met}`, role: "ok" as const }] : []),
+        ],
+        width,
+        { prefix: [mark(i === state.index), { text: `${i + 1} ` }], indent: 5 },
+      ),
+    );
+  }
+  return rows;
 }
 
 /**
@@ -159,11 +202,27 @@ export function dialogRows(
   columns: number,
   display: Display,
 ): Span[][] {
-  const question = block.questions[state.index];
-  if (question === undefined) return [];
   const { dot, bar, met } = glyphs(display.ascii);
   const width = Math.max(10, columns - 2);
   const mark = (on: boolean): Span => ({ text: on ? `${bar} ` : "  ", role: "acc" });
+  const question = block.questions[state.index];
+  if (question === undefined) {
+    // The Submit row: every answer, then the row that sends them.
+    return [
+      [
+        {
+          text: `submit ${dot} ${state.answers.filter((a) => a !== null).length} of ${block.questions.length} answered`,
+          role: "dim",
+        },
+      ],
+      ...answersRows(block, state, width, mark, met),
+      [
+        mark(true),
+        { text: "Submit", role: "hi", bold: true },
+        { text: " (Enter sends the answers; ← changes one)", role: "dim" },
+      ],
+    ];
+  }
   const answer = state.answers[state.index];
   const chosen = answer !== null && answer !== undefined && "option" in answer ? answer.option : -1;
   const answered = state.answers.filter((a) => a !== null).length;
@@ -216,22 +275,6 @@ export function dialogRows(
           indent: 5,
         })),
   );
-  rows.push([{ text: "answers", role: "dim" }]);
-  for (const [i, other] of block.questions.entries()) {
-    const words = answerWords(block, i, state);
-    const done = state.answers[i] !== null;
-    rows.push(
-      ...wrapSpans(
-        [
-          { text: other.header, role: i === state.index ? "hi" : "dim" },
-          { text: ": " },
-          { text: words, role: done ? "ok" : "dim" },
-          ...(done ? [{ text: ` ${met}`, role: "ok" as const }] : []),
-        ],
-        width,
-        { prefix: [mark(i === state.index), { text: `${i + 1} ` }], indent: 5 },
-      ),
-    );
-  }
+  rows.push(...answersRows(block, state, width, mark, met));
   return rows;
 }
