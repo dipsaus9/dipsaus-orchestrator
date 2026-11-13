@@ -1,7 +1,8 @@
 // The record of a planning session (0007, DIPO-448): one `planning_records` row per entry, in
 // order, written by code. The goal, each confirmed choice (question and answer), each filed or
 // edited story and each open question are the maintainer's decisions; `started` and `ended` mark
-// the model sessions the planning session ran in. A planning session is named by the run id of
+// the model sessions the planning session ran in. Each maintainer message and the last answer of
+// each model session are kept too (DIPO-489), so a fresh session can say where the talk stopped. A planning session is named by the run id of
 // its first model session. A fresh model session's first message is built from the record
 // (`planningRecordText`), so no decision lives only in a model context.
 //
@@ -9,7 +10,15 @@
 
 import type { OfficeHandle } from "../db/office";
 
-export type PlanningEntryKind = "goal" | "choice" | "story" | "question" | "started" | "ended";
+export type PlanningEntryKind =
+  | "goal"
+  | "choice"
+  | "story"
+  | "question"
+  | "started"
+  | "ended"
+  | "message"
+  | "answer";
 
 /** One entry as stored. */
 export interface PlanningEntry {
@@ -24,16 +33,22 @@ export interface PlanningEntry {
   readonly subject: string | null;
   /** The number of the proposal a `story` entry came from. */
   readonly proposal: number | null;
-  /** `goal`: the goal; `choice`: the answer; `story`: `filed` or `edited`; `question`: the question; `ended`: the reason. */
+  /** `message` and `answer`: the end of the model session's stored output when it was made. */
+  readonly outputOffset: number | null;
+  /** `message`: the maintainer's text; `answer`: the model's last answer of its session; `goal`: the goal; `choice`: the answer; `story`: `filed` or `edited`; `question`: the question; `ended`: the reason. */
   readonly text: string;
   readonly at: number;
 }
 
 /** What a caller adds; the sequence number is the next one of the session. */
-export type NewPlanningEntry = Omit<PlanningEntry, "seq" | "run" | "subject" | "proposal"> & {
+export type NewPlanningEntry = Omit<
+  PlanningEntry,
+  "seq" | "run" | "subject" | "proposal" | "outputOffset"
+> & {
   readonly run?: string;
   readonly subject?: string;
   readonly proposal?: number;
+  readonly outputOffset?: number;
 };
 
 interface Row {
@@ -42,6 +57,7 @@ interface Row {
   run_id: string | null;
   subject: string | null;
   proposal: number | null;
+  output_offset: number | null;
   text: string;
   at: number;
 }
@@ -59,8 +75,8 @@ export function addPlanningEntry(
   );
   const seq = next?.seq ?? 1;
   office.run(
-    `insert into planning_records (office_id, session_id, seq, kind, run_id, subject, proposal, text, at)
-     values ($office_id, $session, $seq, $kind, $run, $subject, $proposal, $text, $at)`,
+    `insert into planning_records (office_id, session_id, seq, kind, run_id, subject, proposal, output_offset, text, at)
+     values ($office_id, $session, $seq, $kind, $run, $subject, $proposal, $offset, $text, $at)`,
     {
       session,
       seq,
@@ -68,6 +84,7 @@ export function addPlanningEntry(
       run: entry.run ?? null,
       subject: entry.subject ?? null,
       proposal: entry.proposal ?? null,
+      offset: entry.outputOffset ?? null,
       text: entry.text,
       at: entry.at,
     },
@@ -79,7 +96,7 @@ export function addPlanningEntry(
 export function readPlanningRecord(office: OfficeHandle, session: string): PlanningEntry[] {
   return office
     .all<Row>(
-      `select seq, kind, run_id, subject, proposal, text, at from planning_records
+      `select seq, kind, run_id, subject, proposal, output_offset, text, at from planning_records
         where office_id = $office_id and session_id = $session order by seq`,
       { session },
     )
@@ -89,9 +106,43 @@ export function readPlanningRecord(office: OfficeHandle, session: string): Plann
       run: row.run_id,
       subject: row.subject,
       proposal: row.proposal,
+      outputOffset: row.output_offset,
       text: row.text,
       at: row.at,
     }));
+}
+
+/**
+ * Keeps `answer` as the last answer of the model session `run`: an older answer entry of that
+ * run is dropped, so the record holds one answer per model session.
+ */
+export function recordLastAnswer(
+  office: OfficeHandle,
+  session: string,
+  entry: {
+    readonly run: string;
+    readonly text: string;
+    readonly outputOffset: number;
+    readonly at: number;
+  },
+): void {
+  office.run(
+    `delete from planning_records
+      where office_id = $office_id and session_id = $session and kind = 'answer' and run_id = $run`,
+    { session, run: entry.run },
+  );
+  addPlanningEntry(office, session, { kind: "answer", ...entry });
+}
+
+/** The end of the stored worker output of `run`; 0 before any. */
+export function outputEndOf(office: OfficeHandle, run: string): number {
+  return (
+    office.get<{ end: number | null }>(
+      `select max(to_offset) as end from output_chunks
+        where office_id = $office_id and run_id = $run and source = 'worker'`,
+      { run },
+    )?.end ?? 0
+  );
 }
 
 /** The session a model session `run` belongs to; null for a run no record names. */
@@ -215,7 +266,8 @@ export function filedStoriesText(stories: readonly FiledStory[]): string {
 /**
  * Pure: the record as text for a fresh model session's first message: the decisions, the filed
  * and edited stories (with `filed`, each with its state and text) and the open questions, in the
- * order they were recorded.
+ * order they were recorded. A fresh model session of a session that ran one before also gets a
+ * line that it continues it, with the maintainer's last message and the last answer (DIPO-489).
  */
 export function planningRecordText(
   entries: readonly PlanningEntry[],
@@ -233,10 +285,30 @@ export function planningRecordText(
         ? []
         : [filedStoriesText(filed)];
   const questions = openQuestions(entries).map((question) => `- ${question}`);
+  const continued = entries.filter((entry) => entry.kind === "started").length > 1;
+  const message = entries.findLast((entry) => entry.kind === "message");
+  const answer = entries.findLast((entry) => entry.kind === "answer");
   return [
     section("Decisions the maintainer confirmed", decisions, "None yet."),
     section("Stories filed or edited", stories, "None yet."),
     section("Open questions", questions, "None."),
+    ...(continued
+      ? [
+          [
+            "This continues the planning session: the model session before this one ended, and you do not remember it. Pick up the conversation where it stopped.",
+            ...(message === undefined
+              ? []
+              : [
+                  `The maintainer's last message (${new Date(message.at).toISOString()}):\n${message.text}`,
+                ]),
+            ...(answer === undefined
+              ? []
+              : [
+                  `The previous model session's last answer (${new Date(answer.at).toISOString()}):\n${answer.text}`,
+                ]),
+          ].join("\n\n"),
+        ]
+      : []),
   ].join("\n\n");
 }
 

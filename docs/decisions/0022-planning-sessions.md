@@ -15,7 +15,7 @@ The rituals of M3 (0003) are one kind of session, the **planning session**: the 
 - **Model.** Opus by default, an office setting like the reviewer's model. The model proxy counts its usage like any session's (0008), with no run cap; spend shows live in the TUI, and the daily and monthly spend alerts still apply.
 - **Place.** One planning session per office at a time, beside the runs. It holds no run slot (0002).
 - **Begin and end.** The maintainer starts a session with a kind and a goal and ends it explicitly. Closing the TUI does not end it: it waits and is shown again when the TUI opens. A session idle for a day ends by itself. What was confirmed is already filed when a session ends.
-- **The decision record.** dipo's code stores every confirmed choice, filed or edited story and open question of a session in the database. When Claude's context nears full, or a session continues after its Claude session ended, dipo starts a fresh Claude session whose first message code builds from the record: the goal, the decisions, the filed stories and the open questions. The TUI says the session continued in a fresh session.
+- **The decision record.** dipo's code stores every confirmed choice, filed or edited story and open question of a session in the database, with each message the maintainer sent (a typed message, or the sent answers of a question block) and the last answer of each Claude session, each with its time, run and output offset. A Claude session's context counts as nearly full when its last main-agent message (subagents left out) reaches the limit, as input, cache read, cache creation and output tokens, or when the session compacted; spend over the session is not the measure, since each prompt-cache rewrite after a pause adds to it. When the context nears full, or a session continues after its Claude session ended, dipo starts a fresh Claude session whose first message code builds from the record: the goal, the decisions, the filed stories and the open questions, and it says it continues the session and carries the maintainer's last message and the last answer, so the fresh session picks up the last exchange. The TUI says the session continued in a fresh session.
 
 ## 2. What a session files
 
@@ -48,4 +48,5 @@ This ADR governs the M3 stories that build it. Each of those stories rewrites th
 
 ## Replaced
 
+- A context counted as nearly full by the tokens spent over the Claude session, and a fresh session's first message built from the decisions alone (2026-11-13). Replaced by the size of the last main-agent message, and a first message that also carries the last exchange.
 - Every incoming idea filed as a draft by itself and triaged by the maintainer (2026-11-05). Replaced by an audit of each idea, by code and a Claude session, and a proposed user story on the desk that the maintainer accepts as a draft (2026-11-06).

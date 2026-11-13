@@ -18,6 +18,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { CommandError } from "../../src/commands/errors";
 import { uncontained } from "../../src/box/firewall";
 import { REVIEW_CODE_DIR } from "../../src/box/review-box";
+import * as usageRecords from "../../src/records/usage";
 import { proxiedUsageLedger } from "../../src/records/proxied-usage";
 import { insertRun } from "../../src/records/run-records";
 import { freeSlots, placeHolders, slotHolders } from "../../src/run-state/places";
@@ -30,6 +31,8 @@ import { ASIDE_REFUSED_NOTICE } from "../../src/run/asides";
 import {
   answerLines,
   BASE_COMMIT,
+  compactLine,
+  subagentLine,
   commandContext,
   initLine,
   planningRun,
@@ -383,5 +386,158 @@ describe("a planning session's asides (DIPO-452)", () => {
       );
       expect(refused).toHaveLength(1);
       expect(String(refused[0]?.delta["text"])).toContain("does not match its schema");
+    }));
+});
+
+/** The usage of a message whose context is `total` tokens, mostly cache. */
+const sized = (total: number, cacheCreate = 1_000) => ({
+  input: 10,
+  output: 100,
+  cacheCreate,
+  cacheRead: total - 110 - cacheCreate,
+});
+
+const handedOver = (w: PlanningWorld) => planningEntries(w, "planning.continued");
+
+/** Sends a message and waits until its answer ended the turn. */
+async function ask(w: PlanningWorld, text: string) {
+  const before = w.sessions.view(w.office.officeId as never);
+  await w.sessions.message(commandContext(w), { text });
+  await until(() => {
+    w.t.clock.advance(1_000);
+    const view = w.sessions.view(w.office.officeId as never);
+    return view === null || view.run !== before?.run || view.turns > (before?.turns ?? 0);
+  });
+}
+
+describe("when a planning session hands over (DIPO-489)", () => {
+  const LIMIT = 100_000;
+  const HOUR_MS = 60 * MINUTE;
+
+  const withLimit = (fn: (w: PlanningWorld) => Promise<void>) =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        await fn(planningWorld(t, dir, { contextTokens: LIMIT }));
+      } finally {
+        t.state.close();
+      }
+    });
+
+  it("does not hand over when the spend passes the limit through cache rewrites but the last message stays under it, and hands over when the last message reaches it", () =>
+    withLimit(async (w) => {
+      // Each answer after a pause writes about 60k tokens of cache again: the sum passes the limit.
+      w.answerUsage = (n) => (n === 5 ? sized(LIMIT) : sized(60_110, 60_000));
+      const { run } = await started(w);
+      for (const text of ["one", "two", "three"]) {
+        w.t.clock.advance(6 * MINUTE);
+        await ask(w, text);
+      }
+      const used = w.office.get<{ total: number }>(
+        "select sum(input + output + cache_create) as total from usage_totals where office_id = $office_id and run_id = $run",
+        { run },
+      );
+      expect(used?.total).toBeGreaterThan(LIMIT);
+      expect(handedOver(w)).toHaveLength(0);
+      expect(w.plans).toHaveLength(1);
+
+      await ask(w, "four");
+      await until(() => {
+        w.t.clock.advance(1_000);
+        return w.plans.length === 2;
+      });
+      expect(handedOver(w).map((entry) => entry.delta)).toMatchObject([
+        { previous: run, reason: "context-full" },
+      ]);
+    }));
+
+  it("counts no message of a subagent, and a compaction still counts as full", () =>
+    withLimit(async (w) => {
+      w.before = (n) => (n === 2 ? subagentLine("msg-sub", sized(5 * LIMIT)) : "");
+      await started(w);
+      await ask(w, "one");
+      expect(handedOver(w)).toHaveLength(0);
+      expect(w.plans).toHaveLength(1);
+
+      w.before = (n) => (n === 3 ? compactLine : "");
+      await ask(w, "two");
+      await until(() => {
+        w.t.clock.advance(1_000);
+        return w.plans.length === 2;
+      });
+      expect(handedOver(w).map((entry) => entry.delta)).toMatchObject([{ reason: "context-full" }]);
+    }));
+
+  it("has one measure of the context: the size of one message, and no cumulative sum", () => {
+    expect(usageRecords).not.toHaveProperty("contextNearFull");
+    expect(usageRecords.contextSize({ input: 1, output: 2, cacheCreate: 4, cacheRead: 8 })).toBe(
+      15,
+    );
+  });
+
+  it("measures the context of a boxed session whose usage events are proxied and stored nowhere", () =>
+    withLimit(async (w) => {
+      w.answerUsage = (n) => (n === 3 ? sized(LIMIT) : sized(LIMIT - 1));
+      const { run } = await started(w);
+      const stored = () =>
+        w.office.get<{ n: number }>(
+          "select count(*) as n from usage_messages where office_id = $office_id and run_id = $run",
+          { run },
+        )?.n;
+      await ask(w, "one");
+      // The proxy counted the tokens; the stream's own usage events added nothing.
+      expect(stored()).toBe(0);
+      expect(handedOver(w)).toHaveLength(0);
+      await ask(w, "two");
+      await until(() => {
+        w.t.clock.advance(1_000);
+        return w.plans.length === 2;
+      });
+      expect(stored()).toBe(0);
+      expect(handedOver(w).map((entry) => entry.delta)).toMatchObject([
+        { previous: run, reason: "context-full" },
+      ]);
+    }));
+
+  it("continues the conversation in the fresh session, and logs the handover once", () =>
+    withLimit(async (w) => {
+      w.answerText = (n) => `Answer text ${n}.`;
+      w.answerUsage = (n) => (n === 3 ? sized(LIMIT) : sized(5_000));
+      const { run } = await started(w);
+      await ask(w, "First question.");
+      w.t.clock.advance(HOUR_MS);
+      await ask(w, "Second question, the last one.");
+      await until(() => {
+        w.t.clock.advance(1_000);
+        return w.plans.length === 2;
+      });
+      await until(() => w.sessions.view(w.office.officeId as never)?.state === "waiting");
+      const first = JSON.parse(w.plans[1]?.stdin[0] ?? "{}") as { message: { content: string } };
+      const text = first.message.content;
+      expect(text).toContain("This continues the planning session");
+      expect(text).toContain("Second question, the last one.");
+      expect(text).not.toContain("First question.");
+      expect(text).toContain("Answer text 3.");
+
+      const view = w.sessions.view(w.office.officeId as never);
+      expect(view?.run).not.toBe(run);
+      expect(view?.continuedAt).toBeDefined();
+      expect(view?.continuedAt).toBe(view?.startedAt);
+      const lines = w.infos.filter((info) => info.fields["previous"] === run);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.fields).toMatchObject({
+        office: w.office.officeId,
+        previous: run,
+        run: view?.run,
+        reason: "context-full",
+        contextTokens: LIMIT,
+      });
+    }));
+
+  it("shows no continuedAt on a session that never continued", () =>
+    withLimit(async (w) => {
+      await started(w);
+      expect(w.sessions.view(w.office.officeId as never)?.continuedAt).toBeUndefined();
+      expect(w.infos).toHaveLength(0);
     }));
 });

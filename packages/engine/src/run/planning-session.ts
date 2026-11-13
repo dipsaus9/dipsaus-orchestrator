@@ -29,9 +29,10 @@
 //   in its answer. Each valid block is held as an idea and audited when it arrives (`onIdea`); an
 //   invalid one is refused with an `engine.notice` that says why (`asides.ts`).
 // - The record (DIPO-448, 0007): `planning_records` keeps the session's goal, each confirmed choice,
-//   each filed or edited story and each open question (`record`), and when each model session
-//   started and ended. A planning session is named by the run of its first model session. When a
-//   turn ends and the context nears full (`contextNearFull`), dipo ends that model session
+//   each filed or edited story and each open question (`record`), the maintainer's messages and
+//   each model session's last answer (DIPO-489), and when each model session started and ended. A planning session is named by the run of its first model session. When a
+//   turn ends and the context nears full (the last main-agent message's `contextSize` reaches the
+//   limit, or the session compacted; read from the stream's usage events, DIPO-489), dipo ends that model session
 //   (`context-full`) and starts a fresh one, with a new run, whose first message code builds from
 //   the record and the facts of the first message; `planning.continued` says so. A session whose
 //   model session ended by idle, a daemon stop or its exit continues the same way on
@@ -89,7 +90,6 @@ import {
   planningEdit,
   planningEnd,
   planningMessage,
-  type LaneFlush,
   type PlanningProposal,
   type PlanningProposalView,
   type PlanningReadyView,
@@ -126,15 +126,17 @@ import {
   type NewPlanningEntry,
   type FiledStory,
   filedStoriesText,
+  outputEndOf,
   planningRecordText,
   planningSessionOfRun,
   readPlanningRecord,
+  recordLastAnswer,
 } from "../records/planning-record";
 import { PLANNER_ROLE } from "../records/caps";
 import type { RunEnd } from "../records/lifecycle";
 import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../records/run-records";
 import { activeSignals } from "../records/signals";
-import { contextNearFull, readUsage } from "../records/usage";
+import { contextSize, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
 import { draftOrigins } from "../records/ideas";
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
@@ -207,7 +209,7 @@ export const PLANNING_SIGKILL_AFTER_MS = 30_000;
 export const PLANNING_RECOVERY_STEP = "planning-recover";
 /** The most story runs the first message lists. */
 export const PLANNING_RECENT_RUNS = 10;
-/** The counted tokens of a model session from which its context counts as nearly full. */
+/** The size of a model session's last main-agent message from which its context counts as nearly full. */
 export const PLANNING_CONTEXT_TOKENS = 150_000;
 
 const HOUR_MS = 60 * 60_000;
@@ -367,7 +369,7 @@ export interface PlanningSessionsDeps {
   readonly planningFile?: (git: OfficeGit, commit: string) => Promise<string | null>;
   /** The base branch's tip the copy holds; `baseCommit` by default. */
   readonly baseCommit?: (git: OfficeGit) => Promise<string>;
-  /** The counted tokens from which a model session's context nears full; `PLANNING_CONTEXT_TOKENS`. */
+  /** The context size from which a model session's context nears full; `PLANNING_CONTEXT_TOKENS`. */
   readonly contextTokens?: number;
   readonly runtimeDir: string;
   /** dipo's temp root: the run temp directories. */
@@ -381,6 +383,8 @@ export interface PlanningSessionsDeps {
   /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
   readonly onIdea?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /** Each handover to a fresh model session is logged here (DIPO-489). */
+  readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 export type { PlanningGate };
@@ -389,6 +393,8 @@ export type { PlanningGate };
 interface Continued {
   readonly previous: RunId;
   readonly reason: PlanningEndReason;
+  /** The context size that ended `previous` as full, when it was measured (DIPO-489). */
+  readonly size?: number;
 }
 
 /** One open planning session of this daemon. */
@@ -408,6 +414,14 @@ interface Open {
   state: PlanningState;
   turns: number;
   lastOutputAt: number | null;
+  /**
+   * The context size of the last main-agent message (`contextSize`), from the stream's usage
+   * events whether or not they are stored (DIPO-489); null before the first. Not kept across a
+   * daemon restart: the model session continues as a fresh one then.
+   */
+  contextTokens: number | null;
+  /** True once the model session compacted its context; it then counts as full. */
+  compacted: boolean;
   /** Why it ends, once its end was asked for or decided. */
   ending: { readonly reason: PlanningEndReason; readonly detail?: string } | null;
   idle: ReturnType<Clock["setTimeout"]> | null;
@@ -427,8 +441,6 @@ interface Open {
   autoRefusals: number;
   /** The `[dipo]` lines the next maintainer message carries before it. */
   notes: string[];
-  /** The background flushes of confirms and Ready steps, one after the other in journal order (DIPO-492). */
-  flushing: Promise<void>;
   /** The list of filed stories the session last got (`filedSignature`); null before any (DIPO-480). */
   filedSeen: string | null;
   /** The base commit dipo first saw each story on the base at, by story id (DIPO-480). */
@@ -508,8 +520,6 @@ interface OpenProposal {
   state: "open" | "confirmed" | "declined";
   edited: boolean;
   changes: readonly PlannedChange[];
-  /** Why the background flush of its changes failed; they stay journaled (DIPO-492). */
-  failure?: string | undefined;
   readonly at: number;
 }
 
@@ -740,9 +750,32 @@ export class PlanningSessions {
     ) {
       throw notOpen(`${open.run} could not be reached`);
     }
+    this.#recordMessage(open, text);
     if (filing !== null) open.filedSeen = filing.signature;
     open.notes = open.notes.slice(notes.length);
     open.autoRefusals = 0;
+  }
+
+  /** Keeps the maintainer's message in the record, with the model session's output offset (DIPO-489). */
+  #recordMessage(open: Open, text: string): void {
+    const { handle } = open;
+    const at = this.#deps.clock.now();
+    try {
+      handle.immediate(() =>
+        addPlanningEntry(handle, open.session, {
+          kind: "message",
+          run: open.run,
+          text,
+          outputOffset: outputEndOf(handle, open.run),
+          at,
+        }),
+      );
+    } catch (error) {
+      this.#deps.warn?.("recording a planning message failed", {
+        run: open.run,
+        reason: messageOf(error),
+      });
+    }
   }
 
   /** `planning.answer`: the answers to a block of questions go to the session as one message. */
@@ -819,78 +852,35 @@ export class PlanningSessions {
       );
     }
     let changes: PlannedChange[];
-    if (item.failure !== undefined && this.#waiting(lane, item.changes)) {
-      // The flush failed and the changes stay journaled: a confirm again flushes them, it does not
-      // journal them twice.
-      changes = [...item.changes];
-    } else {
-      try {
-        changes = await this.#journal(open, item, lane);
-      } catch (error) {
-        if (!(error instanceof PlanningRefusedError)) throw error;
-        throw new CommandError("planning.notFiled", error.message, { proposal: item.n });
-      }
+    try {
+      changes = await this.#journal(open, item, lane);
+    } catch (error) {
+      if (!(error instanceof PlanningRefusedError)) throw error;
+      throw new CommandError("planning.notFiled", error.message, { proposal: item.n });
     }
     item.state = "confirmed";
     item.changes = changes;
-    item.failure = undefined;
     this.#append(open, () => [this.#updated(open)]);
-    // The answer comes once the changes are journaled; the lane's flush runs after it (DIPO-492).
-    this.#flushLater(
-      open,
-      lane,
-      changes.at(-1),
-      () => {
-        const view = this.#proposalView(open, item);
-        const stories = view.stories ?? [];
-        open.notes.push(
-          view.state === "failed"
-            ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
-            : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
-        );
-      },
-      (reason) => {
-        item.failure = reason;
-      },
-    );
+    const last = changes.at(-1);
+    const flush = last === undefined ? null : await lane.flush(last);
     const view = this.#proposalView(open, item);
+    const stories = view.stories ?? [];
+    open.notes.push(
+      view.state === "failed"
+        ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
+        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
+    );
+    this.#append(open, () => [this.#updated(open)]);
     return {
-      result: { run: open.run, proposal: item.n, state: view.state, stories: view.stories ?? [] },
+      result: {
+        run: open.run,
+        proposal: item.n,
+        state: view.state,
+        stories,
+        ...(flush === null ? {} : { flush }),
+      },
       changed: true,
     };
-  }
-
-  /** True while every change is journaled and not yet applied. */
-  #waiting(lane: PlanningLane, changes: readonly PlannedChange[]): boolean {
-    return changes.every((change) => lane.outcomeOf(change)?.outcome === "waiting");
-  }
-
-  /**
-   * Flushes the lane after the command answered and after the flushes before it, so the changes
-   * apply in journal order (DIPO-492). `ended` runs once the flush ended, before the view is
-   * appended; `failed` gets the reason of a flush that failed.
-   */
-  #flushLater(
-    open: Open,
-    lane: PlanningLane,
-    last: PlannedChange | undefined,
-    ended: () => void,
-    failed: (reason: string) => void,
-  ): void {
-    if (last === undefined) return;
-    open.flushing = open.flushing.then(async () => {
-      let flush: LaneFlush | null;
-      try {
-        flush = await lane.flush(last);
-      } catch (error) {
-        // A failed flush put its own notice on the office and leaves the changes journaled.
-        flush = { state: "failed", reason: messageOf(error) };
-      }
-      if (flush?.state === "failed") failed(flush.reason);
-      if (open.settled) return;
-      ended();
-      this.#append(open, () => [this.#updated(open)]);
-    });
   }
 
   // ---- the final confirm (DIPO-451) -------------------------------------------------------------
@@ -949,18 +939,14 @@ export class PlanningSessions {
       },
     );
     this.#append(open, () => [this.#updated(open)]);
-    this.#flushLater(
-      open,
-      lane,
-      last,
-      () => {},
-      () => {},
-    );
+    const flush = last === undefined ? null : await lane.flush(last);
+    this.#append(open, () => [this.#updated(open)]);
     return {
       result: {
         run: open.run,
         queued,
         refused,
+        ...(flush === null ? {} : { flush }),
       },
       changed: true,
     };
@@ -1020,27 +1006,12 @@ export class PlanningSessions {
     item.proposal = checked.proposal;
     item.edited = true;
     item.state = "open";
-    this.#letGo(open, item);
+    item.changes = [];
     open.notes.push(
       `[dipo] The maintainer edited proposal ${item.n}; it now reads: ${JSON.stringify(checked.proposal)}`,
     );
     this.#append(open, () => [this.#updated(open)]);
     return { result: { run: open.run, proposal: item.n }, changed: true };
-  }
-
-  /**
-   * Lets go of the changes of `item` for an edit or a decline: those a failed flush left journaled
-   * are withdrawn, so they are never applied for a proposal that is not confirmed (DIPO-492).
-   */
-  #letGo(open: Open, item: OpenProposal): void {
-    const lane = this.#deps.lane?.(open.office);
-    if (item.failure !== undefined && lane !== undefined) {
-      for (const change of item.changes) {
-        if (lane.outcomeOf(change)?.outcome === "waiting") lane.withdraw(change);
-      }
-    }
-    item.changes = [];
-    item.failure = undefined;
   }
 
   /** `planning.decline`: nothing is filed for the proposal. */
@@ -1055,7 +1026,7 @@ export class PlanningSessions {
       throw proposalClosed(item, "it was confirmed and is filed through the backlog lane");
     }
     item.state = "declined";
-    this.#letGo(open, item);
+    item.changes = [];
     open.notes.push(
       `[dipo] The maintainer declined proposal ${item.n}; nothing was filed for it. Do not propose it again unless they ask.`,
     );
@@ -1318,6 +1289,21 @@ export class PlanningSessions {
     open.answer = [];
     if (text === "") return;
     const at = this.#deps.clock.now();
+    try {
+      open.handle.immediate(() =>
+        recordLastAnswer(open.handle, open.session, {
+          run: open.run,
+          text,
+          outputOffset: outputEndOf(open.handle, open.run),
+          at,
+        }),
+      );
+    } catch (error) {
+      this.#deps.warn?.("recording a planning answer failed", {
+        run: open.run,
+        reason: messageOf(error),
+      });
+    }
     const refused: (readonly string[])[] = [];
     const refusedQuestions: (readonly string[])[] = [];
     for (const read of readQuestionBlocks(text)) {
@@ -1383,12 +1369,6 @@ export class PlanningSessions {
       if (closed !== undefined) {
         state = "failed";
         detail = closed.notice ?? "the backlog lane closed it";
-      } else if (
-        item.failure !== undefined &&
-        outcomes.some((outcome) => outcome?.outcome === "waiting")
-      ) {
-        state = "failed";
-        detail = item.failure;
       } else {
         // A change the journal no longer has was applied and pruned.
         state = outcomes.every((outcome) => outcome === undefined || outcome.outcome === "applied")
@@ -1418,14 +1398,6 @@ export class PlanningSessions {
     const reason = open.ending?.reason ?? "maintainer";
     await this.#stop(open, { reason });
     return { result: { run: open.run, ended: reason }, changed: true };
-  }
-
-  /**
-   * Resolves once the background flushes the office's open session started so far have ended
-   * (DIPO-492); at once without a session.
-   */
-  async flushed(office: OfficeId): Promise<void> {
-    await this.#open.get(office)?.flushing;
   }
 
   /**
@@ -1524,6 +1496,8 @@ export class PlanningSessions {
       state: "starting",
       turns: 0,
       lastOutputAt: null,
+      contextTokens: null,
+      compacted: false,
       ending: null,
       idle: null,
       grace: null,
@@ -1536,7 +1510,6 @@ export class PlanningSessions {
       refusals: [],
       autoRefusals: 0,
       notes: [],
-      flushing: Promise.resolve(),
       filedSeen: null,
       mergedSince: new Map(),
     };
@@ -1609,6 +1582,17 @@ export class PlanningSessions {
   /** `planning.started`, and `planning.continued` for a fresh model session of a session. */
   #announceStart(open: Open): void {
     const { run, continued } = open;
+    if (continued !== null) {
+      this.#deps.info?.("a planning session continues in a fresh model session", {
+        office: open.office,
+        previous: continued.previous,
+        run,
+        reason: continued.reason,
+        ...(continued.reason === "context-full" && continued.size !== undefined
+          ? { contextTokens: continued.size }
+          : {}),
+      });
+    }
     this.#append(open, () => [
       { type: "planning.started", run, delta: { run, view: this.#viewOf(open) } },
       ...(continued === null
@@ -1813,6 +1797,12 @@ export class PlanningSessions {
                 detail: event.reason,
               });
             }
+            // The context size is the last main-agent message's, never a spend: a subagent has a
+            // context of its own (DIPO-489).
+            if (event.t === "usage" && event.agentId === undefined) {
+              open.contextTokens = contextSize(event);
+            }
+            if (event.t === "compacted") open.compacted = true;
             if (event.t === "output") {
               open.answer.push(event.text);
               this.#asides(open, event.text);
@@ -1876,14 +1866,10 @@ export class PlanningSessions {
     open.turns += 1;
     if (open.ending !== null) return;
     this.#readAnswer(open);
-    const near = open.handle.deferred(() =>
-      contextNearFull(
-        open.handle,
-        { run: open.run, agent: open.agent, role: PLANNER_ROLE, tier: "", budgetLimit: 0 },
-        this.#deps.contextTokens ?? PLANNING_CONTEXT_TOKENS,
-      ),
-    );
-    if (near) {
+    if (
+      open.compacted ||
+      (open.contextTokens ?? 0) >= (this.#deps.contextTokens ?? PLANNING_CONTEXT_TOKENS)
+    ) {
       // The context nears full: this model session ends and a fresh one continues from the record.
       open.state = "waiting";
       void this.#stop(open, { reason: "context-full" });
@@ -2035,7 +2021,11 @@ export class PlanningSessions {
       kind: open.kind,
       goal: open.goal,
       session: open.session,
-      continued: { previous: open.run, reason },
+      continued: {
+        previous: open.run,
+        reason,
+        ...(open.contextTokens === null ? {} : { size: open.contextTokens }),
+      },
     });
   }
 
@@ -2123,6 +2113,7 @@ export class PlanningSessions {
       usage,
       startedAt: iso(open.startedAt),
       ...(open.lastOutputAt === null ? {} : { lastOutputAt: iso(open.lastOutputAt) }),
+      ...(open.continued === null ? {} : { continuedAt: iso(open.startedAt) }),
       ...(endedAt === undefined ? {} : { endedAt: iso(endedAt) }),
       ...(open.ending === null || open.state !== "ended" ? {} : { ended: open.ending.reason }),
       ...(open.ending?.detail === undefined || open.state !== "ended"

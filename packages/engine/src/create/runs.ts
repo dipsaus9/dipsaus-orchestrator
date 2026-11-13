@@ -1027,6 +1027,7 @@ function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts,
     ...(options.mergeReentry === undefined ? {} : { mergeReentry: options.mergeReentry }),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
+    info: (message, fields) => options.logger.info(message, fields),
     ...(refreshStory === undefined
       ? {}
       : {

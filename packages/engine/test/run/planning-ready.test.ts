@@ -52,14 +52,7 @@ import {
   subjects,
 } from "../backlog/lane/helpers";
 import { pass, task } from "../stories/helpers";
-import {
-  blocksOf,
-  commandContext,
-  flushBranch,
-  planningWorld,
-  STORY_PROPOSAL,
-  until,
-} from "./planning-world";
+import { blocksOf, commandContext, planningWorld, STORY_PROPOSAL, until } from "./planning-world";
 
 const OTHER = { ...STORY_PROPOSAL, title: "Export the stories as XML" } as const;
 
@@ -93,9 +86,9 @@ describe("setting a planning session's stories Ready on one confirm (DIPO-451)",
         const ctx = commandContext(w);
 
         await w.sessions.confirm(ctx, { proposal: 1 });
-        await w.sessions.confirm(ctx, { proposal: 2 });
-        await w.flushed();
-        const filingBranch = flushBranch(w);
+        const filing = await w.sessions.confirm(ctx, { proposal: 2 });
+        const filingBranch =
+          filing.result.flush?.state === "pushed" ? filing.result.flush.branch : "";
 
         // A story the session did not file is refused before anything is evaluated.
         const unknown = await w.sessions
@@ -126,13 +119,12 @@ describe("setting a planning session's stories Ready on one confirm (DIPO-451)",
         ]);
 
         const ready = await w.sessions.ready(ctx, { stories: ["TASK-4", "TASK-5"] });
-        await w.flushed();
         expect(ready.result.queued).toEqual(["TASK-4"]);
         expect(ready.result.refused).toHaveLength(1);
         expect(ready.result.refused[0]?.story).toBe("TASK-5");
         expect(ready.result.refused[0]?.messages.join(" ")).toContain("R01a");
-        expect(w.flushes.at(-1)).toMatchObject({ state: "pushed" });
-        const branch = flushBranch(w);
+        expect(ready.result.flush).toMatchObject({ state: "pushed" });
+        const branch = ready.result.flush?.state === "pushed" ? ready.result.flush.branch : "";
         expect(branch).not.toBe(filingBranch);
 
         // The decision for the passing story is stored, passing; the failing one is stored failed.
@@ -207,9 +199,9 @@ describe("setting a planning session's stories Ready on one confirm (DIPO-451)",
         await until(() => w.sessions.view(s.office.officeId as OfficeId)?.state === "waiting");
         const ctx = commandContext(w);
         await w.sessions.confirm(ctx, { proposal: 1 });
-        await w.sessions.confirm(ctx, { proposal: 2 });
-        await w.flushed();
-        const filingBranch = flushBranch(w);
+        const filing = await w.sessions.confirm(ctx, { proposal: 2 });
+        const filingBranch =
+          filing.result.flush?.state === "pushed" ? filing.result.flush.branch : "";
         await squashMergeOnRemote(repo, filingBranch);
         // TASK-5 moved on in another change, so the gate refuses it; the index still says Refined.
         const other = await otherClone(repo);
@@ -251,16 +243,13 @@ describe("setting a planning session's stories Ready on one confirm (DIPO-451)",
         const result = reply.result as {
           queued: string[];
           refused: { story: string; messages: string[] }[];
+          flush?: { state: string; branch?: string };
         };
         expect(result.queued).toEqual(["TASK-4"]);
         expect(result.refused[0]?.story).toBe("TASK-5");
         expect(result.refused[0]?.messages.join(" ")).toContain("R01a");
-        // The flush runs after the answer.
-        await until(() =>
-          allEntries(s.office).some((e) => e.kind === READY_KIND && e.state === "pushed"),
-        );
-        const readyBranch = allEntries(s.office).find((e) => e.kind === READY_KIND)?.branch;
-        expect(readyBranch).not.toBe(filingBranch);
+        expect(result.flush).toMatchObject({ state: "pushed" });
+        expect(result.flush?.branch).not.toBe(filingBranch);
 
         // Fail closed: the failing story has a failed decision and no Ready change in the journal.
         const readyEntries = allEntries(s.office).filter((e) => e.kind === READY_KIND);
