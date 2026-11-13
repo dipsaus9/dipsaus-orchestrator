@@ -173,18 +173,15 @@ export interface PlanningWorld {
   answerText: (n: number) => string;
   /** The offices the session held an aside of, in order (DIPO-452). */
   readonly ideas: string[];
-<<<<<<< 82b23abda1c87460a9bb2cfa68a01b296af8eff9
   /** The INFO lines the sessions logged (DIPO-489). */
   readonly infos: {
     readonly message: string;
     readonly fields: Readonly<Record<string, unknown>>;
   }[];
-=======
   /** What each background flush of a confirm or Ready step answered, in order (DIPO-492). */
   readonly flushes: (LaneFlush | null)[];
   /** Waits until the background flushes started so far have ended (DIPO-492). */
   flushed(): Promise<void>;
->>>>>>> 4786523febf13ea90bc07c441aaef396d221329a
 }
 
 /** What a test may give the world instead of its defaults. */
@@ -239,13 +236,10 @@ export function planningWorld(
     startLines: "",
     holdAnswers: false,
     answerText: (n: number) => `Answer ${n}.`,
-<<<<<<< 82b23abda1c87460a9bb2cfa68a01b296af8eff9
     answerUsage: () => undefined,
     before: () => "",
-=======
     flushes: [] as (LaneFlush | null)[],
     flushed: () => w.sessions.flushed(officeId),
->>>>>>> 4786523febf13ea90bc07c441aaef396d221329a
     ideas: [],
     infos: [],
   } as unknown as PlanningWorld;
