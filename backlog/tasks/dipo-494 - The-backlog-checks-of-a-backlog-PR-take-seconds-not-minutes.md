@@ -1,10 +1,10 @@
 ---
 id: DIPO-494
 title: 'The backlog checks of a backlog PR take seconds, not minutes'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 10:25'
+updated_date: '2026-11-13 10:37'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -79,13 +79,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Ready gate's other active tasks (id, status, dependencies, frozen branch) come from one pass over the checkout's task files that reuses scanBacklogFiles and the runner's Backlog 1.53 front-matter preparation and parse, in CI and in readGateInput's fallback; the one-CLI-view-per-task read for them is removed
-- [ ] #2 checkReadyGate views only the Ready stories through the CLI, and none when no story is Ready
-- [ ] #3 check-backlog-pr views only the changed tasks and the Ready stories and reads the other tasks once
-- [ ] #4 On this repository's backlog and on a fixture-built one the one-pass read gives every active task the id, status, dependencies and branch a CLI view gives
-- [ ] #5 The gate still fails R13, R14 and R19, the check still fails on a Ready story whose view does not parse or a list that disagrees with its count, and the structural check still refuses each of its five rules' cases, each with a test
-- [ ] #6 An other task file the one-pass read cannot parse now fails the check instead of counting as active with no dependencies (a new, stricter rule), with a test
-- [ ] #7 The bypass forms (branch quoting and escapes, dependency list forms, completed, archive and draft tasks) read the same as the CLI
-- [ ] #8 readGateInput logs the duration of each part at DEBUG
-- [ ] #9 ADR 0010's Only through the CLI line names the one-pass read of task files for the gate's other tasks, with one Replaced line, and ADR 0012's input line says so
+- [x] #1 The Ready gate's other active tasks (id, status, dependencies, frozen branch) come from one pass over the checkout's task files that reuses scanBacklogFiles and the runner's Backlog 1.53 front-matter preparation and parse, in CI and in readGateInput's fallback; the one-CLI-view-per-task read for them is removed
+- [x] #2 checkReadyGate views only the Ready stories through the CLI, and none when no story is Ready
+- [x] #3 check-backlog-pr views only the changed tasks and the Ready stories and reads the other tasks once
+- [x] #4 On this repository's backlog and on a fixture-built one the one-pass read gives every active task the id, status, dependencies and branch a CLI view gives
+- [x] #5 The gate still fails R13, R14 and R19, the check still fails on a Ready story whose view does not parse or a list that disagrees with its count, and the structural check still refuses each of its five rules' cases, each with a test
+- [x] #6 An other task file the one-pass read cannot parse now fails the check instead of counting as active with no dependencies (a new, stricter rule), with a test
+- [x] #7 The bypass forms (branch quoting and escapes, dependency list forms, completed, archive and draft tasks) read the same as the CLI
+- [x] #8 readGateInput logs the duration of each part at DEBUG
+- [x] #9 ADR 0010's Only through the CLI line names the one-pass read of task files for the gate's other tasks, with one Replaced line, and ADR 0012's input line says so
 <!-- AC:END -->
