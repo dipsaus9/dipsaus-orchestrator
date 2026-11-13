@@ -103,6 +103,8 @@ function footerView(mode: Mode, view: View | "detail" | "ended" | "card"): Foote
       return "planning";
     case "retro":
       return "retro";
+    case "roles":
+      return "roles";
     case "palette":
       return "palette";
     case "help":
@@ -135,6 +137,7 @@ export function footerKeys(
     "path",
     "planning",
     "retro",
+    "roles",
     "palette",
     "help",
     "privacy",

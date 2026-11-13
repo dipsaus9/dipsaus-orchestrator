@@ -32,8 +32,8 @@ export interface OverlayArgs {
 
 type PaletteMode = Extract<Mode, { kind: "palette" }>;
 
-/** The item the overlays are about: home's focus, none over the retro room. */
-function focusOf(home: Home, back: "home" | "retro"): PaletteFocus {
+/** The item the overlays are about: home's focus, none over the retro and Roles rooms. */
+function focusOf(home: Home, back: "home" | "retro" | "roles"): PaletteFocus {
   return back === "home" ? home.paletteFocus() : NO_FOCUS;
 }
 
@@ -54,7 +54,7 @@ export function useOverlays(args: OverlayArgs) {
       dispatch({ type: "home" });
       home.openSettings();
     } else if (run.kind === "go") {
-      if (run.to === "retro" || run.to === "planning") {
+      if (run.to === "retro" || run.to === "planning" || run.to === "roles") {
         dispatch({ type: "home" });
         dispatch({ type: run.to });
       } else if (run.to === "offices") {
@@ -101,7 +101,7 @@ export function useOverlays(args: OverlayArgs) {
     onKey(mode: Mode, input: string, key: Key): boolean {
       if (mode.kind === "palette") onPaletteKey(mode, input, key);
       else if (mode.kind === "help") onHelpKey(input, key);
-      else if (mode.kind !== "home" && mode.kind !== "retro") return false;
+      else if (mode.kind !== "home" && mode.kind !== "retro" && mode.kind !== "roles") return false;
       else if (input === ":" || (key.ctrl && input === "k")) {
         dispatch({ type: "palette", back: mode.kind });
       } else if (input === "?") dispatch({ type: "help", back: mode.kind });
@@ -154,15 +154,17 @@ export function OverlayOver(props: {
   readonly display: Display;
   readonly columns: number;
   readonly height: number;
-  readonly behind: { readonly home: ReactNode; readonly retro: ReactNode };
+  readonly behind: {
+    readonly home: ReactNode;
+    readonly retro: ReactNode;
+    readonly roles: ReactNode;
+  };
 }) {
   const { mode, display } = props;
   if (mode.kind !== "palette" && mode.kind !== "help") return null;
   return (
     <Box flexDirection="column" height={props.height} overflow="hidden">
-      <Shaded display={display}>
-        {mode.back === "retro" ? props.behind.retro : props.behind.home}
-      </Shaded>
+      <Shaded display={display}>{props.behind[mode.back]}</Shaded>
       <Box position="absolute" flexDirection="column" width="100%">
         <OverlayMode
           mode={mode}

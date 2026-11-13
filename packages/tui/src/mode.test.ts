@@ -76,6 +76,21 @@ describe("modeReducer", () => {
     expect(modeReducer({ kind: "planning" }, { type: "home" })).toEqual(HOME);
   });
 
+  it("roles opens from home and the retro room, Esc goes home, and the overlays open over it (DIPO-473)", () => {
+    const roles: Mode = { kind: "roles" };
+    expect(modeReducer(HOME, { type: "roles" })).toEqual(roles);
+    expect(modeReducer({ kind: "retro" }, { type: "roles" })).toEqual(roles);
+    expect(modeReducer(SWITCHER, { type: "roles" })).toBe(SWITCHER);
+    expect(modeReducer(roles, { type: "home" })).toEqual(HOME);
+    expect(modeReducer(roles, { type: "retro" })).toEqual({ kind: "retro" });
+    expect(modeReducer(roles, { type: "planning" })).toEqual({ kind: "planning" });
+    const palette = modeReducer(roles, { type: "palette", back: "roles" });
+    expect(palette).toEqual({ kind: "palette", query: "", index: 0, back: "roles" });
+    expect(modeReducer(palette, { type: "close-overlay" })).toEqual(roles);
+    const help = modeReducer(roles, { type: "help", back: "roles" });
+    expect(modeReducer(help, { type: "close-overlay" })).toEqual(roles);
+  });
+
   it("inSwitcherMode is true for the switcher and the path entry only", () => {
     expect(inSwitcherMode(SWITCHER)).toBe(true);
     expect(inSwitcherMode(PATH)).toBe(true);

@@ -18,6 +18,7 @@ import type { PromptOutcome } from "../../src/detail";
 import type { ChainOutcome, GateOutcome } from "../../src/chain";
 import type { DigestOutcome } from "../../src/digest";
 import type { RetroOutcome } from "../../src/retro";
+import type { RolesOutcome } from "../../src/roles";
 import type { Display } from "../../src/options";
 import type { RangeOutcome } from "../../src/output";
 import { FakeSession } from "./fake-session";
@@ -171,6 +172,11 @@ export async function mount(options: MountOptions = {}) {
         { name: "office.retro" } as never,
         { office: opened } as never,
       )) as RetroOutcome,
+    readRoles: async (opened) =>
+      (await session.read(
+        { name: "office.roles" } as never,
+        { office: opened } as never,
+      )) as RolesOutcome,
     newRequestId: () => {
       requests += 1;
       return `01J9ZK5Q8W3V4X6Y7Z8A9B0R${String(requests).padStart(2, "0")}` as RequestId;

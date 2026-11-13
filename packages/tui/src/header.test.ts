@@ -217,7 +217,9 @@ function iso(ms: number): string {
 
 describe("the rooms band and the Offices cells", () => {
   it("counts the rooms as the engine sent them", () => {
-    expect(roomsText(state(), false)).toBe("1 Desk 6    2 Floor 0    3 Queue 0·0    4 Retro");
+    expect(roomsText(state(), false)).toBe(
+      "1 Desk 6    2 Floor 0    3 Queue 0·0    4 Retro    5 Plan    6 Roles",
+    );
   });
 
   it("marks an office live, starts paused or idle N days from its summary (DIPO-458)", () => {

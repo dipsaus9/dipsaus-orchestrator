@@ -353,6 +353,7 @@ export type FooterView =
   | "switcher"
   | "planning"
   | "retro"
+  | "roles"
   | "palette"
   | "help"
   | "overview"
@@ -716,6 +717,8 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 30,
   },
   { id: "retroDiscuss", key: "d", label: "discuss in a plan", views: ["retro"], priority: 50 },
+  { id: "rolesMove", key: "↑↓", label: "move", views: ["roles"], priority: 30 },
+  { id: "rolesScroll", key: "PgUp PgDn", label: "scroll", views: ["roles"], priority: 25 },
   {
     id: "switcherMove",
     key: "↑↓",
@@ -834,7 +837,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "back",
     key: "esc",
     label: "back",
-    views: ["switcher", "card", "detail", "settings", "checklist", "retro"],
+    views: ["switcher", "card", "detail", "settings", "checklist", "retro", "roles"],
     when: (ctx) => ctx.office,
     priority: 90,
     side: "right",
@@ -876,7 +879,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "quit",
     key: "q q",
     label: "quit",
-    views: ["switcher", "card", "detail", "retro", ...HOME_VIEWS],
+    views: ["switcher", "card", "detail", "retro", "roles", ...HOME_VIEWS],
     priority: NEVER,
     side: "right",
   },
@@ -898,6 +901,8 @@ const OFFLINE_KEYS: ReadonlySet<string> = new Set([
   "settingsMove",
   "checklistStep",
   "retroScroll",
+  "rolesMove",
+  "rolesScroll",
   "back",
   "quit",
 ]);
@@ -930,7 +935,7 @@ export function footerHints(view: FooterView, ctx: FooterContext): Hint[] {
 }
 
 /** Where a navigation key goes: the rooms of the Frame, the Plan view and the offices. */
-export type NavTo = "desk" | "overview" | "queue" | "retro" | "planning" | "offices";
+export type NavTo = "desk" | "overview" | "queue" | "retro" | "planning" | "roles" | "offices";
 
 export interface NavKey {
   readonly id: NavTo;
@@ -945,6 +950,7 @@ export const NAV_KEYS: readonly NavKey[] = [
   { id: "queue", key: "3", label: "Queue" },
   { id: "retro", key: "4", label: "Retro" },
   { id: "planning", key: "5", label: "Plan" },
+  { id: "roles", key: "6", label: "Roles" },
   { id: "offices", key: "O", label: "Open offices…" },
 ];
 
