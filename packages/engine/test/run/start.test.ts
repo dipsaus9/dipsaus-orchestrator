@@ -35,6 +35,7 @@ import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { renderSystemFile } from "../../src/prompts/system";
+import { DEVELOPER_SEED } from "../../src/prompts/templates";
 import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
@@ -72,6 +73,8 @@ import type { BoxCacheUse, BoxWorkerInstall } from "../../src/box/workers";
 import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 import { backlogLayout } from "../story-store/backlog";
+import type { Role } from "../../src/roles/parse";
+import { DEVELOPER_FILE, DEVELOPER_LABEL } from "./test-roles";
 
 const CLAUDE = "/opt/claude/bin/claude";
 const HOME = "/home/maintainer";
@@ -86,7 +89,7 @@ function task(id: string, status: string, overrides: Partial<PlainTask> = {}): P
     status,
     assignee: [],
     created: "2026-10-12 11:28",
-    labels: ["tier:M"],
+    labels: ["tier:M", DEVELOPER_LABEL],
     subtasks: [],
     references: ["src/greet.ts"],
     documentation: [],
@@ -199,6 +202,8 @@ interface World {
   profile: RunProfile | null;
   /** The reason of each failed setup, which `claimStory` puts in its `setup.failed` notice. */
   readonly setupFailures: string[];
+  /** The role files on the base (DIPO-477): the developer role unless a test gives others. */
+  roles: Role[];
 }
 
 /** A run profile with `install` as its install (DIPO-294); the launcher reads only it and ports. */
@@ -260,6 +265,7 @@ beforeEach(async () => {
     boxTree: { kind: "same" } as StartTreeCheck,
     profile: FROZEN_INSTALL,
     setupFailures: [] as string[],
+    roles: [DEVELOPER_FILE],
   } as unknown as World;
 
   const git = {
@@ -365,6 +371,7 @@ beforeEach(async () => {
     views: w.tasks.filter((x) => (ids === null ? x.status === "Ready" : ids.includes(x.id))),
     unparsed: [],
     checkout: { path: "/base", base: "main" },
+    roles: w.roles,
   });
   const workRun = new WorkRun({
     offices: {
@@ -754,7 +761,7 @@ describe("a box worker's run (DIPO-271)", () => {
     const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
     const runId = boxed.started[0]?.run as string;
     const system = join(world.dir, "repo", ".git", "dipo", "runs", runId, "system.md");
-    expect(readFileSync(system, "utf8")).toBe(renderSystemFile("implement-box", "developer"));
+    expect(readFileSync(system, "utf8")).toBe(renderSystemFile("implement-box", DEVELOPER_SEED));
     // Its scope section is the forecast, never the write fence (0008).
     const sent = JSON.parse(world.hosts.at(-1)?.plan.stdin[0] ?? "").message.content as string;
     expect(sent).toContain(
@@ -1066,6 +1073,129 @@ describe("a failed release after a failed host start", () => {
     expect(String(notice?.delta["text"])).toContain(
       "releasing its claim also failed (the database is busy)",
     );
+  });
+});
+
+/** A role file besides the developer's (DIPO-477): instructions only. */
+const WRITER: Role = {
+  name: "writer",
+  purpose: "Writes the user guide.",
+  instructions: "# Role: writer\n\nYou write the user guide for one story.",
+};
+/** The writer role file with a model and an effort of its own. */
+const TUNED: Role = { ...WRITER, model: "opus-writer", effort: "max" };
+
+/** TASK-1, Ready and labelled role:writer, with `role` as the writer's file on the base. */
+function writerStory(role: Role): void {
+  world.roles = [DEVELOPER_FILE, role];
+  story("TASK-1", "Ready", { labels: ["tier:M", "role:writer"] });
+}
+
+/** The value of `name` in the last host's argv. */
+function argvFlag(name: string): string | undefined {
+  const argv: readonly string[] = world.hosts.at(-1)?.plan.argv ?? [];
+  return argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined;
+}
+
+describe("a story runs as the role its label names (DIPO-477)", () => {
+  it("writes the implement-box contract and the role file's instructions as the system file, and records the role on the run, its agent and work.assigned", async () => {
+    writerStory(WRITER);
+    const result = resultOf<RunResult>(await run());
+    const runId = result.started[0]?.run as RunId;
+    const system = readFileSync(
+      join(world.dir, "repo", ".git", "dipo", "runs", runId, "system.md"),
+      "utf8",
+    );
+    expect(system).toBe(renderSystemFile("implement-box", WRITER.instructions));
+    expect(system.startsWith("# Worker contract")).toBe(true);
+    expect(system.endsWith(`${WRITER.instructions}\n`)).toBe(true);
+    expect(system).not.toContain("# Role: developer");
+
+    expect(findRun(world.office, runId)).toMatchObject({
+      role: "writer",
+      roleFile: { instructions: WRITER.instructions, model: null, effort: null },
+    });
+    expect(
+      world.office.all<{ role: string }>(
+        "select role from agents where office_id = $office_id and run_id = $run",
+        { run: runId },
+      ),
+    ).toEqual([{ role: "writer" }]);
+    const assigned = entries().filter((entry) => entry.type === "work.assigned");
+    expect(assigned.map((entry) => (entry.delta["work"] as { role: string }).role)).toEqual([
+      "writer",
+    ]);
+    expect(world.ingested[0]).toMatchObject({ role: "writer" });
+  });
+
+  it("runs a role file without a model and an effort with the tier's, and the tier's caps", async () => {
+    writerStory(WRITER);
+    const result = resultOf<RunResult>(await run());
+    const runId = result.started[0]?.run as RunId;
+    const caps = OFFICE_DEFAULTS.tiers.M;
+    expect(argvFlag("--model")).toBe(caps.model);
+    expect(argvFlag("--effort")).toBe(caps.effort);
+    expect(argvFlag("--max-turns")).toBe(String(caps.maxTurns));
+    expect(findRun(world.office, runId)).toMatchObject({
+      model: caps.model,
+      budgetLimit: caps.budgetTokens,
+      maxTurns: caps.maxTurns,
+      maxMinutes: caps.maxMinutes,
+      loopCap: caps.loops,
+    });
+  });
+
+  it("runs a role file with a model and an effort with them, and still with the tier's caps", async () => {
+    writerStory(TUNED);
+    const result = resultOf<RunResult>(await run());
+    const runId = result.started[0]?.run as RunId;
+    const caps = OFFICE_DEFAULTS.tiers.M;
+    expect(argvFlag("--model")).toBe("opus-writer");
+    expect(argvFlag("--effort")).toBe("max");
+    expect(argvFlag("--max-turns")).toBe(String(caps.maxTurns));
+    expect(findRun(world.office, runId)).toMatchObject({
+      role: "writer",
+      model: "opus-writer",
+      roleFile: { instructions: WRITER.instructions, model: "opus-writer", effort: "max" },
+      budgetLimit: caps.budgetTokens,
+      maxTurns: caps.maxTurns,
+      maxMinutes: caps.maxMinutes,
+      loopCap: caps.loops,
+    });
+    expect(
+      world.office.get<{ model: string; effort: string }>(
+        "select model, effort from agents where office_id = $office_id and run_id = $run",
+        { run: runId },
+      ),
+    ).toEqual({ model: "opus-writer", effort: "max" });
+    expect(world.ingested[0]).toMatchObject({
+      model: "opus-writer",
+      budgetLimit: caps.budgetTokens,
+    });
+  });
+
+  it("starts no story whose role label names no role file on the base", async () => {
+    world.roles = [DEVELOPER_FILE];
+    story("TASK-1", "Ready", { labels: ["tier:M", "role:writer"] });
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
+    expect(result.started).toEqual([]);
+    expect(world.claimCalls).toEqual([]);
+    expect(world.hosts).toEqual([]);
+  });
+
+  it("names the role and the model in the work preview", async () => {
+    writerStory(TUNED);
+    const result = resultOf<{
+      launch: { role: string; model: string; effort: string; caps: Record<string, number> };
+    }>(await preview());
+    const caps = OFFICE_DEFAULTS.tiers.M;
+    expect(result.launch).toMatchObject({ role: "writer", model: "opus-writer", effort: "max" });
+    expect(result.launch.caps).toEqual({
+      budgetTokens: caps.budgetTokens,
+      maxTurns: caps.maxTurns,
+      maxMinutes: caps.maxMinutes,
+      loops: caps.loops,
+    });
   });
 });
 

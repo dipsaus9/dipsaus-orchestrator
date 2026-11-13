@@ -159,7 +159,7 @@ describe("rule results", () => {
         checked: false,
         text: `The export writes column ${i + 1} of each row`,
       }));
-      const changes = { labels: ["tier:S"], acceptanceCriteria };
+      const changes = { labels: ["tier:S", "role:developer"], acceptanceCriteria };
       const decision = store(t, office, story, "ready", changes);
       expect(decision.passed).toBe(true);
       expect(decision.ruleResults.find((result) => result.rule === "R32")).toEqual({

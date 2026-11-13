@@ -55,6 +55,7 @@ function taskFile(
     "created_date: '2026-10-25 10:00'",
     "labels:",
     "  - 'tier:M'",
+    "  - 'role:developer'",
     "milestone: m-0",
     "dependencies: []",
     "references:",
@@ -87,7 +88,13 @@ function taskFile(
 
 const path = (id: number) => `backlog/tasks/dipo-${id} - Export-the-rows.md`;
 
-/** A fixture whose base commit holds DIPO-1 and DIPO-2 as Refined; `change` makes the PR commit. */
+/** The role file of the developer role the tasks' label names (R17, DIPO-477). */
+const DEVELOPER_ROLE = "---\nversion: 1\npurpose: Builds the story\n---\nDo the work.\n";
+
+/**
+ * A fixture whose base commit holds DIPO-1 and DIPO-2 as Refined and the developer role file;
+ * `change` makes the PR commit.
+ */
 async function pr(
   repo: TempRepo,
   change: Record<string, string>,
@@ -97,6 +104,7 @@ async function pr(
   await Bun.write(`${repo.dir}/backlog/milestones/m-0 - m0-fixture.md`, MILESTONE.join("\n"));
   await Bun.write(`${repo.dir}/${path(1)}`, taskFile(1, "Refined", CLEAN_PLAN));
   await Bun.write(`${repo.dir}/${path(2)}`, taskFile(2, "Refined", NO_EXPECT));
+  await Bun.write(`${repo.dir}/.dipo/roles/developer.md`, DEVELOPER_ROLE);
   const base = await repo.commitAll("base");
   for (const [file, text] of Object.entries(change)) await Bun.write(`${repo.dir}/${file}`, text);
   await more();

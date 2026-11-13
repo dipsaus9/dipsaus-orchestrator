@@ -41,7 +41,7 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { checkStoryLine } from "../gate/rules";
 import { renderSystemFile } from "../prompts/system";
-import { rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
+import { rendered, renderTemplate, ROLE_TEMPLATES, TASK_TEMPLATES } from "../prompts/templates";
 import {
   auditMissed,
   codeRejections,
@@ -109,7 +109,7 @@ export const auditRef = (idea: Pick<HeldIdea, "id">) => idea.id.slice(0, AUDIT_I
 
 /** Pure: the audit session's system file (L1 audit contract, L2 auditor role). */
 export function auditSystemFile(): string {
-  return renderSystemFile("audit-box", "auditor");
+  return renderSystemFile("audit-box", ROLE_TEMPLATES.auditor);
 }
 
 /**

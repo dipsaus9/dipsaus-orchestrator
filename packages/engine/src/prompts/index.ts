@@ -92,6 +92,7 @@ export {
 export { renderSystemFile } from "./system";
 export {
   CONTRACT_TEMPLATES,
+  DEVELOPER_SEED,
   FEEDBACK_TEMPLATES,
   renderTemplate,
   ROLE_TEMPLATES,

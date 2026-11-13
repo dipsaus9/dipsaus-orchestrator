@@ -30,6 +30,17 @@ import { finalizeRunAgents } from "./usage";
 
 export type RunKind = "story" | "session";
 
+/**
+ * The role file a story run started with (DIPO-477): its instructions, and its model and effort
+ * when the file sets them. Every session of the run uses it, whatever the file on the base says
+ * later; null for a session run and for a story run started before runs kept it.
+ */
+export interface RunRoleFile {
+  readonly instructions: string;
+  readonly model: string | null;
+  readonly effort: string | null;
+}
+
 /** What a run starts with (0007). Story fields are null for a session run. */
 export interface NewRun {
   readonly runId: RunId;
@@ -66,10 +77,13 @@ export interface NewRun {
   readonly startedAt: number;
   /** The declared scope (F8) the story run started with; null for a session run (DIPO-49). */
   readonly scope?: readonly string[] | null;
+  /** The role file of `role` the story run started with (DIPO-477). */
+  readonly roleFile?: RunRoleFile | null;
 }
 
 export interface StoredRun extends NewRun {
   readonly scope: readonly string[] | null;
+  readonly roleFile: RunRoleFile | null;
   /** Gate commands the story branch changed against the base profile; null when none (DIPO-49). */
   readonly gateChanges: readonly string[] | null;
   /** Safe-Chain's refusals of the run's box sessions (DIPO-376); null before a session marked. */
@@ -118,6 +132,9 @@ interface RunRow {
   run_profile_id: string | null;
   started_at: number;
   scope: string | null;
+  role_instructions: string | null;
+  role_model: string | null;
+  role_effort: string | null;
   gate_changes: string | null;
   safe_chain: string | null;
   ended_at: number | null;
@@ -129,12 +146,13 @@ interface RunRow {
 
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, ci_cap,
   conflict_cap, review_max_turns, review_max_minutes, review_max_tokens, config_hash, override_keys,
-  run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms, waiting,
+  run_profile_id, started_at, scope, role_instructions, role_model, role_effort, gate_changes,
+  ended_at, end_kind, parked_ms, waiting,
   waiting_since, safe_chain`;
 
 /** The columns a run row is inserted with: those a run starts with. */
 const INSERTED = COLUMNS.replace(
-  /, gate_changes, ended_at, end_kind, parked_ms, waiting,\s+waiting_since, safe_chain$/,
+  /, gate_changes,\s+ended_at, end_kind, parked_ms, waiting,\s+waiting_since, safe_chain$/,
   "",
 );
 
@@ -169,6 +187,10 @@ function toRecord(row: RunRow): StoredRun {
     runProfileId: row.run_profile_id,
     startedAt: row.started_at,
     scope: jsonList(row.scope),
+    roleFile:
+      row.role_instructions === null
+        ? null
+        : { instructions: row.role_instructions, model: row.role_model, effort: row.role_effort },
     gateChanges: jsonList(row.gate_changes),
     safeChain: row.safe_chain === null ? null : parseSafeChainRecord(row.safe_chain),
     endedAt: row.ended_at,
@@ -188,7 +210,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
        $branch, $budget_unit, $budget_limit, $loop_cap, $max_turns,
        $max_minutes, $review_round_cap, $ci_cap, $conflict_cap, $review_max_turns,
        $review_max_minutes, $review_max_tokens, $config_hash, $override_keys, $run_profile_id,
-       $started_at, $scope, $ended_at, $end_kind, $parked_ms, $waiting, $waiting_since)`,
+       $started_at, $scope, $role_instructions, $role_model, $role_effort, $ended_at, $end_kind, $parked_ms, $waiting, $waiting_since)`,
     {
       ended_at: state.endedAt,
       end_kind: state.ending,
@@ -220,6 +242,9 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
       run_profile_id: run.runProfileId,
       started_at: run.startedAt,
       scope: run.scope == null ? null : JSON.stringify(run.scope),
+      role_instructions: run.roleFile?.instructions ?? null,
+      role_model: run.roleFile?.model ?? null,
+      role_effort: run.roleFile?.effort ?? null,
     },
   );
 }

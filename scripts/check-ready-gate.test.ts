@@ -27,8 +27,8 @@ interface FixtureStory {
   readonly id: string;
   readonly status: "Ready" | "Refined" | "Done";
   readonly testPlan: readonly string[];
-  /** A `role:` label on the story. */
-  readonly role?: string;
+  /** The story's `role:` label: `developer` when not set, none when null (R17, DIPO-477). */
+  readonly role?: string | null;
   /** The ids it depends on; `view` shows one that is not a listed story as unknown. */
   readonly dependencies?: readonly string[];
   /** The branch of its field block; `<id>/export-rows` when not set. */
@@ -93,7 +93,7 @@ function viewOf(story: FixtureStory, listed: ReadonlySet<string> = new Set()): s
     `Status: ○ ${story.status}`,
     "Created: 2026-10-12 11:28 (UTC)",
     "Type: feature",
-    `Labels: tier:M${story.role === undefined ? "" : `, role:${story.role}`}`,
+    `Labels: tier:M${story.role === null ? "" : `, role:${story.role ?? "developer"}`}`,
     "Milestone: m-0",
     "References: packages/export/",
     "",
@@ -163,19 +163,31 @@ function fileOf(story: FixtureStory): FileTask {
   };
 }
 
+/** Writes a developer role file into the fixture checkout at `dir` (DIPO-471). */
+function writeDeveloperRole(dir: string): void {
+  mkdirSync(join(dir, ".dipo", "roles"), { recursive: true });
+  writeFileSync(
+    join(dir, ".dipo", "roles", "developer.md"),
+    "---\nversion: 1\npurpose: Builds the story\n---\nDo the work.\n",
+  );
+}
+
 /**
  * A fixture checkout holding `stories` as task files, and `extra` files besides (a completed,
- * archived or draft task, or one that does not parse). There is no `.dipo/office.yaml` in it, so
- * the office configuration is the defaults.
+ * archived or draft task, or one that does not parse), and the developer role file unless
+ * `roles` is false. There is no `.dipo/office.yaml` in it, so the office configuration is the
+ * defaults.
  */
 async function inFixture<T>(
   stories: readonly FixtureStory[],
   extra: readonly FileTask[],
   body: (dir: string) => Promise<T>,
+  roles = true,
 ): Promise<T> {
   const dir = mkdtempSync(join(process.env.DIPO_TMP ?? "/tmp", "rg-"));
   try {
     writeBacklog(dir, [...stories.map(fileOf), ...extra]);
+    if (roles) writeDeveloperRole(dir);
     return await body(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -197,26 +209,36 @@ const failuresOf = async (stories: readonly FixtureStory[], extra: readonly File
 
 describe("the Ready gate over the backlog", () => {
   it("fails a Ready story whose role has no role file in the checkout, and passes it once added (DIPO-471)", () =>
-    inFixture([], [], async (dir) => {
-      const { cli } = fakeCli([
-        { id: "DIPO-5", status: "Ready", testPlan: CLEAN, role: "developer" },
-      ]);
-      writeBacklog(dir, [{ id: "DIPO-5", status: "Ready", branch: '"DIPO-5/export-rows"' }]);
-      const before = await checkReadyGate(dir, cli);
-      expect(before.failures).toEqual([
-        expect.stringContaining("ready DIPO-5 failed R17: role developer is not in the roster"),
-      ]);
-      mkdirSync(join(dir, ".dipo", "roles"), { recursive: true });
-      writeFileSync(
-        join(dir, ".dipo", "roles", "developer.md"),
-        "---\nversion: 1\npurpose: Builds the story\n---\nDo the work.\n",
-      );
-      expect(await checkReadyGate(dir, cli)).toEqual({
-        checked: 1,
-        passed: ["DIPO-5"],
-        failures: [],
-      });
-    }));
+    inFixture(
+      [],
+      [],
+      async (dir) => {
+        const { cli } = fakeCli([
+          { id: "DIPO-5", status: "Ready", testPlan: CLEAN, role: "developer" },
+        ]);
+        writeBacklog(dir, [{ id: "DIPO-5", status: "Ready", branch: '"DIPO-5/export-rows"' }]);
+        const before = await checkReadyGate(dir, cli);
+        expect(before.failures).toEqual([
+          expect.stringContaining("ready DIPO-5 failed R17: role developer is not in the roster"),
+        ]);
+        writeDeveloperRole(dir);
+        expect(await checkReadyGate(dir, cli)).toEqual({
+          checked: 1,
+          passed: ["DIPO-5"],
+          failures: [],
+        });
+      },
+      false,
+    ));
+
+  it("fails a Ready story with no role label, naming the roster's roles (DIPO-477)", async () => {
+    const failures = await failuresOf([
+      { id: "DIPO-6", status: "Ready", testPlan: CLEAN, role: null },
+    ]);
+    expect(failures).toEqual([
+      "ready DIPO-6 failed R17: needs a role label role:<name>; the roster has developer",
+    ]);
+  });
 
   it("fails a Ready story whose manual entry has no expect, and passes a clean one", async () => {
     const { report } = await run([

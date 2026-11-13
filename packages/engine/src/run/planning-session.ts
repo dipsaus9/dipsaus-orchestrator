@@ -117,7 +117,13 @@ import type { StorylessEvents } from "../ingest/pending";
 import { ensurePrivateDir } from "../platform/paths";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { renderSystemFile } from "../prompts/system";
-import { type Rendered, rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
+import {
+  type Rendered,
+  rendered,
+  renderTemplate,
+  ROLE_TEMPLATES,
+  TASK_TEMPLATES,
+} from "../prompts/templates";
 import { recordAgent } from "../records/agents";
 import {
   addPlanningEntry,
@@ -1726,7 +1732,7 @@ export class PlanningSessions {
         };
       }),
     );
-    const systemFile = renderSystemFile("planning-box", "planner");
+    const systemFile = renderSystemFile("planning-box", ROLE_TEMPLATES.planner);
     const spec: WorkerSpec = {
       run,
       agent,

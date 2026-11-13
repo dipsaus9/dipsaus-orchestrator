@@ -30,6 +30,7 @@ import { BOX_RUN_FILE } from "../../src/box/workers";
 import { BOX_CHANGES, BOX_VERIFY } from "../../src/prompts/handoff";
 import { recordWorkerNotes } from "../../src/prompts/notes";
 import { renderSystemFile } from "../../src/prompts/system";
+import { DEVELOPER_SEED } from "../../src/prompts/templates";
 import { openFeedbackOf } from "../../src/records/open-feedback";
 import { parseFieldBlock } from "../../src/story-store/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
@@ -1828,6 +1829,96 @@ describe("the held messages in the next session (0002, 0020)", () => {
   });
 });
 
+/** The role, model and effort of the run's newest agent. */
+function newestAgent(): { role: string; model: string; effort: string } | null {
+  return w.f.office.get<{ role: string; model: string; effort: string }>(
+    `select role, model, effort from agents where office_id = $office_id and run_id = $run
+      order by started_at desc, rowid desc limit 1`,
+    { run: w.f.run },
+  );
+}
+
+/**
+ * The story as the base holds it after its role file changed (DIPO-477): it names the writer role,
+ * and the session reads only what the run row kept.
+ */
+function writerStoryOnBase(): ReturnType<typeof storyOf> {
+  const facts = storyOf();
+  return { ...facts, view: { ...facts.view, labels: ["tier:M", "role:writer"] } };
+}
+
+describe("the role of a run's next session (DIPO-477)", () => {
+  const WRITER_V1 = "# Role: writer\n\nYou write the user guide for one story.";
+
+  /**
+   * The fixture's run as a run started for a story labelled role:writer: its row keeps the role
+   * file it started with, and its first agent the role's effort.
+   */
+  function writerRun(): void {
+    w.f.office.immediate(() => {
+      w.f.office.run(
+        `update runs set role = 'writer', model = 'opus-writer', role_instructions = $text,
+           role_model = 'opus-writer', role_effort = 'max'
+          where office_id = $office_id and run_id = $run`,
+        { text: WRITER_V1, run: w.f.run },
+      );
+      w.f.office.run(
+        `update agents set role = 'writer', model = 'opus-writer', effort = 'max'
+          where office_id = $office_id and run_id = $run`,
+        { run: w.f.run },
+      );
+    });
+    Object.assign(w, { work: { ...w.work, role: "writer", model: "opus-writer" } });
+  }
+
+  it("a resumed session uses the instructions, model and effort the run started with, not the role file on the base now", async () => {
+    firstSession();
+    writerRun();
+    // The role file changed on the base since the start: the story there names it, with a new
+    // text, model and effort, and the session reads only what the run row kept.
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => writerStoryOnBase(),
+      handoff,
+      workspace,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
+    const spec = preparedSpecs.at(-1);
+    expect(readFileSync(spec?.systemFile ?? "", "utf8")).toBe(
+      renderSystemFile("implement-box", WRITER_V1),
+    );
+    expect(spec).toMatchObject({ model: "opus-writer", effort: "max" });
+    expect(newestAgent()).toEqual({ role: "writer", model: "opus-writer", effort: "max" });
+  });
+
+  it("a run from before runs kept their role resumes with the bundled developer instructions and the tier's model and effort", async () => {
+    firstSession();
+    const run = findRun(w.f.office, w.f.run);
+    expect(run?.roleFile).toBeNull();
+    const first = w.f.office.get<{ effort: string | null }>(
+      `select effort from agents where office_id = $office_id and agent_id = $agent`,
+      { agent: w.f.agent },
+    );
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
+    const spec = preparedSpecs.at(-1);
+    expect(readFileSync(spec?.systemFile ?? "", "utf8")).toBe(
+      renderSystemFile("implement-box", DEVELOPER_SEED),
+    );
+    // The model the run row started with and the effort of its first agent, else the tier's.
+    expect(spec).toMatchObject({
+      model: run?.model,
+      effort: first?.effort ?? OFFICE_DEFAULTS.tiers.M.effort,
+    });
+    expect(newestAgent()?.role).toBe("developer");
+  });
+});
+
 describe("the prompts of a box worker's next session (DIPO-272)", () => {
   it("a run directory with the box record gets the box contract and the box scope section", async () => {
     firstSession();
@@ -1842,7 +1933,7 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
     }).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started" });
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
-    expect(system).toBe(renderSystemFile("implement-box", "developer"));
+    expect(system).toBe(renderSystemFile("implement-box", DEVELOPER_SEED));
     const text = sentText();
     expect(text).toContain(
       "The paths the planner expects this story to change (a forecast, not a fence):",
@@ -1870,7 +1961,7 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
     expect(asked).toEqual([`has ${w.f.run}`]);
     // No box record in the run directory, yet the box contract: every developer is a box worker.
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
-    expect(system).toBe(renderSystemFile("implement-box", "developer"));
+    expect(system).toBe(renderSystemFile("implement-box", DEVELOPER_SEED));
   });
 
   it("starts nothing when a lost box cannot be rebuilt, and says why (DIPO-278)", async () => {

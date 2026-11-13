@@ -105,7 +105,7 @@ export function startRefOf(start: RunStart): WorkRef {
     key: StoryKey.parse(start.key),
     run: RunId.parse(start.runId),
     agent: AgentId.parse(start.agent),
-    role: RoleId.parse("developer"),
+    role: RoleId.parse(start.role),
     tier: start.tier,
     model: start.model,
   };
@@ -148,7 +148,7 @@ export function startView(office: OfficeHandle, start: RunStart): WorkView {
     usage: readUsage(office, {
       run: start.runId,
       agent: start.agent,
-      role: "developer",
+      role: start.role,
       tier: start.tier,
       budgetLimit: 0,
     }),
