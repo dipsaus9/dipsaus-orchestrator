@@ -114,7 +114,8 @@ Order, by what unblocks work soonest:
 6. Hand actions: a story done elsewhere while its worker lives, leftovers, a backlog PR that failed its check, a planning lane that has waited on a backlog PR for more than 30 minutes, and a park the backlog does not hold.
 7. Proposed stories, spikes before follow-ups, then decision notes, then one line per story whose PR merged while it was parked (section 7), with no action.
 8. Next up: one Ready story per free run slot, with `dipo next confirm` and `dipo next decline` (0010).
-9. Last, the stories parked `by-maintainer`, listed apart as "Parked by you".
+9. Ready to set: one item while Refined stories pass the Ready gate for their current content, with their count and ids and `dipo ready <ID>...`; none when no story passes.
+10. Last, the stories parked `by-maintainer`, listed apart as "Parked by you".
 
 The kinds of desk items are listed in this order in the contract, so a client that groups the items by kind keeps the desk's order and never sorts them.
 
@@ -136,4 +137,5 @@ Within a group, items that block the most other stories come first, then the old
 - A worker's proposal on the desk as a one-line item, with `dipo propose accept` and `dipo propose dismiss`, and a decision note dismissed by the same command (2026-10-24). Replaced by the proposed story: one desk item per idea that passed the audit, its card in full, with `dipo idea accept` and `dipo idea dismiss`, and a decision note with its own `dipo note dismiss` (2026-11-06).
 - A parked story whose own PR merged kept its claim, its branch and its park, with a notice to resolve the park by hand (2026-10-24). Replaced by the park resolved as merged (2026-11-09).
 - The run profile's rows among the hand actions, and "Parked by you" right after the other parks (2026-10-24). Replaced by setup first and "Parked by you" last, after next up (2026-11-09).
+- No desk item for Refined stories that pass the gate and wait for `dipo ready` (2026-11-13). Replaced by the READY TO SET item after next up.
 - The waiting command path with a crash-injection test per command. Idempotency is limited to commands that start or change a run (0005).

@@ -14,7 +14,11 @@ import { partSteps } from "./migrations/0009-part-steps";
 import { mergedParks } from "./migrations/0010-merged-parks";
 import { proxyRefusals } from "./migrations/0011-proxy-refusals";
 import { planningMessages } from "./migrations/0012-planning-messages";
+<<<<<<< 2b2192b1aef4474f3987b9a251b9890c96a0bd60
 import { runRoles } from "./migrations/0013-run-roles";
+=======
+import { mirrorGateHash } from "./migrations/0013-mirror-gate-hash";
+>>>>>>> 48a9de09ed0dd52b43f1e07d00db3b692754b1c9
 
 /**
  * Software-wide tables (0007). Every other table is office-scoped and has `office_id` as the first
@@ -35,5 +39,9 @@ export const MIGRATIONS: readonly Migration[] = [
   mergedParks,
   proxyRefusals,
   planningMessages,
+<<<<<<< 2b2192b1aef4474f3987b9a251b9890c96a0bd60
   runRoles,
+=======
+  mirrorGateHash,
+>>>>>>> 48a9de09ed0dd52b43f1e07d00db3b692754b1c9
 ];

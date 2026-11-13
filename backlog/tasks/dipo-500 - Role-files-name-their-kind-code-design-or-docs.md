@@ -1,10 +1,10 @@
 ---
 id: DIPO-500
 title: 'Role files name their kind: code, design or docs'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 12:49'
-updated_date: '2026-11-13 12:49'
+updated_date: '2026-11-13 15:03'
 labels:
   - 'tier:M'
 milestone: m-4
