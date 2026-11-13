@@ -38,7 +38,15 @@ import {
   taskFile,
 } from "../backlog/lane/helpers";
 import { pass, task } from "../stories/helpers";
-import { blocksOf, commandContext, planningWorld, STORY_PROPOSAL, until } from "./planning-world";
+import {
+  blocksOf,
+  commandContext,
+  flushBranch,
+  planningWorld,
+  proposalView,
+  STORY_PROPOSAL,
+  until,
+} from "./planning-world";
 
 const EDIT = {
   kind: "edit",
@@ -133,14 +141,10 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
 
         // A confirmed story: filed Refined, with its tier label, type, milestone, criteria,
         // references, dependency and field block, on dipo's backlog branch.
-        const filed = await w.sessions.confirm(ctx, { proposal: 1 });
-        expect(filed.result).toMatchObject({
-          run,
-          proposal: 1,
-          state: "filed",
-          stories: ["TASK-4"],
-        });
-        expect(filed.result.flush).toMatchObject({ state: "pushed" });
+        await w.sessions.confirm(ctx, { proposal: 1 });
+        await w.flushed();
+        expect(proposalView(w, 1)).toMatchObject({ state: "filed", stories: ["TASK-4"] });
+        expect(w.flushes.at(-1)).toMatchObject({ state: "pushed" });
         const worktree = lane.worktreePath();
         const text = fileOf(worktree, "TASK-4");
         expect(text).toContain("title: Export the stories as CSV");
@@ -169,8 +173,9 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         expect(evaluateGate(input, "ready").failures).toEqual([]);
 
         // A confirmed edit: title, Story line, context, criteria and references; the block stays.
-        const edited = await w.sessions.confirm(ctx, { proposal: 2 });
-        expect(edited.result).toMatchObject({ state: "filed", stories: ["TASK-2"] });
+        await w.sessions.confirm(ctx, { proposal: 2 });
+        await w.flushed();
+        expect(proposalView(w, 2)).toMatchObject({ state: "filed", stories: ["TASK-2"] });
         const renamed = fileOf(worktree, "TASK-2");
         expect(renamed).toContain("title: Rename the export setting everywhere");
         expect(renamed).toContain(`Story: ${EDIT.storyLine}`);
@@ -187,8 +192,12 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         );
 
         // A confirmed split: the new story is filed and the old one edited.
-        const split = await w.sessions.confirm(ctx, { proposal: 3 });
-        expect(split.result).toMatchObject({ state: "filed", stories: ["TASK-5", "TASK-3"] });
+        await w.sessions.confirm(ctx, { proposal: 3 });
+        await w.flushed();
+        expect(proposalView(w, 3)).toMatchObject({
+          state: "filed",
+          stories: ["TASK-5", "TASK-3"],
+        });
         expect(fileOf(worktree, "TASK-5")).toContain("title: Export the stories as JSON lines");
         expect(fileOf(worktree, "TASK-5")).toContain("tier:S");
         expect(fileOf(worktree, "TASK-3")).toContain(
@@ -218,7 +227,7 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         ]);
 
         // One commit per change on one backlog branch, which the structural check passes.
-        const branch = filed.result.flush?.state === "pushed" ? filed.result.flush.branch : "";
+        const branch = flushBranch(w);
         expect(await subjects(repo.remote, repo.home, branch, "main")).toEqual([
           "backlog: file a new story",
           "backlog: revise TASK-2",
@@ -294,6 +303,52 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
           "planning.storyUnknown",
         ]);
         expect(allEntries(s.office)).toEqual([]);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  }, 30_000);
+
+  // The real planning lane and the Backlog CLI; the slow remote is a flush that waits on a promise
+  // the test holds before it runs.
+  it("answers a confirm before the slow push ends, and the filed task is on the lane's branch after it", async () => {
+    await withBareRemote(
+      async (repo) => {
+        mkdirSync(join(repo.dir, "backlog", "milestones"), { recursive: true });
+        writeFileSync(
+          join(repo.dir, "backlog", "milestones", "m-3 - rituals.md"),
+          '---\nid: m-3\ntitle: "M3 Rituals"\n---\n',
+        );
+        await publish(repo);
+        const s = await laneSetup(repo);
+        s.kinds.set(FILE_KIND, fileKind);
+        const lane = s.lane();
+        pass(s.t, s.office, [task("TASK-1", { title: "Add the CSV export command" })]);
+        const { promise: slow, resolve: release } = Promise.withResolvers<void>();
+        const real = planningLane(lane);
+        const w = planningWorld(s.t, repo.root, {
+          office: s.office,
+          lane: () => ({
+            ...real,
+            flush: async (change) => {
+              await slow;
+              return await real.flush(change);
+            },
+          }),
+        });
+        w.answerText = (n) => (n === 1 ? blocksOf(STORY_PROPOSAL) : "Noted.");
+        await w.sessions.start(commandContext(w), { kind: "plan", goal: "Export" });
+        await until(() => w.sessions.view(s.office.officeId as OfficeId)?.state === "waiting");
+
+        const filed = await w.sessions.confirm(commandContext(w), { proposal: 1 });
+        expect(filed.result.state).toBe("filing");
+        expect(allEntries(s.office).map((entry) => entry.state)).toEqual(["pending"]);
+        release();
+        await w.flushed();
+        expect(proposalView(w, 1)).toMatchObject({ state: "filed", stories: ["TASK-4"] });
+        expect(fileOf(lane.worktreePath(), "TASK-4")).toContain("status: Refined");
+        expect(await subjects(repo.remote, repo.home, flushBranch(w), "main")).toEqual([
+          "backlog: file a new story",
+        ]);
       },
       { fixture: BACKLOG_FIXTURE },
     );
