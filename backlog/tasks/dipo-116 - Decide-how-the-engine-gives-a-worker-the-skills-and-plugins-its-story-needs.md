@@ -6,11 +6,12 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-11-13 13:45'
+updated_date: '2026-11-13 15:06'
 labels:
   - architecture
   - 'tier:M'
   - needs-refinement
+  - 'role:developer'
 milestone: m-4
 dependencies:
   - DIPO-108

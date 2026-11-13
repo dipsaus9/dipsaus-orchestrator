@@ -4,9 +4,10 @@ title: Planning proposals carry a summary the maintainer validates on the card
 status: Refined
 assignee: []
 created_date: '2026-11-13 13:31'
-updated_date: '2026-11-13 13:31'
+updated_date: '2026-11-13 15:06'
 labels:
   - 'tier:M'
+  - 'role:developer'
 milestone: m-3
 dependencies:
   - DIPO-476
