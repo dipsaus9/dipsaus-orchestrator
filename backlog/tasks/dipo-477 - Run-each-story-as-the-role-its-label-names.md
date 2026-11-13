@@ -1,10 +1,10 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 13:23'
+updated_date: '2026-11-13 13:41'
 labels:
   - 'tier:L'
 milestone: m-4
@@ -68,6 +68,10 @@ test_plan:
     - kind: "manual"
       check: "Add a role file with its own model to a test office, label a Ready story with it and start the run."
       expect: "The run view shows the new role and its model, and the run's system file holds that role's instructions."
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 497, 501, 502, 503). Running `bun scripts/check-ready-gate.ts` here fails R17 for all 8. I can't fix this in the branch: the labels mean changing task files, including DIPO-477's own. Adding only the role file would also stop office init from labelling, because init plans both steps only while .dipo/roles/ is empty (0017). Will you run `dipo office init` on this repository before this PR merges, so main has the seed role file and role:developer on every open story and dipo can merge main into this branch? Or should I handle it another way?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -84,3 +88,16 @@ test_plan:
 - [ ] #9 The work preview names the role and the model a story would run with.
 - [ ] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-13 13:41 UTC: ambiguous-spec
+- Detail: CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 49…
+- Run: run_01M7AH63HMJN8EH84AMSC0GWPV
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 0 of 8; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 356,147 of 2,000,000 tokens; 170 of 300 turns; 18 of 180 minutes
+- Last good commit: 99d6c059fc06cb2261af49657f5ae2b51781af62
+<!-- SECTION:NOTES:END -->
