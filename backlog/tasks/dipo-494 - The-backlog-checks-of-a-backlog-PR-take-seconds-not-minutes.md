@@ -1,10 +1,10 @@
 ---
 id: DIPO-494
 title: 'The backlog checks of a backlog PR take seconds, not minutes'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 11:08'
+updated_date: '2026-11-13 11:27'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -23,6 +23,26 @@ references:
   - packages/engine/src/backlog/pr/check.ts
   - docs/decisions/0010-backlog-and-git-integration.md
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0010-backlog-and-git-integration.md
+  - docs/decisions/0012-story-standard.md
+  - packages/engine/src/backlog/runner.ts
+  - packages/engine/src/backlog/store.ts
+  - packages/engine/src/backlog/task-files.ts
+  - packages/engine/src/create/stories.ts
+  - packages/engine/src/gate-decisions/feature.ts
+  - packages/engine/src/gate-decisions/read.ts
+  - packages/engine/src/story-store/store.ts
+  - packages/engine/src/story-store/story.ts
+  - packages/engine/test/backlog/task-files.ci.test.ts
+  - packages/engine/test/backlog/task-files.test.ts
+  - packages/engine/test/gate/gate-input-complete.test.ts
+  - packages/engine/test/gate/gate-tasks.test.ts
+  - packages/engine/test/gate/task-files.ts
+  - packages/engine/test/story-store/fake.ts
+  - scripts/check-backlog-pr.test.ts
+  - scripts/check-ready-gate.test.ts
+  - scripts/check-ready-gate.ts
 priority: high
 type: bug
 ordinal: 465000
@@ -89,3 +109,18 @@ test_plan:
 - [x] #8 readGateInput logs the duration of each part at DEBUG
 - [x] #9 ADR 0010's Only through the CLI line names the one-pass read of task files for the gate's other tasks, with one Replaced line, and ADR 0012's input line says so
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 11:27 UTC
+- Criteria met: 9 of 9 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 3, failed 0
+- Budget used: 306,507 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
