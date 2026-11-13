@@ -1,10 +1,10 @@
 ---
 id: DIPO-471
 title: Load role files from the base and build the roster from them
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 14:35'
-updated_date: '2026-11-13 09:05'
+updated_date: '2026-11-13 09:49'
 labels:
   - 'tier:M'
 milestone: m-4
