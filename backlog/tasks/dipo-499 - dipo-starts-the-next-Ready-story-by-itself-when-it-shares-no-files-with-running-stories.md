@@ -3,10 +3,10 @@ id: DIPO-499
 title: >-
   dipo starts the next Ready story by itself when it shares no files with
   running stories
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 12:25'
-updated_date: '2026-11-13 13:05'
+updated_date: '2026-11-13 13:14'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -29,6 +29,27 @@ references:
   - docs/how-dipo-works.md
   - packages/engine/src/run/resumption.ts
   - packages/engine/src/commands/execute.ts
+modified_files:
+  - docs/decisions/0010-backlog-and-git-integration.md
+  - docs/decisions/0017-testing-strategy-and-configuration.md
+  - docs/how-dipo-works.md
+  - packages/cli/src/desk-command.test.ts
+  - packages/cli/src/desk-command.ts
+  - packages/cli/src/watch-command.test.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/config/schema.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/run/next-up.ts
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
+  - packages/engine/test/run/next-up.test.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
 priority: high
 type: feature
 ordinal: 470000
@@ -101,3 +122,18 @@ test_plan:
 - [x] #11 An offer whose auto start was refused, skipped or failed stays a NEXT UP item with the refusal in its why and is not started by itself again until its signature changes; a story whose pickup check fails is tried once and then waits on the desk
 - [x] #12 An auto start uses the confirm's start with an engine-made request of origin other, as resumeLifted does, and the run records that dipo started it
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 13:14 UTC
+- Criteria met: 12 of 12 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 249,414 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
