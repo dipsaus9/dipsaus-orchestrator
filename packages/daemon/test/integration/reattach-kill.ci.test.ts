@@ -69,9 +69,15 @@ async function backlog(repo: TempRepoWithRemote, args: string[]): Promise<void> 
   }
 }
 
+/** A role file for TASK-1's `role:developer` label to name (R17, DIPO-477). */
+const DEVELOPER_ROLE =
+  "---\nversion: 1\npurpose: Implements one story in this repository.\n---\n\nImplement the story.\n";
+
 /** The fixture on `origin` with TASK-1 made to pass the Ready gate. */
 async function readyFixture(repo: TempRepoWithRemote): Promise<void> {
   mkdirSync(join(repo.dir, "backlog", "archive", "tasks"), { recursive: true });
+  mkdirSync(join(repo.dir, ".dipo", "roles"), { recursive: true });
+  writeFileSync(join(repo.dir, ".dipo", "roles", "developer.md"), DEVELOPER_ROLE);
   // A run needs a resolved verify (DIPO-72); the box run's verify is CI, so any script will do.
   writeFileSync(
     join(repo.dir, "package.json"),
@@ -91,6 +97,8 @@ async function readyFixture(repo: TempRepoWithRemote): Promise<void> {
     "m-0",
     "--ref",
     "packages/export/",
+    "--add-label",
+    "role:developer",
   ]);
   await repo.commitAll("make TASK-1 pass the gate");
   await repo.git("push", "--quiet", "origin", "main");
