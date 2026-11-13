@@ -1,10 +1,10 @@
 ---
 id: DIPO-497
 title: Ending a planning session lists the stories that stayed Refined
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:28'
-updated_date: '2026-11-13 13:10'
+updated_date: '2026-11-13 13:13'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -69,10 +69,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 /end then Enter asks to end; on a yes it ends the session and lists each story the session filed or edited that stayed Refined, with the gate's first message and how to set it Ready later
-- [ ] #2 planning.ready, the view's ready field and PlanningReadyView, the Ready step and its footer keys are removed
-- [ ] #3 story.ready still sets a Refined story Ready through readyStories
-- [ ] #4 ADR 0009's Planning line describes /end without the Ready step, with one Replaced line
+- [x] #1 /end then Enter asks to end; on a yes it ends the session and lists each story the session filed or edited that stayed Refined, with the gate's first message and how to set it Ready later
+- [x] #2 planning.ready, the view's ready field and PlanningReadyView, the Ready step and its footer keys are removed
+- [x] #3 story.ready still sets a Refined story Ready through readyStories
+- [x] #4 ADR 0009's Planning line describes /end without the Ready step, with one Replaced line
 <!-- AC:END -->
 
 ## Implementation Notes
