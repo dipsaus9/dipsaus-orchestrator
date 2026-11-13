@@ -50,9 +50,9 @@ export interface GateStoreDeps {
   };
   readonly clock: Clock;
   readonly ids: IdSource;
-  /** The stories index; the pass that brings a stale mirror up to date goes through it (DIPO-201). */
   /** Where the read reports the duration of each part (DEBUG, DIPO-494). */
   readonly logger?: Logger;
+  /** The stories index; the pass that brings a stale mirror up to date goes through it (DIPO-201). */
   readonly index: {
     indexInSession(office: OfficeId, session: GitSession, basePath: string): Promise<IndexResult>;
   };
