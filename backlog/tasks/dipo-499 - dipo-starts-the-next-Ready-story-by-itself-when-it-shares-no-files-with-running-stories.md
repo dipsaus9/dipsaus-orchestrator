@@ -3,10 +3,10 @@ id: DIPO-499
 title: >-
   dipo starts the next Ready story by itself when it shares no files with
   running stories
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 12:25'
-updated_date: '2026-11-13 12:47'
+updated_date: '2026-11-13 12:53'
 labels:
   - 'tier:M'
 milestone: m-3
