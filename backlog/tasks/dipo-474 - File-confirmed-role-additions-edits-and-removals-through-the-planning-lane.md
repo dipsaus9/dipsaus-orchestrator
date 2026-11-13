@@ -1,10 +1,10 @@
 ---
 id: DIPO-474
 title: 'File confirmed role additions, edits and removals through the planning lane'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 12:07'
+updated_date: '2026-11-13 12:14'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -69,14 +69,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A role proposal with a valid unused name, a purpose and instructions passes; one with a reserved, invalid or existing name is refused naming the problem.
-- [ ] #2 A role-edit or role-remove proposal for a role with no file on the base is refused naming the role.
-- [ ] #3 A role or role-edit proposal whose resulting file would not load is refused with the parser's problem.
-- [ ] #4 A role-remove proposal for a role that a story not Done is labelled with is refused, naming those stories.
-- [ ] #5 A confirmed role proposal lands in the backlog PR as a new .dipo/roles/<name>.md that loads as that role.
-- [ ] #6 A confirmed role-edit changes only the fields it names in the role file.
-- [ ] #7 A confirmed role-remove deletes the role's file in the backlog PR.
-- [ ] #8 The lane applies changes under .dipo/roles/ and still drops changes to other paths outside backlog/.
-- [ ] #9 A target whose check fails at apply time does not apply and records why.
-- [ ] #10 The next turn's [dipo] lines name each role added, edited or removed.
+- [x] #1 A role proposal with a valid unused name, a purpose and instructions passes; one with a reserved, invalid or existing name is refused naming the problem.
+- [x] #2 A role-edit or role-remove proposal for a role with no file on the base is refused naming the role.
+- [x] #3 A role or role-edit proposal whose resulting file would not load is refused with the parser's problem.
+- [x] #4 A role-remove proposal for a role that a story not Done is labelled with is refused, naming those stories.
+- [x] #5 A confirmed role proposal lands in the backlog PR as a new .dipo/roles/<name>.md that loads as that role.
+- [x] #6 A confirmed role-edit changes only the fields it names in the role file.
+- [x] #7 A confirmed role-remove deletes the role's file in the backlog PR.
+- [x] #8 The lane applies changes under .dipo/roles/ and still drops changes to other paths outside backlog/.
+- [x] #9 A target whose check fails at apply time does not apply and records why.
+- [x] #10 The next turn's [dipo] lines name each role added, edited or removed.
 <!-- AC:END -->
