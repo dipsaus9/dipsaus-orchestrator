@@ -1,10 +1,10 @@
 ---
 id: DIPO-476
 title: Let planning proposals name the role and file it as a label
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 12:53'
+updated_date: '2026-11-13 13:05'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -59,11 +59,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The story, split and refine proposal schemas require a role, and a block without one is refused with a problem naming the missing role.
-- [ ] #2 A proposal whose role is not in the office's roster is refused, and the problem lists the roster's role names.
-- [ ] #3 A confirmed story proposal is filed with the labels tier:<tier> and role:<role>.
-- [ ] #4 A confirmed refine proposal promotes the draft to a story labelled tier:<tier> and role:<role>.
-- [ ] #5 Filing refuses a story that reads back without the proposed role label.
-- [ ] #6 The planner's first message holds a roles section with each roster role's name and purpose.
-- [ ] #7 The TUI shows the proposed role on each story, split and refine proposal line.
+- [x] #1 The story, split and refine proposal schemas require a role, and a block without one is refused with a problem naming the missing role.
+- [x] #2 A proposal whose role is not in the office's roster is refused, and the problem lists the roster's role names.
+- [x] #3 A confirmed story proposal is filed with the labels tier:<tier> and role:<role>.
+- [x] #4 A confirmed refine proposal promotes the draft to a story labelled tier:<tier> and role:<role>.
+- [x] #5 Filing refuses a story that reads back without the proposed role label.
+- [x] #6 The planner's first message holds a roles section with each roster role's name and purpose.
+- [x] #7 The TUI shows the proposed role on each story, split and refine proposal line.
 <!-- AC:END -->
