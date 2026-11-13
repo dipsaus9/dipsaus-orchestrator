@@ -4,7 +4,7 @@
 
 import type { LaneFlush } from "@dipsaus-orchestrator/contract";
 
-/** The shape of a `story.ready` or `planning.ready` result. */
+/** The shape of a `story.ready` result. */
 export interface ReadyResult {
   readonly queued: readonly string[];
   readonly refused: readonly { readonly story: string; readonly messages: readonly string[] }[];

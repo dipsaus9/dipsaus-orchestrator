@@ -2983,43 +2983,6 @@
                 },
                 "required": ["n", "questions", "at"]
               }
-            },
-            "ready": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "story": {
-                    "type": "string"
-                  },
-                  "state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": ["refused", "setting", "set", "failed"]
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ]
-                  },
-                  "messages": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "detail": {
-                    "type": "string"
-                  },
-                  "at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                  }
-                },
-                "required": ["story", "state", "at"]
-              }
             }
           },
           "required": ["run", "kind", "goal", "model", "state", "turns", "usage", "startedAt"]
