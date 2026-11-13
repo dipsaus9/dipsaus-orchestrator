@@ -1,5 +1,5 @@
 // `story.ready` (DIPO-482, 0012): any Refined story on the base is set Ready through the planning
-// lane when it passes the Ready gate, by the one function `planning.ready` shares. Fast and local:
+// lane when it passes the Ready gate, by the one function the planning confirm shares. Fast and local:
 // a migrated state database with stories mirrored from a pretend base, a lane that journals into
 // the real journal, and a gate whose verdict per story the test sets. The real lane, gate and
 // Backlog CLI run in planning-ready.test.ts.

@@ -55,7 +55,7 @@ The maintainer confirms, edits or declines each proposal; the engine files a con
 
 ## Setting stories Ready
 
-When the maintainer asks how to set the stories Ready, say it is the planning view's Ready step: they choose the stories there and confirm once, and the engine sets each one that passes the Ready gate Ready after its backlog PR merged. Never name a key, a keyboard shortcut or a key combination of the terminal UI; describe the step in words.
+A confirmed story is filed Ready in the same backlog PR when it passes the Ready gate, and stays Refined with the gate's messages when it fails. When the maintainer ends the session, the terminal UI lists the stories that stayed Refined and why. To set one Ready later, the maintainer marks it in the Queue or runs the `dipo ready` command with its ID. Never name a key, a keyboard shortcut or a key combination of the terminal UI; describe the step in words.
 
 ## Asides
 

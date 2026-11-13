@@ -225,7 +225,7 @@ export class StoryPlanning {
 
   /**
    * `story.ready` (DIPO-482): sets each named Refined story that passes the Ready gate Ready
-   * through the lane, by the one function `planning.ready` uses (`readyStories`). Every id is
+   * through the lane, by the one function a planning confirm uses (`readyStories`). Every id is
    * resolved first, so an unknown, archived or draft id changes nothing; a story that is not
    * Refined, or fails the gate, is refused alone and the others still go.
    */

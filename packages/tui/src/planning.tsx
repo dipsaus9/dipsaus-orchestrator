@@ -461,7 +461,7 @@ function useQuestions(
   return { dialog: open ? { block, state } : null, onKey };
 }
 
-/** A new office or session closes the Ready step of the old one; another office has its own draft. */
+/** A new office or session closes the end prompt of the old one; another office has its own draft. */
 function useResets(
   run: string | null,
   office: string | null,
@@ -673,7 +673,7 @@ export function refusalLines(view: PlanningView, columns: number, display: Displ
   ];
 }
 
-/** A proposal's title and proposed tier: what a card and the Ready step call it. */
+/** A proposal's title and proposed tier: what a card and the end list call it. */
 function proposalHead(proposal: PlanningProposalView["proposal"]): {
   title: string;
   tier?: string;
