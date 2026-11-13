@@ -1,10 +1,10 @@
 ---
 id: DIPO-491
 title: 'The planning dialog and TUI prompts take Enter, and my messages stand apart'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:40'
+updated_date: '2026-11-13 11:36'
 labels:
   - 'tier:M'
 milestone: m-3
