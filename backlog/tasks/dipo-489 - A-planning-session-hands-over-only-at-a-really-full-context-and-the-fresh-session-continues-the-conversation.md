@@ -3,10 +3,10 @@ id: DIPO-489
 title: >-
   A planning session hands over only at a full context and continues the
   conversation
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 09:09'
-updated_date: '2026-11-13 09:50'
+updated_date: '2026-11-13 09:57'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -73,10 +73,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A planning model session hands over context-full only when its last main-agent message's input + cache read + cache creation + output reaches the limit, or when it compacted; subagent messages and prompt-cache rewrites after a pause do not count
-- [ ] #2 The cumulative token sum in contextNearFull is removed; one context measure remains
-- [ ] #3 The planning record keeps each maintainer message (a planning.message text and the sent answers of a question block) with its time, run and output offset, and the model's last answer of each model session
-- [ ] #4 A fresh model session's first message says it continues the session and carries the last maintainer message and the previous model session's last answer
-- [ ] #5 The view of a continued session carries continuedAt, and each handover logs one INFO line with office, previous run, new run, reason and, for context-full, the measured size
-- [ ] #6 ADR 0022's decision-record line says what the record keeps, how a near-full context is measured and that the fresh session continues the last exchange
+- [x] #1 A planning model session hands over context-full only when its last main-agent message's input + cache read + cache creation + output reaches the limit, or when it compacted; subagent messages and prompt-cache rewrites after a pause do not count
+- [x] #2 The cumulative token sum in contextNearFull is removed; one context measure remains
+- [x] #3 The planning record keeps each maintainer message (a planning.message text and the sent answers of a question block) with its time, run and output offset, and the model's last answer of each model session
+- [x] #4 A fresh model session's first message says it continues the session and carries the last maintainer message and the previous model session's last answer
+- [x] #5 The view of a continued session carries continuedAt, and each handover logs one INFO line with office, previous run, new run, reason and, for context-full, the measured size
+- [x] #6 ADR 0022's decision-record line says what the record keeps, how a near-full context is measured and that the fresh session continues the last exchange
 <!-- AC:END -->
