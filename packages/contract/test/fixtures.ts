@@ -82,6 +82,7 @@ export const planningStoryProposal = {
   type: "feature",
   milestone: "m-3",
   tier: "M",
+  role: "developer",
   storyLine:
     "As maintainer I want to export the stories as CSV so that I can share the backlog with people outside dipo.",
   criteria: ["dipo export writes one CSV row per story"],

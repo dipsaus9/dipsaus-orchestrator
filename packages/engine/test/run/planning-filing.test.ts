@@ -77,6 +77,7 @@ const SPLIT = {
     type: "feature",
     milestone: "m-3",
     tier: "S",
+    role: "developer",
     storyLine:
       "As maintainer I want the stories exported as JSON lines so that a script can read them one by one.",
     criteria: ["Each line holds one story as a JSON object"],
@@ -162,6 +163,7 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         expect(text).toContain("title: Export the stories as CSV");
         expect(text).toContain("status: Refined");
         expect(text).toContain("tier:M");
+        expect(text).toContain("role:developer");
         expect(text).toContain("type: feature");
         expect(text).toContain("milestone: m-3");
         expect(text).toContain("- TASK-1");
@@ -182,7 +184,9 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
           "TASK-4",
           DEFAULT_CONFIG,
         );
-        expect(evaluateGate(input, "ready").failures).toEqual([]);
+        expect(
+          evaluateGate({ ...input, roster: [{ name: "developer", code: true }] }, "ready").failures,
+        ).toEqual([]);
 
         // A confirmed edit: title, Story line, context, criteria and references; the block stays.
         const edited = await w.sessions.confirm(ctx, { proposal: 2 });
@@ -207,6 +211,7 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         expect(split.result).toMatchObject({ state: "filed", stories: ["TASK-5", "TASK-3"] });
         expect(fileOf(worktree, "TASK-5")).toContain("title: Export the stories as JSON lines");
         expect(fileOf(worktree, "TASK-5")).toContain("tier:S");
+        expect(fileOf(worktree, "TASK-5")).toContain("role:developer");
         expect(fileOf(worktree, "TASK-3")).toContain(
           "- [ ] #1 JSON export writes one object per story",
         );

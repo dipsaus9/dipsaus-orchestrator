@@ -757,7 +757,7 @@ export function refusalLines(view: PlanningView, columns: number, display: Displ
   ];
 }
 
-/** A proposal's title and proposed tier: what a card and the Ready step call it. */
+/** A proposal's title and proposed tier and role: what a card and the Ready step call it. */
 function proposalHead(proposal: PlanningProposalView["proposal"]): {
   title: string;
   tier?: string;
@@ -765,7 +765,7 @@ function proposalHead(proposal: PlanningProposalView["proposal"]): {
   switch (proposal.kind) {
     case "story":
     case "refine":
-      return { title: proposal.title, tier: proposal.tier };
+      return { title: proposal.title, tier: `${proposal.tier} · ${proposal.role}` };
     case "edit":
       return {
         title: `edit ${proposal.id}${proposal.title === undefined ? "" : `: ${proposal.title}`}`,
@@ -773,7 +773,7 @@ function proposalHead(proposal: PlanningProposalView["proposal"]): {
     case "split":
       return {
         title: `split ${proposal.id} + ${proposal.story.title}`,
-        tier: proposal.story.tier,
+        tier: `${proposal.story.tier} · ${proposal.story.role}`,
       };
     case "drop":
       return { title: `drop ${proposal.draft}` };

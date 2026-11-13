@@ -194,10 +194,33 @@ describe("a planning session (DIPO-447)", () => {
       expect(text).toContain(
         "<recent_runs>\n- DIPO-12 (M): running, 0 tokens, started 2026-11-04\n",
       );
+      expect(text).toContain("<roles>\n- developer: Builds the story\n</roles>");
       expect(text).toContain(
         `The base branch at ${BASE_COMMIT}, with the backlog, read-only at ${REVIEW_CODE_DIR}.`,
       );
     }));
+
+  it("lists each roster role with its purpose in the roles section (DIPO-476)", () => {
+    const text = planningFirstMessage({
+      kind: "plan",
+      goal: "Plan",
+      record: "",
+      drafts: [],
+      desk: [],
+      runs: [],
+      roles: [
+        { name: "developer", purpose: "Builds the story" },
+        { name: "writer", purpose: "Writes the docs" },
+      ],
+      retro: "",
+      commit: BASE_COMMIT,
+      preferences: null,
+      proposalSchema: { type: "object" },
+    });
+    expect(text).toContain(
+      "<roles>\n- developer: Builds the story\n- writer: Writes the docs\n</roles>",
+    );
+  });
 
   it("says so when there are no drafts, desk items or runs, and keeps the goal's tags as text", () => {
     const text = planningFirstMessage({
@@ -207,6 +230,7 @@ describe("a planning session (DIPO-447)", () => {
       drafts: [],
       desk: [],
       runs: [],
+      roles: [],
       retro: "",
       commit: BASE_COMMIT,
       preferences: null,

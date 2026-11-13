@@ -558,6 +558,10 @@ const storyShape = {
   type: z.enum(STORY_TYPES),
   milestone: OneLine(1, 40).describe("the milestone it belongs to, as the backlog names it"),
   tier: z.enum(KNOWN_TIERS).describe("the proposed tier"),
+  role: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]*$/, "expected a role name such as developer")
+    .describe("the role that runs the story, one of the office's roster"),
   storyLine: OneLine(1, proposalCaps.storyLine).describe(
     "As <maintainer|worker|reviewer> I want <capability> so that <value>. For a spike: We need to decide <question> so that <value>. Plain words: no backticks, paths or code",
   ),

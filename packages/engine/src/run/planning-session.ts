@@ -110,6 +110,7 @@ import type { z } from "zod";
 import { cycleThrough } from "../gate/rules";
 import { baseCommit } from "../box/image";
 import { retro } from "../records/retro";
+import { loadRoleFiles } from "../roles/base";
 import { REVIEW_CODE_DIR } from "../box/review-box";
 import type { BoxSession, BoxWorkers } from "../box/workers";
 import { appendEntries, type NewEntry } from "../changelog/log";
@@ -252,6 +253,8 @@ export interface PlanningFacts {
   readonly drafts: readonly PlanningDraft[];
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
+  /** The roster of the base's role files, each with its purpose (DIPO-476). */
+  readonly roles: readonly { readonly name: string; readonly purpose: string }[];
   /** The retro numbers as text (DIPO-453): counted by code, to explain and never to compute. */
   readonly retro: string;
   /** The base branch's commit the read-only copy holds. */
@@ -295,6 +298,10 @@ export function planningFirstMessage(facts: PlanningFacts): string {
           `- ${run.story}${run.tier === null ? "" : ` (${run.tier})`}: ${run.ending ?? "running"}, ${run.tokens.toLocaleString("en-US")} tokens, started ${day(run.startedAt)}`,
       ),
       "No story runs yet.",
+    ),
+    roles: listOr(
+      facts.roles.map((role) => `- ${role.name}: ${role.purpose}`),
+      "The office has no roles.",
     ),
     retro: facts.retro,
     commit: rendered(facts.commit),
@@ -1762,6 +1769,7 @@ export class PlanningSessions {
         drafts: planningDrafts(handle),
         desk: deps.desk?.(handle, now) ?? [],
         runs: recentStoryRuns(handle),
+        roles: loadRoleFiles(this.#roleFacts(open)?.files ?? new Map()).roles,
         retro: retro(handle).lines.join("\n"),
         commit,
         proposalSchema: deps.worker.reportSchema.planning,

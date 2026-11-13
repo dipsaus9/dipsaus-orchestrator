@@ -87,6 +87,7 @@ const NEW_PART = {
   type: "feature",
   milestone: "m-3",
   tier: "S",
+  role: "developer",
   storyLine:
     "As maintainer I want the stories exported as JSON lines so that a script can read them one by one.",
   criteria: ["Each line holds one story as a JSON object"],
@@ -125,6 +126,7 @@ const PROPOSALS = [
     type: "feature",
     milestone: "m-3",
     tier: "S",
+    role: "developer",
     storyLine:
       "As maintainer I want a story list exported as CSV so that I can sort it in a spreadsheet.",
     criteria: ["The export writes one CSV row per active story"],
