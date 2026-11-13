@@ -1,10 +1,10 @@
 ---
 id: DIPO-471
 title: Load role files from the base and build the roster from them
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 14:35'
-updated_date: '2026-11-13 09:49'
+updated_date: '2026-11-13 09:55'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -74,14 +74,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A role file with version 1, a purpose and a non-empty body loads as a role named after its file, with its purpose, its instructions and its model and effort when set.
-- [ ] #2 A role file with an unknown frontmatter key, a missing version or purpose, a non-integer version or an empty body is refused with a message naming the file and the key or problem.
-- [ ] #3 A role file named reviewer, planner, auditor or scanner, or with a name that is not a valid role name, is refused with a message naming the file.
-- [ ] #4 Role files are read from the base commit, not the checkout: a role file that only exists in the checkout is not in the roster.
-- [ ] #5 A change to a role file on the base updates the roster without a daemon restart.
-- [ ] #6 An invalid role file leaves only that role out of the roster and raises one notice naming the file; the other roles stay in the roster.
-- [ ] #7 The daemon's Ready gate passes R17 for a story whose role label names a role file on the base, and fails R17 naming the role when no such file exists.
-- [ ] #8 The CI Ready gate script builds the roster from the role files of the checked-out commit, and fails R17 for a Ready story whose role has no file.
-- [ ] #9 The built-in roster constant is removed; the gate's roster comes only from role files.
-- [ ] #10 Decisions 0017, 0012, 0014 and 0001 describe role files, their keys and the roster as built here.
+- [x] #1 A role file with version 1, a purpose and a non-empty body loads as a role named after its file, with its purpose, its instructions and its model and effort when set.
+- [x] #2 A role file with an unknown frontmatter key, a missing version or purpose, a non-integer version or an empty body is refused with a message naming the file and the key or problem.
+- [x] #3 A role file named reviewer, planner, auditor or scanner, or with a name that is not a valid role name, is refused with a message naming the file.
+- [x] #4 Role files are read from the base commit, not the checkout: a role file that only exists in the checkout is not in the roster.
+- [x] #5 A change to a role file on the base updates the roster without a daemon restart.
+- [x] #6 An invalid role file leaves only that role out of the roster and raises one notice naming the file; the other roles stay in the roster.
+- [x] #7 The daemon's Ready gate passes R17 for a story whose role label names a role file on the base, and fails R17 naming the role when no such file exists.
+- [x] #8 The CI Ready gate script builds the roster from the role files of the checked-out commit, and fails R17 for a Ready story whose role has no file.
+- [x] #9 The built-in roster constant is removed; the gate's roster comes only from role files.
+- [x] #10 Decisions 0017, 0012, 0014 and 0001 describe role files, their keys and the roster as built here.
 <!-- AC:END -->
