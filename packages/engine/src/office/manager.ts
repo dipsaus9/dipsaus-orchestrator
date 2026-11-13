@@ -561,6 +561,11 @@ export class OfficeManager implements OfficeDirectory {
     return rosterOf(this.#instances.get(office)?.roles.roles ?? []);
   }
 
+  /** The text of every role file on the base of `office`, by path; undefined when it is not loaded (DIPO-474). */
+  roleFiles(office: OfficeId): ReadonlyMap<string, string | undefined> | undefined {
+    return this.#instances.get(office)?.roles.files;
+  }
+
   /** The roles and the refused role files of `office` for `office.roles` (DIPO-473). */
   rolesView(office: OfficeId): RolesView {
     const { roles, problems } = this.#instances.get(office)?.roles ?? { roles: [], problems: [] };

@@ -203,7 +203,7 @@ describe("the structural check of a backlog-only PR in CI", () => {
       });
       const result = await check(repo, base, head);
       expect(result.failures.map((failure) => failure.message)).toEqual([
-        "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): backlog/x.test.ts",
+        "the PR changes paths that are not Backlog files (a .md file under backlog/, backlog/config.yml, or a role file .dipo/roles/<name>.md): backlog/x.test.ts",
         `the PR changes entries that are not regular files (a symlink, a submodule or an executable): backlog/link.md, ${path(2)}`,
       ]);
     });

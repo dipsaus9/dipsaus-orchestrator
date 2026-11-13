@@ -453,6 +453,9 @@ export const PLANNING_PROPOSAL_CAPS = {
   dependencies: 10,
   testPlan: 20,
   check: 500,
+  purpose: 300,
+  instructions: 20_000,
+  modelName: 100,
 } as const;
 
 // The story types of 0012 F5.
@@ -644,7 +647,49 @@ export const PlanningEditFields = z
   .superRefine((edit, ctx) => editChecks(edit, ctx));
 export type PlanningEditFields = z.infer<typeof PlanningEditFields>;
 
+// A role a planning session proposes to add, edit or remove (DIPO-474, 0022): the role file
+// `.dipo/roles/<name>.md` (0017). `purpose`, `model` and `effort` are one line; `instructions` is
+// the file's Markdown body. A role-edit names only the fields that change.
+const RoleName = z
+  .string()
+  .min(1)
+  .max(40)
+  .describe("the role's name, which is its file name without .md");
+const rolePurpose = OneLine(1, proposalCaps.purpose).describe("one line: what the role is for");
+const roleModel = OneLine(1, proposalCaps.modelName).describe("the model this role uses");
+const roleEffort = OneLine(1, proposalCaps.modelName).describe("the effort this role uses");
+const roleInstructions = z
+  .string()
+  .min(1)
+  .max(proposalCaps.instructions)
+  .describe("the role's instructions, Markdown");
+
 export const PlanningProposal = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("role"),
+    name: RoleName,
+    purpose: rolePurpose,
+    model: roleModel.optional(),
+    effort: roleEffort.optional(),
+    instructions: roleInstructions,
+    why: Why,
+  }),
+  z
+    .strictObject({
+      kind: z.literal("role-edit"),
+      name: RoleName,
+      purpose: rolePurpose.optional(),
+      model: roleModel.optional(),
+      effort: roleEffort.optional(),
+      instructions: roleInstructions.optional(),
+      why: Why,
+    })
+    .superRefine(({ purpose, model, effort, instructions }, ctx) => {
+      if ([purpose, model, effort, instructions].every((value) => value === undefined)) {
+        ctx.addIssue({ code: "custom", message: "a role edit changes at least one field" });
+      }
+    }),
+  z.strictObject({ kind: z.literal("role-remove"), name: RoleName, why: Why }),
   z.strictObject({ kind: z.literal("story"), ...storyShape, why: Why }).superRefine(storyChecks),
   z
     .strictObject({

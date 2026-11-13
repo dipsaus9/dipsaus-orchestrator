@@ -138,6 +138,11 @@ export interface RunsOptions {
   readonly planningDesk?: RunPorts["planningDesk"];
   /** The office's planning lane, which files a planning session's confirmed proposals (DIPO-450). */
   readonly planningLane?: RunPorts["planningLane"];
+<<<<<<< 3857de22f4293455a1b8cf65c96f4ea788ffa5d4
+=======
+  readonly planningGate?: RunPorts["planningGate"];
+  readonly planningRoleFiles?: RunPorts["planningRoleFiles"];
+>>>>>>> 7ba9d9ae87763be1158be32b78798e6329489925
   /** Reads a process's start time: whether a worker host still runs (DIPO-57). */
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
@@ -1072,6 +1077,13 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers, planningBoxes: boxWorkers }),
     ...(options.planningDesk === undefined ? {} : { planningDesk: options.planningDesk }),
     ...(options.planningLane === undefined ? {} : { planningLane: options.planningLane }),
+<<<<<<< 3857de22f4293455a1b8cf65c96f4ea788ffa5d4
+=======
+    ...(options.planningGate === undefined ? {} : { planningGate: options.planningGate }),
+    ...(options.planningRoleFiles === undefined
+      ? {}
+      : { planningRoleFiles: options.planningRoleFiles }),
+>>>>>>> 7ba9d9ae87763be1158be32b78798e6329489925
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),

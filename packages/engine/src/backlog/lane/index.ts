@@ -75,3 +75,12 @@ export {
   proposeTarget,
   recordDraftId,
 } from "./propose";
+export {
+  openStoriesOfRole,
+  ROLE_ADD_KIND,
+  ROLE_EDIT_KIND,
+  ROLE_REMOVE_KIND,
+  roleAddKind,
+  roleEditKind,
+  roleRemoveKind,
+} from "./roles";
