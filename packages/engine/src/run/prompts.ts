@@ -1,6 +1,6 @@
-// The prompts of a run's first session (DIPO-74; 0014): the L1+L2 system
-// file for `implement-box` (DIPO-272) and the run's role file (DIPO-477), and the L4 task message from the
-// story, its dependencies and the context pack the default provider gathers from a checkout. A real run reads
+// The prompts of a run's first session (DIPO-74; 0014): the L1+L2 system file for `implement-box`
+// (DIPO-272) and the run's role file (DIPO-477), and the L4 task message from the story, its
+// dependencies and the context pack the default provider gathers from a checkout. A real run reads
 // its new worktree; the dry run reads `_base`, which holds the same commit the worktree would start
 // from. The session id is made here too: a UUID derived from an engine-made id.
 
