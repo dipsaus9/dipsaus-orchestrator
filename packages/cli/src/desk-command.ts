@@ -11,7 +11,12 @@
 import { basename } from "node:path";
 
 import { usageParts } from "@dipsaus-orchestrator/client";
-import { type DeskItem, officeDesk, proposedStoryLines } from "@dipsaus-orchestrator/contract";
+import {
+  type DeskItem,
+  NEXT_UP_AUTO_START_LINE,
+  officeDesk,
+  proposedStoryLines,
+} from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
@@ -62,7 +67,13 @@ export function formatDesk(
   const storyWidth = Math.max(0, ...open.map((item) => (item.story ?? "").length));
   const byYouHead = `Parked by you (${byYou.length})`;
   const byYouStoryWidth = Math.max(0, ...byYou.map((item) => (item.story ?? "").length));
+  let headed = false;
   for (const item of open) {
+    // The next-up group's head, while the office starts those stories by itself (0010).
+    if (item.autoStart !== undefined && !headed) {
+      headed = true;
+      lines.push(NEXT_UP_AUTO_START_LINE);
+    }
     const since = age(Date.parse(item.since), nowMs);
     const story = (item.story ?? "").padEnd(storyWidth);
     const reason = item.reason === undefined ? "" : `${item.reason} · `;

@@ -43,6 +43,7 @@ const KEY_PATHS = [
   "caps.conflictAttempts",
   "merge.autoMerge",
   "merge.waitLabels",
+  "nextUp.autoStart",
   "merge.checksWaitMinutes",
   ...["debian", "packages", "workerCli", "files", "localPorts"].map(box),
   ...["node", "bun", "pnpm", "yarn", "nodeSha256.arm64", "nodeSha256.x64"].map((tool) =>

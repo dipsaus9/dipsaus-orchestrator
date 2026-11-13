@@ -185,9 +185,30 @@ const EXAMPLE_LINES = [
   'Parked by you (1)  DIPO-129 "after M2"   dipo resume DIPO-129',
 ];
 
+/** One NEXT UP item, with the office's `nextUp.autoStart` on or not. */
+const nextUpItem = (autoStart: boolean) =>
+  officeDesk.result.parse([
+    {
+      kind: "NEXT UP",
+      story: "DIPO-5",
+      key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1F",
+      ...(autoStart ? { autoStart: "no-overlap" } : {}),
+      detail: '"Five" · m-3 is the earliest milestone; priority high',
+      since: ago(3),
+      blocks: [],
+      actions: [{ command: "nextUp.confirm", cli: "dipo next confirm DIPO-5" }],
+    },
+  ]);
+
 describe("formatDesk", () => {
   it("prints the 0020 example: a count line, each item with its command, parked by you apart", () => {
     expect(formatDesk("dipsaus-orchestrator", EXAMPLE, NOW)).toEqual(EXAMPLE_LINES);
+  });
+
+  it("heads the next-up group while the office starts those stories by itself (0010)", () => {
+    const head = "Next up starts by itself when it shares no files (nextUp.autoStart: no-overlap)";
+    expect(formatDesk("demo", nextUpItem(true), NOW).indexOf(head)).toBe(1);
+    expect(formatDesk("demo", nextUpItem(false), NOW)).not.toContain(head);
   });
 
   it("ends the count line with today's and this month's tokens and UTC (DIPO-311)", () => {

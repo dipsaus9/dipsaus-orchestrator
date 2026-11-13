@@ -180,6 +180,8 @@ export interface DeskSources {
   readonly startsPaused?: (office: OfficeHandle) => StartsPausedState | null;
   /** The stories offered for the office's free run slots, in order (0010); none without it. */
   readonly nextUp?: (office: OfficeHandle) => readonly NextUpDeskItem[];
+  /** The office's `nextUp.autoStart` (0010); `none` without it. */
+  readonly nextUpAutoStart?: (office: OfficeHandle) => "none" | "no-overlap";
   /**
    * What a merge gate's PR shows beyond its record (DIPO-459): its head's required checks and
    * what its branch changes, from the story PR's CI watch and git; nothing without it.
@@ -953,9 +955,11 @@ class DeskBuilder {
   /** Group 7: the stories offered for free run slots, in their order (0010). */
   nextUp(): void {
     const offers = this.#sources.nextUp?.(this.#office) ?? [];
+    const auto = this.#sources.nextUpAutoStart?.(this.#office) === "no-overlap";
     offers.forEach((offer, rank) => {
       this.#add(GROUP.nextUp, rank, offer.since, {
         kind: NEXT_UP_KIND,
+        ...(auto ? { autoStart: "no-overlap" as const } : {}),
         story: offer.story,
         key: offer.key,
         detail: `${JSON.stringify(deskText(offer.title))} · ${offer.why} · ${sharedText(offer.shared)}${

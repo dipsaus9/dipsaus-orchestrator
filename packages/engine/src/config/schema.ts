@@ -70,6 +70,16 @@ const Caps = z
     "How many stories run at once, and how often a story may try again before it parks (0002).",
   );
 
+const NextUpSection = z
+  .strictObject({
+    autoStart: z
+      .enum(["none", "no-overlap"])
+      .describe(
+        "Whether dipo starts the next Ready story itself when a run slot is free: `none` starts nothing without `dipo next confirm`; `no-overlap` starts the first offer whose references share no files with the running stories, and leaves the others for the maintainer.",
+      ),
+  })
+  .describe("Next up: how a free run slot gets its story (0010).");
+
 const Merge = z
   .strictObject({
     autoMerge: z
@@ -328,6 +338,7 @@ const officeShape = {
   review: Review,
   caps: Caps,
   merge: Merge,
+  nextUp: NextUpSection,
   box: BoxSection,
   scan: Scan,
   planning: Planning,
@@ -643,6 +654,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   },
   caps: { parallelRuns: 3, ciAttempts: 2, conflictAttempts: 2 },
   merge: { autoMerge: true, waitLabels: [], checksWaitMinutes: 30 },
+  // 0010.
+  nextUp: { autoStart: "none" },
   // 0008: no committed box block; the box is detected from the repository.
   box: {},
   // 0013: the scan fallback session.

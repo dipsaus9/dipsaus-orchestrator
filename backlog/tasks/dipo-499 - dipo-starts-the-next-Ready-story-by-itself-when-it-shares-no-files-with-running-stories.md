@@ -3,10 +3,10 @@ id: DIPO-499
 title: >-
   dipo starts the next Ready story by itself when it shares no files with
   running stories
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 12:25'
-updated_date: '2026-11-13 12:47'
+updated_date: '2026-11-13 13:14'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -29,6 +29,27 @@ references:
   - docs/how-dipo-works.md
   - packages/engine/src/run/resumption.ts
   - packages/engine/src/commands/execute.ts
+modified_files:
+  - docs/decisions/0010-backlog-and-git-integration.md
+  - docs/decisions/0017-testing-strategy-and-configuration.md
+  - docs/how-dipo-works.md
+  - packages/cli/src/desk-command.test.ts
+  - packages/cli/src/desk-command.ts
+  - packages/cli/src/watch-command.test.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/config/schema.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/run/next-up.ts
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
+  - packages/engine/test/run/next-up.test.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
 priority: high
 type: feature
 ordinal: 470000
@@ -88,16 +109,31 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 office.yaml accepts nextUp.autoStart with none or no-overlap, defaults to none, refuses any other value, and none starts nothing without a confirm as today
-- [ ] #2 With no-overlap, a free slot and a first offer that shares no files with the running stories, dipo starts it through the same start as nextUp.confirm, logs it at INFO with the why, and puts one notice started DIPO-n by itself with no NEXT UP item left for it
-- [ ] #3 An offer whose references overlap a running story's references or changed files is never started by itself and stays a NEXT UP item whose why names the shared files and story
-- [ ] #4 A declined story, a story whose dependency is not Done, a story without references, and any start while the office is paused, at a plan limit, updating, offering an update or at caps.parallelRuns is never started by itself, each with its own test
-- [ ] #5 With two slots free and two offers that overlap each other, only the first starts by itself; the second's overlap counts the first while it is still starting
-- [ ] #6 A story that becomes Ready while a run ends, and the first refresh after the daemon starts, start nothing by themselves until the running stories' changed files were read again
-- [ ] #7 Fail closed on the real path: with the real gitChangedFiles on a fixture repository whose running branch cannot be read, with git(officeId) undefined, and with a changedFiles that throws, nothing starts and the offer stays a NEXT UP item
-- [ ] #8 dipo desk and the TUI desk say Next up starts by itself when it shares no files while the setting is on, and dipo watch prints each started by itself notice
-- [ ] #9 ADR 0010's next-up paragraph describes the setting and the rule with a Replaced line for nothing starts without a confirm, 0017's sample office.yaml has the key, and docs/how-dipo-works.md step 3 matches
-- [ ] #10 The story PR leaves this repository's .dipo/office.yaml unchanged, and the final summary names the chore(main) PR that turns no-overlap on after dipo updated to a build with the key
-- [ ] #11 An offer whose auto start was refused, skipped or failed stays a NEXT UP item with the refusal in its why and is not started by itself again until its signature changes; a story whose pickup check fails is tried once and then waits on the desk
-- [ ] #12 An auto start uses the confirm's start with an engine-made request of origin other, as resumeLifted does, and the run records that dipo started it
+- [x] #1 office.yaml accepts nextUp.autoStart with none or no-overlap, defaults to none, refuses any other value, and none starts nothing without a confirm as today
+- [x] #2 With no-overlap, a free slot and a first offer that shares no files with the running stories, dipo starts it through the same start as nextUp.confirm, logs it at INFO with the why, and puts one notice started DIPO-n by itself with no NEXT UP item left for it
+- [x] #3 An offer whose references overlap a running story's references or changed files is never started by itself and stays a NEXT UP item whose why names the shared files and story
+- [x] #4 A declined story, a story whose dependency is not Done, a story without references, and any start while the office is paused, at a plan limit, updating, offering an update or at caps.parallelRuns is never started by itself, each with its own test
+- [x] #5 With two slots free and two offers that overlap each other, only the first starts by itself; the second's overlap counts the first while it is still starting
+- [x] #6 A story that becomes Ready while a run ends, and the first refresh after the daemon starts, start nothing by themselves until the running stories' changed files were read again
+- [x] #7 Fail closed on the real path: with the real gitChangedFiles on a fixture repository whose running branch cannot be read, with git(officeId) undefined, and with a changedFiles that throws, nothing starts and the offer stays a NEXT UP item
+- [x] #8 dipo desk and the TUI desk say Next up starts by itself when it shares no files while the setting is on, and dipo watch prints each started by itself notice
+- [x] #9 ADR 0010's next-up paragraph describes the setting and the rule with a Replaced line for nothing starts without a confirm, 0017's sample office.yaml has the key, and docs/how-dipo-works.md step 3 matches
+- [x] #10 The story PR leaves this repository's .dipo/office.yaml unchanged, and the final summary names the chore(main) PR that turns no-overlap on after dipo updated to a build with the key
+- [x] #11 An offer whose auto start was refused, skipped or failed stays a NEXT UP item with the refusal in its why and is not started by itself again until its signature changes; a story whose pickup check fails is tried once and then waits on the desk
+- [x] #12 An auto start uses the confirm's start with an engine-made request of origin other, as resumeLifted does, and the run records that dipo started it
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 13:14 UTC
+- Criteria met: 12 of 12 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 249,414 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

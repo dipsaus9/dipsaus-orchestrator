@@ -351,6 +351,7 @@ function workRunOf(
  */
 function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: WorkRun): NextUp {
   const logger = core.logger.child({ component: "next-up" });
+  const nextRequestId = createUlid(core.deps.clock);
   const nextUp = new NextUp({
     clock: core.deps.clock,
     offices: core.offices,
@@ -363,7 +364,12 @@ function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: W
     startFailure: (office, key) => workRun.startFailure(office, key),
     changedFiles: gitChangedFiles({ git: core.gitOf, stories: core.stories }),
     branchTips: gitBranchTips(core.gitOf),
+    autoStart: (office) => core.offices.config(office)?.nextUp.autoStart ?? "none",
+    updatePending: () => core.lifecycle.updating,
+    requestId: () => RequestId.parse(nextRequestId()),
+    ids: core.ids,
     onChanged: core.onChanged,
+    info: (message, fields) => logger.info(message, fields),
     warn: (message, fields) => logger.warn(message, fields),
   });
   core.changes.listen((office) => void nextUp.refresh(office));

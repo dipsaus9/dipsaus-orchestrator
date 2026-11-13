@@ -525,6 +525,19 @@ describe("the desk stays current", () => {
   });
 });
 
+/** One NEXT UP item, with the office's `nextUp.autoStart` on or not. */
+const nextUpItem = (autoStart: boolean) =>
+  DeskItem.parse({
+    kind: "NEXT UP",
+    story: "DIPO-29",
+    key: KEY_29,
+    ...(autoStart ? { autoStart: "no-overlap" } : {}),
+    detail: '"Story 29" · m-2 is the earliest milestone; priority high',
+    since: ago(1),
+    blocks: [],
+    actions: [{ command: "nextUp.confirm", cli: "dipo next confirm DIPO-29" }],
+  });
+
 describe("the key table on desk items", () => {
   it("accepts a PROPOSED STORY with y and dismisses one with n (DIPO-454)", async () => {
     const { ui, session } = await openDesk();
@@ -598,6 +611,14 @@ describe("the key table on desk items", () => {
       { name: "nextUp.confirm", args: { story: "DIPO-29" } },
       { name: "nextUp.decline", args: { story: "DIPO-29" } },
     ]);
+  });
+
+  it("heads the NEXT UP group while the office starts those stories by itself, and not otherwise (0010)", async () => {
+    const head = "Next up starts by itself";
+    await (await openDesk({ desk: [nextUpItem(true)] })).ui.waitFor(head);
+    const off = await openDesk({ desk: [nextUpItem(false)] });
+    await off.ui.waitFor("Story 29");
+    expect(off.ui.frame()).not.toContain(head);
   });
 
   it("hands a quick idea to the audit with i on any item (criterion 5)", async () => {
