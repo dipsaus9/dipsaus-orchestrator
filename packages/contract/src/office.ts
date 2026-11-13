@@ -989,6 +989,7 @@ export const KNOWN_DESK_KINDS = [
   "DECISION NOTE",
   "MERGED WHILE PARKED",
   "NEXT UP",
+  "READY TO SET",
   "PARKED BY YOU",
   "LOADING",
 ] as const;
