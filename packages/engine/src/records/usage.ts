@@ -717,12 +717,13 @@ export function finalizeRunAgents(office: OfficeHandle, run: string, at: number)
 }
 
 /**
- * True when the agent's context nears full (DIPO-448): its session compacted, or the tokens it
- * counted, input plus output plus cache creation, reach `limit`. The counted tokens are the new
- * content its context took in, so they stand in for the context's size.
+ * The size of the context one assistant message was answered in (DIPO-489): its input, cache read,
+ * cache creation and output tokens. It is the size of one message, never a sum over a session,
+ * so a prompt-cache rewrite after a pause does not grow it. The caller leaves out the messages of
+ * subagents, which have their own context.
  */
-export function contextNearFull(office: OfficeHandle, scope: UsageScope, limit: number): boolean {
-  if (readCompactions(office, scope).agent.count > 0) return true;
-  const { agent } = readUsage(office, scope);
-  return agent.inputTokens + agent.outputTokens + agent.cacheCreateTokens >= limit;
+export function contextSize(
+  message: Pick<ModelUsageTotals, "input" | "output" | "cacheCreate" | "cacheRead">,
+): number {
+  return message.input + message.cacheRead + message.cacheCreate + message.output;
 }

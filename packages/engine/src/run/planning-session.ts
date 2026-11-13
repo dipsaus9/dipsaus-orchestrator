@@ -29,9 +29,10 @@
 //   in its answer. Each valid block is held as an idea and audited when it arrives (`onIdea`); an
 //   invalid one is refused with an `engine.notice` that says why (`asides.ts`).
 // - The record (DIPO-448, 0007): `planning_records` keeps the session's goal, each confirmed choice,
-//   each filed or edited story and each open question (`record`), and when each model session
-//   started and ended. A planning session is named by the run of its first model session. When a
-//   turn ends and the context nears full (`contextNearFull`), dipo ends that model session
+//   each filed or edited story and each open question (`record`), the maintainer's messages and
+//   each model session's last answer (DIPO-489), and when each model session started and ended. A planning session is named by the run of its first model session. When a
+//   turn ends and the context nears full (the last main-agent message's `contextSize` reaches the
+//   limit, or the session compacted; read from the stream's usage events, DIPO-489), dipo ends that model session
 //   (`context-full`) and starts a fresh one, with a new run, whose first message code builds from
 //   the record and the facts of the first message; `planning.continued` says so. A session whose
 //   model session ended by idle, a daemon stop or its exit continues the same way on
@@ -125,15 +126,17 @@ import {
   type NewPlanningEntry,
   type FiledStory,
   filedStoriesText,
+  outputEndOf,
   planningRecordText,
   planningSessionOfRun,
   readPlanningRecord,
+  recordLastAnswer,
 } from "../records/planning-record";
 import { PLANNER_ROLE } from "../records/caps";
 import type { RunEnd } from "../records/lifecycle";
 import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../records/run-records";
 import { activeSignals } from "../records/signals";
-import { contextNearFull, readUsage } from "../records/usage";
+import { contextSize, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
 import { draftOrigins } from "../records/ideas";
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
@@ -206,7 +209,7 @@ export const PLANNING_SIGKILL_AFTER_MS = 30_000;
 export const PLANNING_RECOVERY_STEP = "planning-recover";
 /** The most story runs the first message lists. */
 export const PLANNING_RECENT_RUNS = 10;
-/** The counted tokens of a model session from which its context counts as nearly full. */
+/** The size of a model session's last main-agent message from which its context counts as nearly full. */
 export const PLANNING_CONTEXT_TOKENS = 150_000;
 
 const HOUR_MS = 60 * 60_000;
@@ -366,7 +369,7 @@ export interface PlanningSessionsDeps {
   readonly planningFile?: (git: OfficeGit, commit: string) => Promise<string | null>;
   /** The base branch's tip the copy holds; `baseCommit` by default. */
   readonly baseCommit?: (git: OfficeGit) => Promise<string>;
-  /** The counted tokens from which a model session's context nears full; `PLANNING_CONTEXT_TOKENS`. */
+  /** The context size from which a model session's context nears full; `PLANNING_CONTEXT_TOKENS`. */
   readonly contextTokens?: number;
   readonly runtimeDir: string;
   /** dipo's temp root: the run temp directories. */
@@ -380,6 +383,8 @@ export interface PlanningSessionsDeps {
   /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
   readonly onIdea?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /** Each handover to a fresh model session is logged here (DIPO-489). */
+  readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 export type { PlanningGate };
@@ -388,6 +393,8 @@ export type { PlanningGate };
 interface Continued {
   readonly previous: RunId;
   readonly reason: PlanningEndReason;
+  /** The context size that ended `previous` as full, when it was measured (DIPO-489). */
+  readonly size?: number;
 }
 
 /** One open planning session of this daemon. */
@@ -407,6 +414,14 @@ interface Open {
   state: PlanningState;
   turns: number;
   lastOutputAt: number | null;
+  /**
+   * The context size of the last main-agent message (`contextSize`), from the stream's usage
+   * events whether or not they are stored (DIPO-489); null before the first. Not kept across a
+   * daemon restart: the model session continues as a fresh one then.
+   */
+  contextTokens: number | null;
+  /** True once the model session compacted its context; it then counts as full. */
+  compacted: boolean;
   /** Why it ends, once its end was asked for or decided. */
   ending: { readonly reason: PlanningEndReason; readonly detail?: string } | null;
   idle: ReturnType<Clock["setTimeout"]> | null;
@@ -735,9 +750,32 @@ export class PlanningSessions {
     ) {
       throw notOpen(`${open.run} could not be reached`);
     }
+    this.#recordMessage(open, text);
     if (filing !== null) open.filedSeen = filing.signature;
     open.notes = open.notes.slice(notes.length);
     open.autoRefusals = 0;
+  }
+
+  /** Keeps the maintainer's message in the record, with the model session's output offset (DIPO-489). */
+  #recordMessage(open: Open, text: string): void {
+    const { handle } = open;
+    const at = this.#deps.clock.now();
+    try {
+      handle.immediate(() =>
+        addPlanningEntry(handle, open.session, {
+          kind: "message",
+          run: open.run,
+          text,
+          outputOffset: outputEndOf(handle, open.run),
+          at,
+        }),
+      );
+    } catch (error) {
+      this.#deps.warn?.("recording a planning message failed", {
+        run: open.run,
+        reason: messageOf(error),
+      });
+    }
   }
 
   /** `planning.answer`: the answers to a block of questions go to the session as one message. */
@@ -1251,6 +1289,21 @@ export class PlanningSessions {
     open.answer = [];
     if (text === "") return;
     const at = this.#deps.clock.now();
+    try {
+      open.handle.immediate(() =>
+        recordLastAnswer(open.handle, open.session, {
+          run: open.run,
+          text,
+          outputOffset: outputEndOf(open.handle, open.run),
+          at,
+        }),
+      );
+    } catch (error) {
+      this.#deps.warn?.("recording a planning answer failed", {
+        run: open.run,
+        reason: messageOf(error),
+      });
+    }
     const refused: (readonly string[])[] = [];
     const refusedQuestions: (readonly string[])[] = [];
     for (const read of readQuestionBlocks(text)) {
@@ -1443,6 +1496,8 @@ export class PlanningSessions {
       state: "starting",
       turns: 0,
       lastOutputAt: null,
+      contextTokens: null,
+      compacted: false,
       ending: null,
       idle: null,
       grace: null,
@@ -1527,6 +1582,17 @@ export class PlanningSessions {
   /** `planning.started`, and `planning.continued` for a fresh model session of a session. */
   #announceStart(open: Open): void {
     const { run, continued } = open;
+    if (continued !== null) {
+      this.#deps.info?.("a planning session continues in a fresh model session", {
+        office: open.office,
+        previous: continued.previous,
+        run,
+        reason: continued.reason,
+        ...(continued.reason === "context-full" && continued.size !== undefined
+          ? { contextTokens: continued.size }
+          : {}),
+      });
+    }
     this.#append(open, () => [
       { type: "planning.started", run, delta: { run, view: this.#viewOf(open) } },
       ...(continued === null
@@ -1731,6 +1797,12 @@ export class PlanningSessions {
                 detail: event.reason,
               });
             }
+            // The context size is the last main-agent message's, never a spend: a subagent has a
+            // context of its own (DIPO-489).
+            if (event.t === "usage" && event.agentId === undefined) {
+              open.contextTokens = contextSize(event);
+            }
+            if (event.t === "compacted") open.compacted = true;
             if (event.t === "output") {
               open.answer.push(event.text);
               this.#asides(open, event.text);
@@ -1794,14 +1866,10 @@ export class PlanningSessions {
     open.turns += 1;
     if (open.ending !== null) return;
     this.#readAnswer(open);
-    const near = open.handle.deferred(() =>
-      contextNearFull(
-        open.handle,
-        { run: open.run, agent: open.agent, role: PLANNER_ROLE, tier: "", budgetLimit: 0 },
-        this.#deps.contextTokens ?? PLANNING_CONTEXT_TOKENS,
-      ),
-    );
-    if (near) {
+    if (
+      open.compacted ||
+      (open.contextTokens ?? 0) >= (this.#deps.contextTokens ?? PLANNING_CONTEXT_TOKENS)
+    ) {
       // The context nears full: this model session ends and a fresh one continues from the record.
       open.state = "waiting";
       void this.#stop(open, { reason: "context-full" });
@@ -1953,7 +2021,11 @@ export class PlanningSessions {
       kind: open.kind,
       goal: open.goal,
       session: open.session,
-      continued: { previous: open.run, reason },
+      continued: {
+        previous: open.run,
+        reason,
+        ...(open.contextTokens === null ? {} : { size: open.contextTokens }),
+      },
     });
   }
 
@@ -2041,6 +2113,7 @@ export class PlanningSessions {
       usage,
       startedAt: iso(open.startedAt),
       ...(open.lastOutputAt === null ? {} : { lastOutputAt: iso(open.lastOutputAt) }),
+      ...(open.continued === null ? {} : { continuedAt: iso(open.startedAt) }),
       ...(endedAt === undefined ? {} : { endedAt: iso(endedAt) }),
       ...(open.ending === null || open.state !== "ended" ? {} : { ended: open.ending.reason }),
       ...(open.ending?.detail === undefined || open.state !== "ended"
