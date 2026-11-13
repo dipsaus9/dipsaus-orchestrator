@@ -233,8 +233,9 @@ async function gateToReady(ctx: ApplyContext, id: string, key: StoryKey | null):
     return `${id} is Refined: the Ready gate could not run (${error.message}); ${later}`;
   }
   if (!decision.result.passed) {
-    const failures = decision.result.failures.map(({ rule, message }) => `${rule}: ${message}`);
-    return `${id} is Refined: the Ready gate failed it: ${failures.join("; ")}`;
+    // Each message names the story, the rule and why (`ready <ID> failed <rule>: ...`).
+    const failures = decision.result.failures.map((failure) => failure.message);
+    return `${id} is Refined: ${failures.join("; ")}`;
   }
   const ready = await setStatus(ctx, id, READY);
   if (contentHashOf(ready) !== decision.contentHash) {

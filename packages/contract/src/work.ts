@@ -743,13 +743,15 @@ export type PlanningProposalState = z.infer<typeof PlanningProposalState>;
 
 // One proposal of a planning session as the engine shows it: its number in the session, the
 // proposal (as the maintainer last edited it, `edited`), its state, and the ids it filed or edited,
-// from the session's record.
+// from the session's record. `gate` says, one line per story the lane filed or edited, what the
+// Ready gate decided as it was filed (DIPO-495): Ready, or Refined with the gate's messages.
 export const PlanningProposalView = z.object({
   n: z.int().positive(),
   proposal: PlanningProposal,
   state: PlanningProposalState,
   edited: z.boolean().optional(),
   stories: z.array(z.string()).optional(),
+  gate: z.array(z.string()).optional(),
   detail: z.string().optional(),
   at: Timestamp,
 });

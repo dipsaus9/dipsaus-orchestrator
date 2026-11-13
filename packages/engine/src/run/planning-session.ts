@@ -878,7 +878,7 @@ export class PlanningSessions {
     open.notes.push(
       view.state === "failed"
         ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
-        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
+        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}.${(view.gate ?? []).map((line) => ` ${line.replace(/\.$/, "")}.`).join("")} Do not propose it again.`,
     );
     this.#append(open, () => [this.#updated(open)]);
     return {
@@ -1429,9 +1429,12 @@ export class PlanningSessions {
     const { handle } = open;
     let state: PlanningProposalView["state"] = item.state;
     let detail: string | undefined;
+    let gate: string[] = [];
     if (item.state === "confirmed") {
       const lane = this.#deps.lane?.(open.office);
       const outcomes = item.changes.map((change) => lane?.outcomeOf(change));
+      // What the Ready gate decided for each story as the lane filed it (DIPO-495).
+      gate = outcomes.flatMap((outcome) => (outcome?.gate === undefined ? [] : [outcome.gate]));
       const closed = outcomes.find((outcome) => outcome?.outcome === "closed");
       if (closed !== undefined) {
         state = "failed";
@@ -1453,6 +1456,7 @@ export class PlanningSessions {
       state,
       ...(item.edited ? { edited: true } : {}),
       ...(stories.length === 0 || state === "open" || state === "declined" ? {} : { stories }),
+      ...(gate.length === 0 ? {} : { gate }),
       ...(detail === undefined ? {} : { detail }),
       at: iso(item.at),
     };

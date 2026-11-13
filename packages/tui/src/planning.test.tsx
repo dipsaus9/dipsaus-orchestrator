@@ -802,6 +802,33 @@ describe("the filing line with the backlog PR (DIPO-481)", () => {
   });
 });
 
+describe("the Ready gate's answer under a filed proposal (DIPO-495)", () => {
+  it("shows whether each story was filed Ready, or Refined with the gate's messages", async () => {
+    const planning = planningView({
+      proposals: [
+        {
+          ...proposal(1, "Export as XML", "S"),
+          state: "filed",
+          stories: ["DIPO-489", "DIPO-490"],
+          gate: [
+            "DIPO-489 is Ready: the Ready gate passed it",
+            'DIPO-490 is Refined: ready DIPO-490 failed R10: criterion #1 contains vague phrase "properly"',
+          ],
+        },
+      ],
+    } as Partial<PlanningView>);
+    const { ui } = await open({
+      columns: 140,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, { ...golden(), planning }]]),
+    });
+    await ui.press("5");
+    const frame = await ui.waitFor("DIPO-490 is Refined: ready DIPO-490 failed R10");
+    expect(frame).toContain("filed as DIPO-489, DIPO-490 · Export as XML");
+    expect(frame).toContain("DIPO-489 is Ready: the Ready gate passed it");
+  });
+});
+
 describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
   it("matches the mock at 112 columns", async () => {
     const snapshots = new Map([
