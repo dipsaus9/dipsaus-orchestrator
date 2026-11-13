@@ -1,10 +1,10 @@
 ---
 id: DIPO-475
 title: Chat about the roles in the Roles room
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 09:13'
+updated_date: '2026-11-13 13:23'
 labels:
   - 'tier:M'
 milestone: m-4
