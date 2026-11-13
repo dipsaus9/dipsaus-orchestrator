@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import type { Event, LaneProgress, PlanningView } from "@dipsaus-orchestrator/contract";
+import type { Event, LaneProgress, PlanningView, RunId } from "@dipsaus-orchestrator/contract";
 
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
 import { mockRows } from "../test/support/mock-screens";
@@ -13,7 +13,10 @@ import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;
-const RUN = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0P01";
+const RUN = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0P01" as RunId;
+const RUN2 = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0P02" as RunId;
+const AT = "2026-10-14T10:00:00.000Z";
+const AT_MESSAGE = "2026-10-14T10:06:00.000Z";
 
 afterEach(async () => {
   for (const ui of mounted.splice(0)) await ui.unmount();
@@ -157,6 +160,19 @@ describe("the planning view", () => {
     }
     const message = session.commands.find((c) => c.name === "planning.message");
     expect(message?.args).toEqual({ text: "Why two?\nAnd the order?" });
+    // The message shows once the engine's view lists it, never as a line of the TUI's own.
+    await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("you> ");
+    stream?.options.onEvent(
+      officeEvent(11, "planning.updated", {
+        run: RUN,
+        view: planningView({
+          messages: [
+            { run: RUN, text: "Why two?\nAnd the order?", outputOffset: 29, at: AT_MESSAGE },
+          ],
+        }),
+      }),
+    );
     const asked = await ui.waitFor("you> And the order?");
     expect(asked).toContain("you> Why two?");
 
@@ -177,7 +193,7 @@ describe("the planning view", () => {
     }
     expect(session.commands.some((c) => c.name === "planning.end")).toBe(true);
     stream?.options.onEvent(
-      officeEvent(11, "planning.ended", {
+      officeEvent(12, "planning.ended", {
         run: RUN,
         reason: "maintainer",
         view: planningView({ state: "ended", ended: "maintainer" }),
@@ -192,7 +208,11 @@ describe("the planning view", () => {
         OFFICES.dipsaus,
         {
           ...golden(),
-          planning: planningView({ turns: 2, continuedAt: "2026-10-14T09:30:00.000Z" }),
+          planning: planningView({
+            turns: 2,
+            continuedAt: "2026-10-14T09:30:00.000Z",
+            sessions: [{ run: RUN, startedAt: "2026-10-14T09:30:00.000Z" }],
+          }),
         },
       ],
     ]);
@@ -202,7 +222,6 @@ describe("the planning view", () => {
     const frame = await ui.waitFor("Earlier answer two.");
     expect(frame).toContain("Planning · plan · waiting · 2 answers");
     expect(frame).toContain("goal: Plan the export feature");
-    expect(frame).toContain("continued in a fresh model session at");
     expect(frame).toContain("Earlier answer one.");
 
     // Continue it: a message goes to the open session, not to a new start.
@@ -795,6 +814,14 @@ describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
           planning: planningView({
             goal: "Split DIPO-116 into stories that can be Ready this week",
             turns: 2,
+            messages: [
+              {
+                run: RUN,
+                text: "Skip the plugin marketplace for now. What's the smallest story that lets a worker use one skill?",
+                outputOffset: 0,
+                at: AT_MESSAGE,
+              },
+            ],
             proposals: [
               filed(1, "Copy referenced skills into the box", "DIPO-488"),
               {
@@ -814,7 +841,7 @@ describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
     const output = new Map([
       [
         `${RUN}:worker`,
-        "you> Skip the plugin marketplace for now. What's the smallest story that lets a worker use one skill?\n\nThe smallest useful cut is a story that copies skills named in the story's\nreferences into the box.\nNo discovery and no plugins. Two stories:\n",
+        "The smallest useful cut is a story that copies skills named in the story's\nreferences into the box.\nNo discovery and no plugins. Two stories:\n",
       ],
     ]);
     const { ui } = await open({ columns: 112, rows: 30, snapshots, output });
@@ -830,5 +857,123 @@ describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
     const mock = mockRows("07-plan.txt");
     expect(ours).toHaveLength(mock.length);
     expect(ours.slice(1)).toEqual(mock.slice(1));
+  });
+});
+
+/** A planning session that continued once: two model sessions and the maintainer's messages. */
+const continuedView = (extra: Partial<PlanningView> = {}) =>
+  planningView({
+    run: RUN2,
+    session: RUN,
+    continuedAt: "2026-10-14T11:30:00.000Z",
+    sessions: [
+      {
+        run: RUN,
+        startedAt: "2026-10-14T10:00:00.000Z",
+        endedAt: "2026-10-14T11:29:00.000Z",
+        ended: "context-full",
+      },
+      { run: RUN2, startedAt: "2026-10-14T11:30:00.000Z" },
+    ],
+    messages: [
+      { run: RUN, text: "Why two stories?", outputOffset: 22, at: AT_MESSAGE },
+      { run: RUN2, text: "Go on with the second.", outputOffset: 0, at: AT_MESSAGE },
+    ],
+    ...extra,
+  });
+
+const FIRST_OUTPUT = "First idea: split it.\nIt is two stories.\n";
+const SECOND_OUTPUT = "Picking up: the second story.\n";
+
+describe("one conversation per planning session (DIPO-490)", () => {
+  it("keeps the first model session's conversation through a handover and adds the fresh one's", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        { ...golden(), planning: planningView({ sessions: [{ run: RUN, startedAt: AT }] }) },
+      ],
+    ]);
+    const output = new Map([[`${RUN}:worker`, FIRST_OUTPUT]]);
+    const { ui, session } = await open({ columns: 120, rows: 30, snapshots, output });
+    await ui.press("5");
+    await ui.waitFor("It is two stories.");
+    const stream = session.active(STREAM);
+    // The model session ended on a full context: the view stays, never the new-session form.
+    stream?.options.onEvent(
+      officeEvent(9, "planning.ended", {
+        run: RUN,
+        reason: "context-full",
+        view: planningView({
+          state: "ended",
+          ended: "context-full",
+          sessions: [{ run: RUN, startedAt: AT, ended: "context-full" }],
+        }),
+      }),
+    );
+    await Bun.sleep(50);
+    const between = ui.frame();
+    expect(between).toContain("It is two stories.");
+    expect(between).not.toContain("no open planning session");
+
+    session.output.set(`${RUN2}:worker`, SECOND_OUTPUT);
+    stream?.options.onEvent(
+      officeEvent(10, "planning.continued", {
+        run: RUN2,
+        previous: RUN,
+        reason: "context-full",
+        view: continuedView(),
+      }),
+    );
+    const frame = await ui.waitFor("Picking up: the second story.");
+    expect(frame).not.toContain("no open planning session");
+    const order = [
+      "First idea: split it.",
+      "you> Why two stories?",
+      "It is two stories.",
+      "continued in a fresh model session at",
+      "(context-full)",
+      "you> Go on with the second.",
+      "Picking up: the second story.",
+    ].map((text) => frame.indexOf(text));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order).toEqual(order.toSorted((a, b) => a - b));
+    expect(frame.match(/continued in a fresh model session/g)).toHaveLength(1);
+  });
+
+  it("shows the whole conversation to a TUI opened after the handover, and starts empty for a new session", async () => {
+    const snapshots = new Map([[OFFICES.dipsaus, { ...golden(), planning: continuedView() }]]);
+    const output = new Map([
+      [`${RUN}:worker`, FIRST_OUTPUT],
+      [`${RUN2}:worker`, SECOND_OUTPUT],
+    ]);
+    const { ui, session } = await open({ columns: 120, rows: 30, snapshots, output });
+    await ui.press("5");
+    const frame = await ui.waitFor("Picking up: the second story.");
+    expect(frame).toContain("First idea: split it.");
+    expect(frame).toContain("you> Why two stories?");
+    expect(frame).toContain("you> Go on with the second.");
+    expect(frame).toContain("continued in a fresh model session at");
+
+    // Another planning session in the office starts an empty transcript.
+    const OTHER = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0P09" as RunId;
+    const stream = session.active(STREAM);
+    stream?.options.onEvent(
+      officeEvent(9, "planning.ended", {
+        run: RUN2,
+        reason: "maintainer",
+        view: continuedView({ state: "ended", ended: "maintainer" }),
+      }),
+    );
+    await ui.waitFor("no open planning session");
+    session.output.set(`${OTHER}:worker`, "A new session's first answer.\n");
+    stream?.options.onEvent(
+      officeEvent(10, "planning.started", {
+        run: OTHER,
+        view: planningView({ run: OTHER, session: OTHER, goal: "Another goal" }),
+      }),
+    );
+    const fresh = await ui.waitFor("A new session's first answer.");
+    expect(fresh).not.toContain("First idea: split it.");
+    expect(fresh).not.toContain("you> ");
   });
 });

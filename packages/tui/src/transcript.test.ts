@@ -208,3 +208,15 @@ describe("the planning conversation", () => {
     for (const role of used) expect(ROLE_NAMES).toContain(role);
   });
 });
+
+describe("who wrote a line (DIPO-490)", () => {
+  it("renders a model line that starts with you> as the model's text, not as a maintainer message", () => {
+    const rows = transcriptRows("you> is how the model starts a line\n", 60, options());
+    expect(text(rows)).toEqual(["you> is how the model starts a line"]);
+    // The maintainer's prefix is a green `ok` span; the model's line has none.
+    expect(rows[0]?.spans.some((span) => span.role === "ok")).toBe(false);
+    const own = transcriptRows([{ kind: "you", text: "a question" }], 60, options());
+    expect(text(own)).toEqual(["you> a question"]);
+    expect(own[0]?.spans.some((span) => span.role === "ok")).toBe(true);
+  });
+});

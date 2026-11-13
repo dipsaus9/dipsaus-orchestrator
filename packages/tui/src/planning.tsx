@@ -5,14 +5,14 @@
 // a decision as compact cards, one line for each proposal that was confirmed, and one input at the
 // foot for the next message (`planning.message`). The session is the engine's view
 // (`OfficeStoreState.planning`, from the snapshot and the office stream), so a TUI that opens later
-// shows the open session again and its stored answers, read with `work.outputRange`; a session
-// that continued in a fresh model session says so (DIPO-448).
+// shows the open session again, with its stored answers read with `work.outputRange` and the
+// maintainer's messages the engine's view lists. The conversation is the whole planning session's,
+// across its model sessions (DIPO-490): a fresh model session adds to it, one dim line marks the
+// handover (DIPO-448), and between the end of a full context and the fresh session the view stays.
 //
 // The input (DIPO-479): Enter sends; Shift+Enter, Option+Enter or a backslash before Enter adds a
 // line; Backspace erases, a paste keeps its line breaks. Esc goes back to home and leaves the
-// session running. `Tab` opens and closes the stories fold-out (IN THIS PLAN, ON END). The
-// maintainer's own messages show in the transcript of this run of the TUI only; the engine stores
-// the answers.
+// session running. `Tab` opens and closes the stories fold-out (IN THIS PLAN, ON END).
 //
 // Cards (DIPO-450, DIPO-487): a proposal that is open, or failed with the lane's reason, shows as a
 // card with its title, proposed tier and first story line. With an empty input, Up moves focus
@@ -44,7 +44,7 @@ import {
   type RunId,
 } from "@dipsaus-orchestrator/contract";
 import { Box, type Key, Text } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TuiActions } from "./app";
 import { Colored, type Role } from "./colour";
@@ -52,7 +52,6 @@ import { COMPOSER_ROWS, Composer, composerKey, composerRows } from "./composer";
 import { truncate } from "./format";
 import { waitsOn } from "./lane";
 import type { Display } from "./options";
-import { splitLines } from "./output";
 import { proposalForm, readProposalForm } from "./proposal-form";
 import {
   dialogAnswers,
@@ -62,7 +61,14 @@ import {
   freshDialog,
 } from "./question-dialog";
 import { SpanLine } from "./spans";
-import { foldCount, type TranscriptRow, transcriptRows } from "./transcript";
+import {
+  conversationParts,
+  foldCount,
+  type Transcript,
+  type TranscriptPart,
+  type TranscriptRow,
+  transcriptRows,
+} from "./transcript";
 import { clockTime, glyphs } from "./views";
 
 const encoder = new TextEncoder();
@@ -105,7 +111,7 @@ export interface Planning {
   readonly view: PlanningView | null;
   readonly kind: string;
   readonly draft: string;
-  readonly transcript: string;
+  readonly transcript: Transcript;
   /** What is under way: a start, a message or an end; null otherwise. */
   readonly sending: Sending | null;
   /** The Ready step, or null while the conversation has the keys. */
@@ -176,72 +182,94 @@ function sendCommand(
 }
 
 /**
- * The session's answers as text: the stored output read from the start, then every
- * `planning.output` that continues it; a gap is read again. Starts over for a new office or
- * session. `local` adds text only this TUI knows, the maintainer's own messages.
+ * The planning session's conversation (DIPO-490): every model session's stored output, read from
+ * the start, then every `planning.output` that continues it (a gap is read again), with the
+ * maintainer's messages and the handovers from the engine's view (`conversationParts`). It is
+ * keyed by the session, so a fresh model session adds to it; it starts over for another session or
+ * office.
  */
-function useTranscript(args: PlanningArgs): { transcript: string; local: (text: string) => void } {
+function useTranscript(args: PlanningArgs): TranscriptPart[] {
   const { store, actions, state } = args;
-  const run = state.planning?.run ?? null;
+  const view = state.planning;
+  const session = view === null ? null : (view.session ?? view.run);
+  const runs = view === null ? [] : (view.sessions?.map((model) => model.run) ?? [view.run]);
+  const runKey = runs.join(",");
   const office = state.office;
-  const [transcript, setTranscript] = useState("");
-  /** The byte offset of the stored output the transcript holds up to. */
-  const have = useRef(0);
-  const syncing = useRef(false);
-  const again = useRef(false);
+  const [outputs, setOutputs] = useState<Readonly<Record<string, string>>>({});
+  /** The byte offset of each run's stored output the transcript holds up to. */
+  const have = useRef(new Map<string, number>());
+  const syncing = useRef(new Set<string>());
+  const again = useRef(new Set<string>());
+  const known = useRef<readonly string[]>(runs);
+  const syncer = useRef<(run: string) => Promise<void>>(async () => {});
+  known.current = runs;
 
   useEffect(() => {
-    have.current = 0;
-    setTranscript("");
-    if (run === null || office === null) return;
+    have.current = new Map();
+    syncing.current = new Set();
+    again.current = new Set();
+    setOutputs({});
+    if (session === null || office === null) {
+      syncer.current = async () => {};
+      return;
+    }
     const live = { cancelled: false };
-    const append = (text: string) => setTranscript((shown) => shown + text);
-    const sync = async (): Promise<void> => {
-      if (syncing.current) {
-        again.current = true;
+    const append = (run: string, text: string) =>
+      setOutputs((shown) => ({ ...shown, [run]: (shown[run] ?? "") + text }));
+    const sync = async (run: string): Promise<void> => {
+      if (syncing.current.has(run)) {
+        again.current.add(run);
         return;
       }
-      syncing.current = true;
+      syncing.current.add(run);
       try {
         do {
-          again.current = false;
+          again.current.delete(run);
           for (;;) {
+            const from = have.current.get(run) ?? 0;
             const outcome = await actions.readOutput({
               office,
               run: run as RunId,
               source: "worker",
-              from: have.current,
+              from,
             });
-            if (live.cancelled || !outcome.ok || outcome.result.to <= have.current) break;
-            have.current = outcome.result.to;
-            append(outcome.result.text);
+            if (live.cancelled || !outcome.ok || outcome.result.to <= from) break;
+            have.current.set(run, outcome.result.to);
+            append(run, outcome.result.text);
           }
-        } while (again.current && !live.cancelled);
+        } while (again.current.has(run) && !live.cancelled);
       } finally {
-        syncing.current = false;
+        syncing.current.delete(run);
       }
     };
+    syncer.current = sync;
     const stop = store.onPlanningOutput((chunk) => {
-      if (chunk.run !== run || live.cancelled || chunk.to <= have.current) return;
-      if (!syncing.current && continues(have.current, chunk.from, chunk.to)) {
+      const held = have.current.get(chunk.run) ?? 0;
+      if (!known.current.includes(chunk.run) || live.cancelled || chunk.to <= held) return;
+      if (!syncing.current.has(chunk.run) && continues(held, chunk.from, chunk.to)) {
         // Whole characters only: bytes already shown are cut off the front.
-        const skip = have.current - chunk.from;
-        have.current = chunk.to;
-        append(skip === 0 ? chunk.text : decoder.decode(encoder.encode(chunk.text).subarray(skip)));
+        const skip = held - chunk.from;
+        have.current.set(chunk.run, chunk.to);
+        append(
+          chunk.run,
+          skip === 0 ? chunk.text : decoder.decode(encoder.encode(chunk.text).subarray(skip)),
+        );
         return;
       }
-      void sync();
+      void sync(chunk.run);
     });
-    void sync();
     return () => {
       live.cancelled = true;
       stop();
     };
-  }, [run, office, store, actions, state.snapshots]);
+  }, [session, office, store, actions, state.snapshots]);
 
-  const local = (text: string) =>
-    setTranscript((shown) => `${shown}${shown === "" || shown.endsWith("\n") ? "" : "\n"}${text}`);
-  return { transcript, local };
+  // Each model session of the session is read once it is listed: a fresh one starts mid-session.
+  useEffect(() => {
+    for (const run of runKey === "" ? [] : runKey.split(",")) void syncer.current(run);
+  }, [runKey, session, office, state.snapshots]);
+
+  return useMemo(() => (view === null ? [] : conversationParts(view, outputs)), [view, outputs]);
 }
 
 /** Sends one command of the planning view; `done` gets its result. */
@@ -543,14 +571,14 @@ function useEnd(
  * walks the folds and Shift+Tab walks back, past the last the focus is off; Enter on an empty
  * input opens the focused fold and shuts it again. A new session starts with every fold shut.
  */
-function useFolds(transcript: string, run: string | null, office: string | null) {
+function useFolds(transcript: Transcript, session: string | null, office: string | null) {
   const [focus, setFocus] = useState<number | null>(null);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
   const folds = foldCount(transcript);
   useEffect(() => {
     setFocus(null);
     setOpen(new Set());
-  }, [run, office]);
+  }, [session, office]);
   return {
     focus,
     open,
@@ -577,15 +605,15 @@ export function usePlanning(args: PlanningArgs): Planning {
   const { state } = args;
   const view = state.planning;
   const office = state.office;
-  const run = view?.run ?? null;
+  const session = view === null ? null : (view.session ?? view.run);
   const [draft, setDraft] = useState("");
   const [kindIndex, setKindIndex] = useState(0);
   const [sending, setSending] = useState<Sending | null>(null);
   const [rail, setRail] = useState(false);
   const [ending, setEnding] = useState<EndStep | null>(null);
-  const { transcript, local } = useTranscript(args);
-  const fold = useFolds(transcript, run, office);
-  useResets(run, office, setEnding, setDraft);
+  const transcript = useTranscript(args);
+  const fold = useFolds(transcript, session, office);
+  useResets(session, office, setEnding, setDraft);
   const kind = PLANNING_KINDS[kindIndex] ?? PLANNING_KINDS[0];
   const send: Send = (which, command, commandArgs, done) =>
     sendCommand(args, setSending, which, { command, args: commandArgs }, done);
@@ -618,11 +646,7 @@ export function usePlanning(args: PlanningArgs): Planning {
       send("start", "planning.start", { kind, goal: text }, () => setDraft(""));
       return;
     }
-    send("message", "planning.message", { text }, () => {
-      setDraft("");
-      const lines = splitLines(text).map((line) => `you> ${line}`);
-      local(`${lines.join("\n")}\n`);
-    });
+    send("message", "planning.message", { text }, () => setDraft(""));
   };
 
   const onKey = (input: string, key: Key) => {
@@ -685,15 +709,16 @@ export function spendLine(view: PlanningView, dot: string): string {
 export function headLines(view: PlanningView, columns: number, display: Display): string[] {
   const { dot, ellipsis } = glyphs(display.ascii);
   const state =
-    view.health === undefined ? view.state : `${view.state} ${healthLabel(view.health)}`;
+    view.state === "ended" && view.ended === "context-full"
+      ? "continuing"
+      : view.health === undefined
+        ? view.state
+        : `${view.state} ${healthLabel(view.health)}`;
   const lines = [
     `Planning ${dot} ${view.kind} ${dot} ${state} ${dot} ${view.turns} ${view.turns === 1 ? "answer" : "answers"} ${dot} ${view.model}`,
     `goal: ${truncate(view.goal.replace(/\s+/g, " "), Math.max(10, columns - 8), ellipsis)}`,
     spendLine(view, dot),
   ];
-  if (view.continuedAt !== undefined) {
-    lines.push(`continued in a fresh model session at ${clockTime(Date.parse(view.continuedAt))}`);
-  }
   return lines;
 }
 
