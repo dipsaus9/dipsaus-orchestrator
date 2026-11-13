@@ -1,10 +1,10 @@
 ---
 id: DIPO-472
 title: Seed the developer role file and label existing stories in office init
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-10 14:58'
-updated_date: '2026-11-10 14:58'
+updated_date: '2026-11-13 09:13'
 labels:
   - 'tier:M'
 milestone: m-4
