@@ -1,10 +1,10 @@
 ---
 id: DIPO-493
 title: A planning edit or split can set a story's dependencies
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-12 13:49'
-updated_date: '2026-11-13 10:08'
+updated_date: '2026-11-13 10:12'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -75,11 +75,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An edit proposal with only a dependencies list passes the proposal schema, and so do a split whose edit has only dependencies and an empty list that clears them
-- [ ] #2 Confirming an edit or split whose dependency is unknown, is the edited task itself or would make a dependency cycle is refused with a message naming the dependency, and nothing is journaled
-- [ ] #3 A dependency on a story this planning session filed is accepted, as for a new story
-- [ ] #4 A confirmed edit leaves the story with exactly the given dependencies once applied, an empty list leaves none, and the read-back check covers them
-- [ ] #5 An edit naming the dependencies the story already has runs no task edit call, and dependencies with other fields apply in one revision
-- [ ] #6 The planning contract and the first message say an edit or split can set dependencies and that the session never asks the maintainer to set them by hand
-- [ ] #7 ADR 0022's edit line lists dependencies
+- [x] #1 An edit proposal with only a dependencies list passes the proposal schema, and so do a split whose edit has only dependencies and an empty list that clears them
+- [x] #2 Confirming an edit or split whose dependency is unknown, is the edited task itself or would make a dependency cycle is refused with a message naming the dependency, and nothing is journaled
+- [x] #3 A dependency on a story this planning session filed is accepted, as for a new story
+- [x] #4 A confirmed edit leaves the story with exactly the given dependencies once applied, an empty list leaves none, and the read-back check covers them
+- [x] #5 An edit naming the dependencies the story already has runs no task edit call, and dependencies with other fields apply in one revision
+- [x] #6 The planning contract and the first message say an edit or split can set dependencies and that the session never asks the maintainer to set them by hand
+- [x] #7 ADR 0022's edit line lists dependencies
 <!-- AC:END -->
