@@ -68,7 +68,7 @@ Every other transition is refused. Three more rules:
 
 `dipo gate <id>` evaluates every rule and reports every failure, not only the first. The gate passes with zero failures.
 
-- **Inputs:** the story, the other active tasks in the office's backlog (read through the CLI), and the office config (tier set, roster, banned phrases, contract size).
+- **Inputs:** the story, the other active tasks in the office's backlog (their id, status, dependencies and branch, read in one pass over the task files, 0010), and the office config (tier set, roster, banned phrases, contract size).
 - **No model, no file contents.** The gate reads no repository files and calls no model.
 - **Recorded.** Each result is stored as a gate decision keyed on the story's content hash.
 - **Two modes.** The `ready` mode checks R01a. The pickup mode, which `work.run` runs before every claim, checks R01b. Both modes check R02 to R26 and R30; the pickup mode also checks R31.

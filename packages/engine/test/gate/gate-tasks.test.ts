@@ -18,6 +18,7 @@ import { DEFAULT_CONFIG, block } from "./fixtures";
 import { storyRows, withOffice } from "../stories/helpers";
 import { removeStory } from "../../src/records/story-keys";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { withBacklog } from "./task-files";
 
 interface FakeTask {
   readonly id: string;
@@ -120,18 +121,20 @@ const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
 
 describe("the gate's other tasks from the mirror", () => {
-  it("makes the same few CLI calls for 200 tasks and gives the failures of reading every view", () =>
+  it("makes the same few CLI calls for 200 tasks and gives the failures of reading every task file", () =>
     withOffice(async (t, office) => {
       const tasks = backlog();
       const slow = fakeCli(tasks);
-      const everyView = await readGateInput(
-        backlogStoryStore(slow.cli),
-        "/base",
-        "DIPO-1",
-        DEFAULT_CONFIG,
+      const everyFile = await withBacklog(
+        tasks.map((task) => ({
+          id: task.id,
+          dependencies: `[${task.dependencies.join(", ")}]`,
+          branch: `"${task.branch}"`,
+        })),
+        (dir) => readGateInput(backlogStoryStore(slow.cli), dir, "DIPO-1", DEFAULT_CONFIG),
       );
-      // The list, a view per task (the story's own is the one it read first) and the milestones.
-      expect(slow.calls.length).toBeGreaterThan(TASKS);
+      // One pass over the task files: the story's view and the milestones, no view per task.
+      expect(slow.calls.length).toBeLessThanOrEqual(3);
 
       office.immediate(() => {
         applyIndex(office, t.ids, indexed(tasks), {
@@ -166,7 +169,7 @@ describe("the gate's other tasks from the mirror", () => {
       );
       expect(small.calls).toEqual(fast.calls);
 
-      const slowResult = evaluateGate(everyView, "pickup");
+      const slowResult = evaluateGate(everyFile, "pickup");
       const fastResult = evaluateGate(fromMirror, "pickup");
       expect(fastResult.failures).toEqual(slowResult.failures);
       const messages = fastResult.failures.map((failure) => failure.message);
@@ -183,7 +186,7 @@ describe("the gate's other tasks from the mirror", () => {
         `ready DIPO-1 failed R19: branch "${SHARED}" is already used by DIPO-4`,
       );
       // The mirror lists the tasks by id, the CLI by status; the rules do not depend on the order.
-      expect(fromMirror.activeTasks.toSorted(byId)).toEqual(everyView.activeTasks.toSorted(byId));
+      expect(fromMirror.activeTasks.toSorted(byId)).toEqual(everyFile.activeTasks.toSorted(byId));
     }));
 
   it("is used only for the commit every task was read at", () =>

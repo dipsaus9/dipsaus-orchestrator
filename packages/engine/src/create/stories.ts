@@ -263,6 +263,7 @@ export function buildStoryServices(core: Core, partners: EnginePartners): StoryS
     clock: core.deps.clock,
     ids: core.ids,
     index: storyIndex,
+    logger: core.logger.child({ component: "gate" }),
   });
   return {
     claims,

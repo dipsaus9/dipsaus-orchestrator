@@ -96,3 +96,14 @@ export interface PlainList {
   readonly entries: readonly PlainListEntry[];
   readonly unknown: readonly UnknownItem[];
 }
+
+/**
+ * What the Ready gate reads of another active task (R13, R14, R19): its id as the store names it,
+ * its status, the ids it depends on and the branch of its field block.
+ */
+export interface TaskFacts {
+  readonly id: string;
+  readonly status: string;
+  readonly dependencies: readonly string[];
+  readonly branch?: string;
+}

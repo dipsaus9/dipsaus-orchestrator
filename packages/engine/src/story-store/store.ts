@@ -16,7 +16,7 @@ import type { GitSession, OfficeGit } from "../git/office";
 
 import type { RepoFileRead } from "./folder";
 import type { PlannedPark, PlanningHold } from "./planning";
-import type { PlainList, PlainTask, StoryKind } from "./story";
+import type { PlainList, PlainTask, StoryKind, TaskFacts } from "./story";
 
 /** A story's id, title and status as its list printed them. */
 export interface ListedStory {
@@ -108,6 +108,12 @@ export interface StoryStore {
   readAll(checkout: string, reuse?: ReadReuse): Promise<StoryRead[]>;
   /** One story of the checkout; `listed` stands in when it does not parse. */
   read(checkout: string, kind: StoryKind, listed: ListedStory): Promise<StoryRead>;
+  /**
+   * The id, status, dependencies and branch of every active task of the checkout, from one pass over
+   * its task files instead of one view each (DIPO-494). A task that does not parse fails the whole
+   * read, so no dependency or branch is hidden.
+   */
+  taskFacts(checkout: string): Promise<readonly TaskFacts[]>;
   /** The ids and names of every milestone, completed ones included. */
   milestones(checkout: string): Promise<string[]>;
   /** True when `error`, thrown by a read of the story `id`, says that no such story exists. */

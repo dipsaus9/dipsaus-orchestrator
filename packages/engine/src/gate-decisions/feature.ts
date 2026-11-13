@@ -23,6 +23,7 @@ import type { FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
+import type { Logger } from "../log/logger";
 import type { IndexResult } from "../stories/index-stories";
 import { findStoryByKey } from "../records/story-keys";
 import { StoryStoreError } from "../story-store/errors";
@@ -49,6 +50,8 @@ export interface GateStoreDeps {
   };
   readonly clock: Clock;
   readonly ids: IdSource;
+  /** Where the read reports the duration of each part (DEBUG, DIPO-494). */
+  readonly logger?: Logger;
   /** The stories index; the pass that brings a stale mirror up to date goes through it (DIPO-201). */
   readonly index: {
     indexInSession(office: OfficeId, session: GitSession, basePath: string): Promise<IndexResult>;
@@ -165,6 +168,9 @@ export class GateStore {
         gateConfigOf(config),
         others,
         files,
+        this.#deps.logger === undefined
+          ? undefined
+          : { now: () => this.#deps.clock.now(), debug: (m, f) => this.#deps.logger?.debug(m, f) },
       );
     };
     let input;

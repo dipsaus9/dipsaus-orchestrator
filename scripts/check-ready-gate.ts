@@ -2,9 +2,11 @@
 // (DIPO-196, 0012), so a PR that leaves a story Ready which fails the gate fails CI with
 // the gate's own messages, not only at `dipo run --dry-run`.
 //
-// Every listed task is viewed once: the views of the Ready stories and the other tasks both come
-// from those reads, and each Ready story's input is built by the same function the daemon's read
-// uses (`gateInputOf`), with the checked-out commit's file paths as the base tree R29 reads. The
+// Only the Ready stories are viewed through the CLI, none when no story is Ready (DIPO-494). The
+// other active tasks, which R13, R14 and R19 read, come from one pass over the checkout's task
+// files (`StoryStore.taskFacts`); a task file that does not parse fails the check. Each Ready
+// story's input is built by the same function the daemon's read uses (`gateInputOf`), with the
+// checked-out commit's file paths as the base tree R29 reads. The
 // gate runs in `pickup` mode: a Ready story is checked by R01b (status Ready) and R02 to R30.
 // `ready` mode would fail every Ready story at R01a, which wants Refined.
 //
@@ -18,16 +20,12 @@ import type { BacklogCli } from "../packages/engine/src/backlog/runner";
 import { backlogStoryStore } from "../packages/engine/src/backlog/store";
 import { evaluateGate } from "../packages/engine/src/gate/evaluate";
 import { gateConfigOf } from "../packages/engine/src/gate-decisions/feature";
-import {
-  gateInputOf,
-  gateTasksOf,
-  listTasks,
-  viewListedTasks,
-} from "../packages/engine/src/gate-decisions/read";
+import { gateInputOf, listTasks, otherTasks } from "../packages/engine/src/gate-decisions/read";
 import { treePaths } from "../packages/engine/src/gate-decisions/tree";
 import { loadRoleFiles, rosterOf } from "../packages/engine/src/roles/base";
 import { ROLES_DIR } from "../packages/engine/src/roles/parse";
 import { systemSpawn } from "../packages/engine/src/platform/process";
+import { StoryParseError } from "../packages/engine/src/story-store/errors";
 import { checkoutFiles } from "../packages/engine/src/story-store/folder";
 
 const READY = "Ready";
@@ -80,8 +78,8 @@ export interface ReadyGateReport {
 
 /**
  * Runs the Ready gate over every Ready story of the backlog in `repo`. Throws when the office
- * configuration is invalid, a Ready story's view does not parse, a CLI call fails, or the task
- * list disagrees with its `--count` (DIPO-323), since nothing can be checked then: the gate never
+ * configuration is invalid, a Ready story's view does not parse, another task's file does not, a
+ * CLI call fails, or the task list disagrees with its `--count` (DIPO-323), since nothing can be checked then: the gate never
  * runs on part of the backlog.
  */
 export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<ReadyGateReport> {
@@ -89,15 +87,12 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
   if (!loaded.ok) throw new Error(loaded.errors.map((error) => error.message).join("\n"));
   const config = gateConfigOf(loaded.config);
   const stories = backlogStoryStore(cli);
+  // The task files first: a file that does not parse fails with its own name, where the list
+  // would only come up one short.
+  const others = await otherTasks(stories, repo);
   const entries = await listTasks(stories, repo);
-  const views = await viewListedTasks(
-    stories,
-    repo,
-    entries.map((entry) => entry.id),
-  );
   const milestones = await stories.milestones(repo);
   const folders = await stories.storyFolders(checkoutFiles(repo));
-  const others = gateTasksOf(views);
   const files = treeFiles(repo);
   const roles = checkoutRoles(repo);
   const roster = rosterOf(roles.roles);
@@ -106,10 +101,10 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
   const warnings: string[] = roles.problems.map((problem) => `role file ${problem}`);
   const passed: string[] = [];
   for (const entry of ready) {
-    const view = views.get(entry.id);
-    if (view === undefined) {
+    const view = await stories.view(repo, entry.id).catch((error: unknown) => {
+      if (!(error instanceof StoryParseError)) throw error;
       throw new Error(`${entry.id} is Ready but its Backlog view does not parse`);
-    }
+    });
     const input = gateInputOf(view, others, milestones, folders, config, files);
     const result = evaluateGate({ ...input, roster }, "pickup");
     if (result.passed) passed.push(entry.id);

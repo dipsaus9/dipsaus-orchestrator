@@ -5,6 +5,7 @@
 
 import { FieldBlock } from "@dipsaus-orchestrator/contract";
 
+import { gateTaskFromView } from "../../src/gate/input";
 import { StoryParseError, StoryStoreError } from "../../src/story-store/errors";
 import {
   emitFieldBlock,
@@ -20,7 +21,7 @@ import type {
   StoryRead,
   StoryStore,
 } from "../../src/story-store/store";
-import type { PlainList, PlainTask, StoryKind } from "../../src/story-store/story";
+import type { PlainList, PlainTask, StoryKind, TaskFacts } from "../../src/story-store/story";
 
 /** The configuration file the fake reads before it names its folders. */
 export const FAKE_CONFIG = ".stories.yml";
@@ -122,6 +123,17 @@ export class FakeStoryStore implements StoryStore {
     const held = this.base.get(listed.id);
     if (held === undefined) throw new FakeNotFound(listed.id);
     return this.#read(kind, listed, held.story);
+  }
+
+  /** The base's tasks that parse; one that does not fails the read, as the files' read does. */
+  async taskFacts(): Promise<TaskFacts[]> {
+    return [...this.base]
+      .filter(([, held]) => held.kind === "task")
+      .map(([id, held]) => {
+        if (held.story === undefined) throw new StoryParseError(`${id} does not parse`);
+        const { id: _id, ...rest } = gateTaskFromView(held.story);
+        return { id, status: held.story.status, ...rest };
+      });
   }
 
   async milestones(): Promise<string[]> {
