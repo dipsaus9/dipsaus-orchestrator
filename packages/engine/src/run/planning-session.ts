@@ -376,13 +376,8 @@ export interface PlanningSessionsDeps {
   readonly tempOwner?: () => string | undefined;
   /** The office's planning lane (0010), which files the proposals the maintainer confirms. */
   readonly lane?: (office: OfficeId) => PlanningLane | undefined;
-<<<<<<< 3857de22f4293455a1b8cf65c96f4ea788ffa5d4
-=======
-  /** The office's Ready gate, which the final confirm evaluates and stores (DIPO-451). */
-  readonly gate?: (office: OfficeId) => PlanningGate | undefined;
   /** The role files on the base of the office (0017), for the role proposals' checks (DIPO-474). */
   readonly roleFiles?: (office: OfficeId) => ReadonlyMap<string, string | undefined> | undefined;
->>>>>>> 7ba9d9ae87763be1158be32b78798e6329489925
   readonly onChanged?: (office: OfficeId) => void;
   /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
   readonly onIdea?: (office: OfficeId) => void;

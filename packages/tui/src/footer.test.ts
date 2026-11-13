@@ -212,6 +212,13 @@ describe("the key table of DIPO-479", () => {
     expect(NAV_KEYS.find((nav) => nav.id === "planning")?.key).toBe("5");
   });
 
+  it("has no Ready step key: the end question and the list are its only keys (DIPO-497)", () => {
+    const ids = FOOTER_KEYS.map((key) => key.id);
+    for (const id of ["readyYes", "readyNone", "readyTick", "readyMove", "readyKeep"]) {
+      expect(ids).not.toContain(id);
+    }
+  });
+
   it("is held by keymap.json", () => {
     expect(entries.get("plan")).toBe("5");
     expect(entries.get("runNow")).toBe("r");

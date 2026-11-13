@@ -190,13 +190,8 @@ export interface PlanningWorldOptions {
   readonly office?: OfficeHandle;
   /** The office's planning lane (DIPO-450); none by default. */
   readonly lane?: PlanningSessionsDeps["lane"];
-<<<<<<< 3857de22f4293455a1b8cf65c96f4ea788ffa5d4
-=======
-  /** The office's Ready gate (DIPO-451); none by default. */
-  readonly gate?: PlanningSessionsDeps["gate"];
   /** The role files on the office's base (DIPO-474); none by default. */
   readonly roleFiles?: PlanningSessionsDeps["roleFiles"];
->>>>>>> 7ba9d9ae87763be1158be32b78798e6329489925
   /** The context size at which the session continues in a fresh model session (DIPO-448). */
   readonly contextTokens?: number;
   /** The office's `.dipo/planning.md` at the base commit (DIPO-455); none by default. */
@@ -353,11 +348,7 @@ export function planningWorld(
     },
     desk: () => w.desk,
     ...(options.lane === undefined ? {} : { lane: options.lane }),
-<<<<<<< 3857de22f4293455a1b8cf65c96f4ea788ffa5d4
-=======
-    ...(options.gate === undefined ? {} : { gate: options.gate }),
     ...(options.roleFiles === undefined ? {} : { roleFiles: options.roleFiles }),
->>>>>>> 7ba9d9ae87763be1158be32b78798e6329489925
     onIdea: (id) => w.ideas.push(id),
     info: (message, fields) => w.infos.push({ message, fields }),
     baseCommit: async () => BASE_COMMIT,

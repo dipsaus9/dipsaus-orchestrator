@@ -8,12 +8,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  type OfficeId,
-  PlanningView,
-  RequestId,
-  type StoryKey,
-} from "@dipsaus-orchestrator/contract";
+import { type OfficeId, RequestId, type StoryKey } from "@dipsaus-orchestrator/contract";
 import { git, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -26,10 +21,7 @@ import {
   REVISE_KIND,
   reviseKind,
 } from "../../src/backlog/lane";
-import { checkBacklogPr } from "../../src/backlog/pr/check";
-import { collectPrDiff } from "../../src/backlog/pr/diff";
 import { backlogStoryStore } from "../../src/backlog/store";
-import { CommandError } from "../../src/commands/errors";
 import { executeCommand } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
@@ -44,12 +36,10 @@ import { findStoryByKey } from "../../src/records/story-keys";
 import { DEFAULT_CONFIG } from "../gate/fixtures";
 import {
   BACKLOG_FIXTURE,
-  inRemote,
   laneSetup,
   publish,
   otherClone,
   squashMergeOnRemote,
-  subjects,
 } from "../backlog/lane/helpers";
 import { pass, task } from "../stories/helpers";
 import { blocksOf, commandContext, planningWorld, STORY_PROPOSAL, until } from "./planning-world";
