@@ -270,13 +270,12 @@ export class StoryPlanning {
       }
     }
     const batch = await readyStories({ office, lane, gate }, chosen);
-    const flush = batch.last === undefined ? null : await lane.flush(batch.last);
+    // The answer comes once the changes are journaled; the flush runs after it (DIPO-492). A failed
+    // flush put its notice on the office and leaves the changes journaled; the store's lane
+    // progress shows where they wait.
+    if (batch.last !== undefined) void lane.flush(batch.last).catch(() => undefined);
     return {
-      result: {
-        queued: batch.queued,
-        refused: [...refused, ...batch.refused],
-        ...(flush === null ? {} : { flush }),
-      },
+      result: { queued: batch.queued, refused: [...refused, ...batch.refused] },
       changed: batch.queued.length > 0,
     };
   }

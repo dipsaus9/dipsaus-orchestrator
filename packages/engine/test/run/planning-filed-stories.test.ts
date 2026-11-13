@@ -37,6 +37,8 @@ import {
   BASE_COMMIT,
   blocksOf,
   commandContext,
+  flushBranch,
+  proposalView,
   planningWorld,
   STORY_PROPOSAL,
   until,
@@ -122,16 +124,17 @@ describe("a planning session knows the stories it filed (DIPO-480)", () => {
       async (repo) => {
         const { s, lane, w, ctx, indexed } = await setup(repo, [STORY_PROPOSAL, SECOND]);
 
-        const first = await w.sessions.confirm(ctx, { proposal: 1 });
-        expect(first.result.stories).toEqual(["TASK-4"]);
+        await w.sessions.confirm(ctx, { proposal: 1 });
+        await w.flushed();
+        expect(proposalView(w, 1)?.stories).toEqual(["TASK-4"]);
         // The filing PR of TASK-4 is open; TASK-4 is not in the office's stories, and a lower-case
         // id of it resolves as its upper-case form.
         const second = await w.sessions.confirm(ctx, { proposal: 2 });
-        expect(second.result.state).toBe("filed");
-        expect(second.result.stories).toEqual(["TASK-5"]);
+        expect(second.result.state).toBe("filing");
+        await w.flushed();
+        expect(proposalView(w, 2)?.stories).toEqual(["TASK-5"]);
         expect(fileOf(lane.worktreePath(), "TASK-5")).toMatch(/dependencies:\n\s+- TASK-4/);
-        const filingBranch =
-          second.result.flush?.state === "pushed" ? second.result.flush.branch : "";
+        const filingBranch = flushBranch(w);
 
         // Before the next turn: both stories with state and full text; the copy is not refreshed.
         const commits = w.boxes.made.length;
@@ -179,6 +182,7 @@ describe("a planning session knows the stories it filed (DIPO-480)", () => {
       async (repo) => {
         const { w, ctx } = await setup(repo, [STORY_PROPOSAL]);
         await w.sessions.confirm(ctx, { proposal: 1 });
+        await w.flushed();
         // A daemon restart: the proposals of the open session are gone, the record and the journal stay.
         await w.sessions.stopAll();
         await w.sessions.continue(commandContext(w));
@@ -231,8 +235,9 @@ describe("a planning session knows the stories it filed (DIPO-480)", () => {
         }
 
         // A proposal confirmed and then failed: its story is no dependency.
-        const filed = await w.sessions.confirm(ctx, { proposal: 1 });
-        expect(filed.result.stories).toEqual(["TASK-4"]);
+        await w.sessions.confirm(ctx, { proposal: 1 });
+        await w.flushed();
+        expect(proposalView(w, 1)?.stories).toEqual(["TASK-4"]);
         const change = allEntries(s.office).find((entry) => entry.kind === FILE_KIND);
         planningLane(lane).withdraw({ opId: change?.opId ?? 0 });
         expect(await codes(7)).toBe("planning.storyUnknown");

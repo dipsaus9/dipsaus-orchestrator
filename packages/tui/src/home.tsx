@@ -1030,7 +1030,7 @@ export function useHome(args: HomeArgs) {
     gate,
     showDone,
     marks,
-    readyResult: acts.action?.ready === undefined ? [] : readyLines(acts.action.ready),
+    readyResult: acts.action?.ready === undefined ? [] : readyLines(acts.action.ready, state.lane),
     doneTotal: doneCount(state.stories),
     overviewEntry,
     /** The selected board row, a story's key or the BACKLOG row's. */

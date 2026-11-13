@@ -89,6 +89,7 @@ import {
   planningEdit,
   planningEnd,
   planningMessage,
+  type LaneFlush,
   type PlanningProposal,
   type PlanningProposalView,
   type PlanningReadyView,
@@ -426,6 +427,8 @@ interface Open {
   autoRefusals: number;
   /** The `[dipo]` lines the next maintainer message carries before it. */
   notes: string[];
+  /** The background flushes of confirms and Ready steps, one after the other in journal order (DIPO-492). */
+  flushing: Promise<void>;
   /** The list of filed stories the session last got (`filedSignature`); null before any (DIPO-480). */
   filedSeen: string | null;
   /** The base commit dipo first saw each story on the base at, by story id (DIPO-480). */
@@ -505,6 +508,8 @@ interface OpenProposal {
   state: "open" | "confirmed" | "declined";
   edited: boolean;
   changes: readonly PlannedChange[];
+  /** Why the background flush of its changes failed; they stay journaled (DIPO-492). */
+  failure?: string | undefined;
   readonly at: number;
 }
 
@@ -814,35 +819,78 @@ export class PlanningSessions {
       );
     }
     let changes: PlannedChange[];
-    try {
-      changes = await this.#journal(open, item, lane);
-    } catch (error) {
-      if (!(error instanceof PlanningRefusedError)) throw error;
-      throw new CommandError("planning.notFiled", error.message, { proposal: item.n });
+    if (item.failure !== undefined && this.#waiting(lane, item.changes)) {
+      // The flush failed and the changes stay journaled: a confirm again flushes them, it does not
+      // journal them twice.
+      changes = [...item.changes];
+    } else {
+      try {
+        changes = await this.#journal(open, item, lane);
+      } catch (error) {
+        if (!(error instanceof PlanningRefusedError)) throw error;
+        throw new CommandError("planning.notFiled", error.message, { proposal: item.n });
+      }
     }
     item.state = "confirmed";
     item.changes = changes;
+    item.failure = undefined;
     this.#append(open, () => [this.#updated(open)]);
-    const last = changes.at(-1);
-    const flush = last === undefined ? null : await lane.flush(last);
-    const view = this.#proposalView(open, item);
-    const stories = view.stories ?? [];
-    open.notes.push(
-      view.state === "failed"
-        ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
-        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
-    );
-    this.#append(open, () => [this.#updated(open)]);
-    return {
-      result: {
-        run: open.run,
-        proposal: item.n,
-        state: view.state,
-        stories,
-        ...(flush === null ? {} : { flush }),
+    // The answer comes once the changes are journaled; the lane's flush runs after it (DIPO-492).
+    this.#flushLater(
+      open,
+      lane,
+      changes.at(-1),
+      () => {
+        const view = this.#proposalView(open, item);
+        const stories = view.stories ?? [];
+        open.notes.push(
+          view.state === "failed"
+            ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
+            : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
+        );
       },
+      (reason) => {
+        item.failure = reason;
+      },
+    );
+    const view = this.#proposalView(open, item);
+    return {
+      result: { run: open.run, proposal: item.n, state: view.state, stories: view.stories ?? [] },
       changed: true,
     };
+  }
+
+  /** True while every change is journaled and not yet applied. */
+  #waiting(lane: PlanningLane, changes: readonly PlannedChange[]): boolean {
+    return changes.every((change) => lane.outcomeOf(change)?.outcome === "waiting");
+  }
+
+  /**
+   * Flushes the lane after the command answered and after the flushes before it, so the changes
+   * apply in journal order (DIPO-492). `ended` runs once the flush ended, before the view is
+   * appended; `failed` gets the reason of a flush that failed.
+   */
+  #flushLater(
+    open: Open,
+    lane: PlanningLane,
+    last: PlannedChange | undefined,
+    ended: () => void,
+    failed: (reason: string) => void,
+  ): void {
+    if (last === undefined) return;
+    open.flushing = open.flushing.then(async () => {
+      let flush: LaneFlush | null;
+      try {
+        flush = await lane.flush(last);
+      } catch (error) {
+        // A failed flush put its own notice on the office and leaves the changes journaled.
+        flush = { state: "failed", reason: messageOf(error) };
+      }
+      if (flush?.state === "failed") failed(flush.reason);
+      if (open.settled) return;
+      ended();
+      this.#append(open, () => [this.#updated(open)]);
+    });
   }
 
   // ---- the final confirm (DIPO-451) -------------------------------------------------------------
@@ -901,14 +949,18 @@ export class PlanningSessions {
       },
     );
     this.#append(open, () => [this.#updated(open)]);
-    const flush = last === undefined ? null : await lane.flush(last);
-    this.#append(open, () => [this.#updated(open)]);
+    this.#flushLater(
+      open,
+      lane,
+      last,
+      () => {},
+      () => {},
+    );
     return {
       result: {
         run: open.run,
         queued,
         refused,
-        ...(flush === null ? {} : { flush }),
       },
       changed: true,
     };
@@ -968,12 +1020,27 @@ export class PlanningSessions {
     item.proposal = checked.proposal;
     item.edited = true;
     item.state = "open";
-    item.changes = [];
+    this.#letGo(open, item);
     open.notes.push(
       `[dipo] The maintainer edited proposal ${item.n}; it now reads: ${JSON.stringify(checked.proposal)}`,
     );
     this.#append(open, () => [this.#updated(open)]);
     return { result: { run: open.run, proposal: item.n }, changed: true };
+  }
+
+  /**
+   * Lets go of the changes of `item` for an edit or a decline: those a failed flush left journaled
+   * are withdrawn, so they are never applied for a proposal that is not confirmed (DIPO-492).
+   */
+  #letGo(open: Open, item: OpenProposal): void {
+    const lane = this.#deps.lane?.(open.office);
+    if (item.failure !== undefined && lane !== undefined) {
+      for (const change of item.changes) {
+        if (lane.outcomeOf(change)?.outcome === "waiting") lane.withdraw(change);
+      }
+    }
+    item.changes = [];
+    item.failure = undefined;
   }
 
   /** `planning.decline`: nothing is filed for the proposal. */
@@ -988,7 +1055,7 @@ export class PlanningSessions {
       throw proposalClosed(item, "it was confirmed and is filed through the backlog lane");
     }
     item.state = "declined";
-    item.changes = [];
+    this.#letGo(open, item);
     open.notes.push(
       `[dipo] The maintainer declined proposal ${item.n}; nothing was filed for it. Do not propose it again unless they ask.`,
     );
@@ -1316,6 +1383,12 @@ export class PlanningSessions {
       if (closed !== undefined) {
         state = "failed";
         detail = closed.notice ?? "the backlog lane closed it";
+      } else if (
+        item.failure !== undefined &&
+        outcomes.some((outcome) => outcome?.outcome === "waiting")
+      ) {
+        state = "failed";
+        detail = item.failure;
       } else {
         // A change the journal no longer has was applied and pruned.
         state = outcomes.every((outcome) => outcome === undefined || outcome.outcome === "applied")
@@ -1345,6 +1418,14 @@ export class PlanningSessions {
     const reason = open.ending?.reason ?? "maintainer";
     await this.#stop(open, { reason });
     return { result: { run: open.run, ended: reason }, changed: true };
+  }
+
+  /**
+   * Resolves once the background flushes the office's open session started so far have ended
+   * (DIPO-492); at once without a session.
+   */
+  async flushed(office: OfficeId): Promise<void> {
+    await this.#open.get(office)?.flushing;
   }
 
   /**
@@ -1455,6 +1536,7 @@ export class PlanningSessions {
       refusals: [],
       autoRefusals: 0,
       notes: [],
+      flushing: Promise.resolve(),
       filedSeen: null,
       mergedSince: new Map(),
     };

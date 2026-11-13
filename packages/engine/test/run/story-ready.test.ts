@@ -32,6 +32,7 @@ import { deriveStoryView } from "../../src/views/story";
 import { writeMirror } from "../../src/stories/apply";
 import type { BacklogStory } from "../../src/stories/read";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
+import { until } from "./planning-world";
 import { backlogLayout } from "../story-store/backlog";
 
 interface World {
@@ -39,7 +40,7 @@ interface World {
   readonly t: TestState;
   readonly office: OfficeHandle;
   readonly ops: LaneOp[];
-  readonly flushes: { n: number };
+  readonly flushes: { n: number; ended: number };
   readonly planning: StoryPlanning;
   readonly registry: ReturnType<typeof buildRegistry>;
   /** The gate's failures by story id; a story not listed passes; `null` is not on the base. */
@@ -50,6 +51,9 @@ interface World {
 
 let w: World;
 
+/** While set, the fake lane's flush waits on it before it ends (DIPO-492). */
+let hold: Promise<void> | null = null;
+
 const source = (path: string) => Bun.file(join(import.meta.dir, "../../src/run", path)).text();
 
 beforeEach(async () => {
@@ -57,7 +61,8 @@ beforeEach(async () => {
   const t = await openTestState(dir);
   const office = addOffice(t);
   const ops: LaneOp[] = [];
-  const flushes = { n: 0 };
+  const flushes = { n: 0, ended: 0 };
+  hold = null;
   const fake = {
     journal: async (op: LaneOp) => {
       ops.push(op);
@@ -65,6 +70,8 @@ beforeEach(async () => {
     },
     flush: async () => {
       flushes.n += 1;
+      await hold;
+      flushes.ended += 1;
       return { branch: null, held: false, waiting: null };
     },
     stall: () => null,
@@ -152,6 +159,20 @@ async function send(stories: string[]) {
 const readyOps = () => allEntries(w.office).filter((entry) => entry.kind === READY_KIND);
 
 describe("story.ready (DIPO-482)", () => {
+  it("answers once the changes are journaled, before the flush ends, with no flush field (DIPO-492)", async () => {
+    const held = Promise.withResolvers<void>();
+    hold = held.promise;
+    const release = held.resolve;
+    story("DIPO-1", "Refined");
+    const reply = await send(["DIPO-1"]);
+    expect(reply).toMatchObject({ ok: true, changed: true, result: { queued: ["DIPO-1"] } });
+    expect(reply.ok && "flush" in (reply.result as object)).toBe(false);
+    expect(readyOps()).toHaveLength(1);
+    expect(w.flushes).toEqual({ n: 1, ended: 0 });
+    release();
+    await until(() => w.flushes.ended === 1);
+  });
+
   it("sets two passing Refined stories Ready in one flush, each with its decision evaluated", async () => {
     const a = story("DIPO-1", "Refined");
     const b = story("DIPO-2", "Refined");
