@@ -1,10 +1,10 @@
 ---
 id: DIPO-472
 title: Seed the developer role file and label existing stories in office init
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 14:58'
-updated_date: '2026-11-13 10:38'
+updated_date: '2026-11-13 10:56'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -18,6 +18,19 @@ references:
   - packages/engine/src/roles/
   - docs/decisions/0017-testing-strategy-and-configuration.md
   - docs/decisions/0001-foundational-decisions.md
+modified_files:
+  - docs/decisions/0010-backlog-and-git-integration.md
+  - docs/decisions/0017-testing-strategy-and-configuration.md
+  - packages/engine/src/backlog/init/index.ts
+  - packages/engine/src/backlog/init/init.ts
+  - packages/engine/src/backlog/init/ops.ts
+  - packages/engine/src/backlog/pr/check.ts
+  - packages/engine/src/backlog/pr/title.ts
+  - packages/engine/test/office/init/helpers.ts
+  - packages/engine/test/office/init/init.ci.test.ts
+  - packages/engine/test/office/init/init.test.ts
+  - packages/engine/test/office/init/plan.test.ts
+  - packages/engine/test/run/planning-dependencies.test.ts
 type: feature
 ordinal: 445000
 ---
@@ -67,3 +80,18 @@ test_plan:
 - [x] #5 A second office init after the first one's steps are journaled or merged adds no commits for either step.
 - [x] #6 The decisions describe the two new init steps and when they apply.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 10:56 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 125,492 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
