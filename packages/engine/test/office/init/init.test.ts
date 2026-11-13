@@ -24,17 +24,22 @@ import {
   OfficeInit,
   officeStatusesReady,
   previousSettings,
+  seedRoleText,
   STATUSES_STEP,
 } from "../../../src/backlog/init";
+import developerInstructions from "../../../src/prompts/roles/developer.md" with { type: "text" };
+import { parseRoleFile } from "../../../src/roles/parse";
 import { BACKLOG_FIXTURE, laneSetup, notices, subjects } from "../../backlog/lane/helpers";
 
-import { fileBacklog, oldOffice, oneOffice, setTaskStatus } from "./helpers";
+import { fileBacklog, oldOffice, oneOffice, setTaskLabels, setTaskStatus } from "./helpers";
 
 const STEPS = [
   "backlog: init statuses",
   "backlog: init defaultStatus",
   "backlog: init settings",
   "backlog: init To Do tasks",
+  "backlog: init .dipo/roles/developer.md",
+  "backlog: init role:developer labels",
   "backlog: init .dipo/.gitignore",
 ];
 
@@ -72,6 +77,8 @@ describe("office init without a remote", () => {
     await withTempRepo(
       async (repo) => {
         oldOffice(repo.dir);
+        // TASK-2 already has a role; TASK-3 is Done.
+        setTaskLabels(repo.dir, "TASK-2", ["tier:S", "role:designer"]);
         await repo.commitAll("an office from before dipo");
         // TASK-2 is in progress on its own branch.
         await repo.git("branch", "TASK-2/rename-the-export-setting");
@@ -101,6 +108,7 @@ describe("office init without a remote", () => {
         ).toEqual(
           [
             ".dipo/.gitignore",
+            ".dipo/roles/developer.md",
             "backlog/config.yml",
             "backlog/tasks/task-1 - Add-the-CSV-export-command.md",
           ].toSorted(),
@@ -109,10 +117,28 @@ describe("office init without a remote", () => {
         expect(
           await show("backlog/tasks/task-1 - Add-the-CSV-export-command.md", branch),
         ).toContain("status: Refined");
-        // Init never writes `.dipo/office.yaml` (DIPO-15 D9).
-        expect((await repo.git("ls-tree", "-r", "--name-only", branch, ".dipo")).trim()).toBe(
-          ".dipo/.gitignore",
+        // The seeded role file loads with the role-file parser, with the bundled instructions.
+        const seeded = parseRoleFile(
+          ".dipo/roles/developer.md",
+          await show(".dipo/roles/developer.md", branch),
         );
+        expect(seeded).toMatchObject({
+          ok: true,
+          role: { name: "developer", instructions: developerInstructions.trim() },
+        });
+        expect(await show(".dipo/roles/developer.md", branch)).toStartWith(
+          "---\nversion: 1\npurpose: ",
+        );
+        // The open task without a role gets role:developer; a task with a role and a Done task do not.
+        const labelsAt = async (file: string) => await show(`backlog/tasks/${file}.md`, branch);
+        expect(await labelsAt("task-1 - Add-the-CSV-export-command")).toContain("role:developer");
+        expect(await labelsAt("task-2 - Rename-the-export-setting")).not.toContain(
+          "role:developer",
+        );
+        // Init never writes `.dipo/office.yaml` (DIPO-15 D9).
+        expect(
+          (await repo.git("ls-tree", "-r", "--name-only", branch, ".dipo")).trim().split("\n"),
+        ).toEqual([".dipo/.gitignore", ".dipo/roles/developer.md"]);
 
         expect(previousSettings(s.office).map(({ setting, value }) => [setting, value])).toEqual([
           ["checkActiveBranches", false],
@@ -158,6 +184,8 @@ describe("office init without a remote", () => {
         setTaskStatus(repo.dir, "TASK-2", "Refined");
         mkdirSync(join(repo.dir, ".dipo"));
         writeFileSync(join(repo.dir, ".dipo", ".gitignore"), "office.local.yaml\n");
+        mkdirSync(join(repo.dir, ".dipo", "roles"));
+        writeFileSync(join(repo.dir, ".dipo", "roles", "designer.md"), seedRoleText());
         await repo.commitAll("after a first init");
         const { s, init, officeId } = await initSetup(repo);
 

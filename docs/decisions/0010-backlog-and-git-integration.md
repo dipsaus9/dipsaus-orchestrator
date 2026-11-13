@@ -94,6 +94,10 @@ Office init is one backlog PR, and each step is target-state:
 3. Move every `To Do` task to `Refined`.
 4. Set `check_active_branches: true`, `remote_operations: true` and `auto_commit: false`.
 5. Add `.dipo/.gitignore` with `office.local.yaml` (0007).
+6. Seed the developer role: write `.dipo/roles/developer.md` (version 1, a one-line purpose, the bundled developer instructions as the body), only while the base's `.dipo/roles/` holds no role file (0017).
+7. Label the open stories: add `role:developer` to every task that is not `Done` and has no `role:` label, under the same condition as step 6. A task that has a role label is never changed.
+
+Once a role file is on the base, steps 6 and 7 are not planned again, so a maintainer who removes the developer role later is left alone.
 
 dipo records the previous values. Existing ignore files are never edited.
 
