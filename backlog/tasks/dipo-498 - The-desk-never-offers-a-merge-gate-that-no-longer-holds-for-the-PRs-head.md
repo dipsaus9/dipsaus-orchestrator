@@ -1,10 +1,10 @@
 ---
 id: DIPO-498
 title: The desk never offers a merge gate that no longer holds for the PR's head
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 10:20'
-updated_date: '2026-11-13 10:26'
+updated_date: '2026-11-13 10:35'
 labels:
   - 'tier:M'
 milestone: m-3
