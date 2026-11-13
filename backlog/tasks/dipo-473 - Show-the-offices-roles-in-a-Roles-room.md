@@ -1,10 +1,10 @@
 ---
 id: DIPO-473
 title: Show the office's roles in a Roles room
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-10 15:04'
-updated_date: '2026-11-12 13:27'
+updated_date: '2026-11-13 09:13'
 labels:
   - 'tier:M'
 milestone: m-4
