@@ -117,11 +117,13 @@ import type { StorylessEvents } from "../ingest/pending";
 import { ensurePrivateDir } from "../platform/paths";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { renderSystemFile } from "../prompts/system";
-<<<<<<< 8adc49388915cff5acb4fdf2f29bbf77ddf2cfd8
-import { rendered, renderTemplate, ROLE_TEMPLATES, TASK_TEMPLATES } from "../prompts/templates";
-=======
-import { type Rendered, rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
->>>>>>> c554aaedc63d3a6500f7da2db5f0b55b9397db5d
+import {
+  type Rendered,
+  rendered,
+  renderTemplate,
+  ROLE_TEMPLATES,
+  TASK_TEMPLATES,
+} from "../prompts/templates";
 import { recordAgent } from "../records/agents";
 import {
   addPlanningEntry,
