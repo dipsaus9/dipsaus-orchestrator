@@ -1,10 +1,10 @@
 ---
 id: DIPO-478
 title: Let planning edit and split proposals change a story's role
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:18'
-updated_date: '2026-11-13 09:13'
+updated_date: '2026-11-13 13:23'
 labels:
   - 'tier:M'
 milestone: m-4
