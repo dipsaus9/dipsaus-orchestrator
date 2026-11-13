@@ -1,7 +1,7 @@
 ---
 id: DIPO-476
 title: Let planning proposals name the role and file it as a label
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:05'
 updated_date: '2026-11-13 13:05'
@@ -20,6 +20,33 @@ references:
   - packages/engine/src/prompts/contract/planning-box.md
   - packages/engine/src/prompts/templates.ts
   - packages/tui/src/planning.tsx
+modified_files:
+  - docs/design/tui-v2/screens/07-plan.txt
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/backlog/lane/stories.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-confirm-ready.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-proposals.test.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/proposal-form.test.ts
 type: feature
 ordinal: 449000
 ---
@@ -67,3 +94,18 @@ test_plan:
 - [x] #6 The planner's first message holds a roles section with each roster role's name and purpose.
 - [x] #7 The TUI shows the proposed role on each story, split and refine proposal line.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 13:05 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 149,050 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
