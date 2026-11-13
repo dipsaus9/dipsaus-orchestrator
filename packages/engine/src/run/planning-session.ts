@@ -169,6 +169,7 @@ import {
   roleAddTargetOf,
   roleEditTargetOf,
   type RoleFacts,
+  rosterProblems,
   refineFieldsOf,
   refineTargetOf,
   refusalMessage,
@@ -996,6 +997,7 @@ export class PlanningSessions {
       }
       case "edit": {
         const identity = this.#revisable(handle, proposal.id);
+        this.#checkEditRole(open, item, proposal.role, "role");
         this.#checkEditDependencies(open, item, identity.story, proposal.dependencies ?? []);
         const change = await lane.reviseStory(
           identity,
@@ -1005,6 +1007,7 @@ export class PlanningSessions {
       }
       case "split": {
         const identity = this.#revisable(handle, proposal.id);
+        this.#checkEditRole(open, item, proposal.edit.role, "edit.role");
         this.#checkNewStory(open, item, proposal.story.title, proposal.story.dependencies ?? []);
         this.#checkEditDependencies(open, item, identity.story, proposal.edit.dependencies ?? []);
         const filed = await lane.fileStory(fileTargetOf(run, item.n, proposal.story));
@@ -1038,6 +1041,15 @@ export class PlanningSessions {
         return [await lane.editRole(roleEditTargetOf(run, item.n, proposal))];
       case "role-remove":
         return [await lane.removeRole({ run, proposal: item.n, name: proposal.name })];
+    }
+  }
+
+  /** Refuses an edit's role that is not in the roster of the base's role files now. */
+  #checkEditRole(open: Open, item: OpenProposal, role: string | undefined, where: string): void {
+    if (role === undefined) return;
+    const problems = rosterProblems(role, this.#roleFacts(open), where);
+    if (problems.length > 0) {
+      throw new CommandError("planning.notFiled", problems.join("; "), { proposal: item.n });
     }
   }
 

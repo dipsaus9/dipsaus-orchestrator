@@ -629,6 +629,9 @@ const editShape = {
     .describe(
       "the whole list of stories that must be Done first, replacing the old one; an empty list clears them",
     ),
+  role: storyShape.role
+    .optional()
+    .describe("the role that runs the story from now on, one of the office's roster"),
 };
 
 type EditShape = z.infer<z.ZodObject<typeof editShape>>;
