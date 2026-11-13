@@ -125,6 +125,43 @@ describe("the structural check of a backlog-only PR in CI", () => {
     });
   }, 60_000);
 
+  it("views only the changed tasks and the Ready stories (DIPO-494)", async () => {
+    await withTempRepo(async (repo) => {
+      const [base, head] = await pr(repo, { [path(1)]: taskFile(1, "Ready", CLEAN_PLAN) });
+      const viewed: string[] = [];
+      const cli = {
+        ...REPO_BACKLOG_CLI,
+        spawn: ((options) => {
+          const at = options.cmd.indexOf("view");
+          if (at >= 0) viewed.push(options.cmd[at + 1] ?? "");
+          return REPO_BACKLOG_CLI.spawn(options);
+        }) as typeof REPO_BACKLOG_CLI.spawn,
+      };
+      const result = await checkBacklogPrIn({ repo: repo.dir, base, head, cli, tmp: repo.root });
+      expect(result.failures).toEqual([]);
+      // DIPO-1 is the changed task, on both sides, and the one Ready story; DIPO-2 is read from its file.
+      expect(viewed.length).toBeGreaterThan(0);
+      expect(new Set(viewed)).toEqual(new Set(["DIPO-1"]));
+    });
+  }, 60_000);
+
+  it("fails when an unchanged task's file does not parse, instead of counting it with no dependencies (DIPO-494)", async () => {
+    await withTempRepo(async (repo) => {
+      const [base, head] = await pr(
+        repo,
+        { [path(1)]: taskFile(1, "Ready", CLEAN_PLAN) },
+        async () => {},
+      );
+      await repo.git("checkout", "--quiet", "--detach", base);
+      await Bun.write(`${repo.dir}/${path(2)}`, "---\ntitle: no id\nstatus: Refined\n---\n");
+      const broken = await repo.commitAll("break DIPO-2");
+      await repo.git("checkout", "--quiet", "--detach", head);
+      await Bun.write(`${repo.dir}/${path(2)}`, "---\ntitle: no id\nstatus: Refined\n---\n");
+      const merged = await repo.commitAll("pr over the broken base");
+      await expect(check(repo, broken, merged)).rejects.toThrow(/its front matter has no id/);
+    });
+  }, 60_000);
+
   it("fails a story made Ready that fails the Ready gate", async () => {
     await withTempRepo(async (repo) => {
       const [base, head] = await pr(repo, { [path(2)]: taskFile(2, "Ready", NO_EXPECT) });

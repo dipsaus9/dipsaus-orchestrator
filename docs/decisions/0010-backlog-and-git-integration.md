@@ -9,7 +9,7 @@ Every backlog change is a commit in a pull request, so it reaches a protected ba
 ## 1. The Backlog CLI
 
 - **Version.** dipo supports Backlog.md **1.53.x**, pinned in `package.json`. It checks `backlog --version` at office load and refuses any other version. A new minor is adopted by recording its `--plain` output as fixtures and passing the parser tests.
-- **Only through the CLI.** dipo runs `backlog … --plain` through the platform module and never edits a task file by hand. It reads the CLI's output from a file, never from a pipe. The only files it reads directly are `backlog/config.yml`, for the status list, a root `backlog.config.yml`, for the folders the StoryStore keeps its stories in, and, in the check before each CLI call, the files of those folders the CLI could read: each folder's `config.yml` and the task files.
+- **Only through the CLI.** dipo runs `backlog … --plain` through the platform module and never edits a task file by hand. It reads the CLI's output from a file, never from a pipe. The only files it reads directly are `backlog/config.yml`, for the status list, a root `backlog.config.yml`, for the folders the StoryStore keeps its stories in, and, in the check before each CLI call, the files of those folders the CLI could read: each folder's `config.yml` and the task files. The task files of those folders are also read in one pass for the Ready gate's other active tasks (their id, status, dependencies and frozen branch), never written (0012); the pass reuses that check and the runner's front-matter preparation and parse, and a task file it cannot parse fails the read.
 - **Never run:** `task complete`, `cleanup`, `task demote`, `doctor --fix`, `config set statuses`, and any edit to the status `Draft`.
 - **Refused inputs.** dipo refuses to run the CLI on a folder whose files it cannot check (0008).
 - **The parser.** One parser covers `task view`, `draft view`, `task list` and `draft list`, and is tested against recorded output.
@@ -153,4 +153,5 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).
 - `amend` releasing a claim with its task file restored to the merge base. That is M3 work (0003).
+- The Ready gate's other active tasks read with one CLI view each (2026-10-10). Replaced by one pass over the task files (2026-11-13, DIPO-494): a view loads the whole backlog, so the read cost a process per task.
 - A StoryStore that could not create a story or change its wording, so the maintainer created and reworded every story by hand (2026-10-24). Replaced by the planning lane's `file` and `revise` operations for what the maintainer confirms in a planning session (0022, 2026-11-06).

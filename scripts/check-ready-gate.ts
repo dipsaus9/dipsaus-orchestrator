@@ -87,8 +87,10 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
   if (!loaded.ok) throw new Error(loaded.errors.map((error) => error.message).join("\n"));
   const config = gateConfigOf(loaded.config);
   const stories = backlogStoryStore(cli);
-  const entries = await listTasks(stories, repo);
+  // The task files first: a file that does not parse fails with its own name, where the list
+  // would only come up one short.
   const others = await otherTasks(stories, repo);
+  const entries = await listTasks(stories, repo);
   const milestones = await stories.milestones(repo);
   const folders = await stories.storyFolders(checkoutFiles(repo));
   const files = treeFiles(repo);
