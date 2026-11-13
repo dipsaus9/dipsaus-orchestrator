@@ -1,10 +1,10 @@
 ---
 id: DIPO-495
 title: Confirming a planning proposal files it Ready when it passes the gate
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 09:17'
-updated_date: '2026-11-13 12:06'
+updated_date: '2026-11-13 12:20'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -29,6 +29,43 @@ references:
   - docs/decisions/0012-story-standard.md
   - docs/decisions/0022-planning-sessions.md
   - docs/decisions/0010-backlog-and-git-integration.md
+modified_files:
+  - docs/decisions/0010-backlog-and-git-integration.md
+  - docs/decisions/0012-story-standard.md
+  - docs/decisions/0022-planning-sessions.md
+  - docs/how-dipo-works.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/engine/src/backlog/lane/feature.ts
+  - packages/engine/src/backlog/lane/lane.ts
+  - packages/engine/src/backlog/lane/ops.ts
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/backlog/lane/stories.ts
+  - packages/engine/src/backlog/pr/check.ts
+  - packages/engine/src/backlog/pr/feature.ts
+  - packages/engine/src/create/stories.ts
+  - packages/engine/src/gate-decisions/decisions.ts
+  - packages/engine/src/gate-decisions/feature.ts
+  - packages/engine/src/gate-decisions/index.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/ready-stories.ts
+  - packages/engine/src/stories/apply.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/backlog/lane/helpers.ts
+  - packages/engine/test/backlog/pr/check.test.ts
+  - packages/engine/test/run/planning-confirm-ready.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-proposals.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - scripts/check-backlog-pr.test.ts
+  - scripts/check-backlog-pr.ts
+  - scripts/check-ready-gate.test.ts
+  - scripts/check-ready-gate.ts
 priority: high
 type: feature
 ordinal: 466000
@@ -108,3 +145,18 @@ test_plan:
 - [x] #8 story.ready and the Queue's Y still set a Refined story Ready through readyStories with their old refusals
 - [x] #9 ADR 0012's new-task line, its new (none) to Ready and Draft to Ready rows, its Refined to Ready and Ready to Refined rows, ADR 0022's new story and Ready lines and ADR 0010's structural check line describe filing Ready at confirm, with Replaced lines in 0012 and 0022
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-13 12:20 UTC
+- Criteria met: 9 of 9 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 502,912 of 2,000,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
