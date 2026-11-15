@@ -1,10 +1,10 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-15 17:05'
+updated_date: '2026-11-15 21:24'
 labels:
   - 'tier:L'
   - 'role:developer'
@@ -27,6 +27,58 @@ references:
   - docs/decisions/0012-story-standard.md
   - docs/decisions/0014-worker-prompt-assembly.md
   - docs/decisions/0001-foundational-decisions.md
+modified_files:
+  - docs/decisions/0001-foundational-decisions.md
+  - docs/decisions/0012-story-standard.md
+  - docs/decisions/0014-worker-prompt-assembly.md
+  - packages/cli/src/run-command.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/daemon/test/integration/reattach-kill.ci.test.ts
+  - packages/engine/src/backlog/init/ops.ts
+  - packages/engine/src/db/migrations/0014-run-roles.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/gate/rules.ts
+  - packages/engine/src/prompts/index.ts
+  - packages/engine/src/prompts/system.ts
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/run-records.ts
+  - packages/engine/src/records/run-starts.ts
+  - packages/engine/src/run/idea-audits.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/prompts.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/review-launch.ts
+  - packages/engine/src/run/work-run.ts
+  - packages/engine/src/scan/request.ts
+  - packages/engine/src/views/work.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/engine/loop-office.ts
+  - packages/engine/test/gate-decisions/store.test.ts
+  - packages/engine/test/gate/fixtures.ts
+  - packages/engine/test/gate/gate.test.ts
+  - packages/engine/test/gate/gated-office.ts
+  - packages/engine/test/gate/story-gate.ci.test.ts
+  - packages/engine/test/gate/story-gate.test.ts
+  - packages/engine/test/office/forget.test.ts
+  - packages/engine/test/prompts/review.test.ts
+  - packages/engine/test/prompts/store.test.ts
+  - packages/engine/test/prompts/system.test.ts
+  - packages/engine/test/run/next-up.test.ts
+  - packages/engine/test/run/planning-confirm-ready.test.ts
+  - packages/engine/test/run/planning-questions.test.ts
+  - packages/engine/test/run/reattach.test.ts
+  - packages/engine/test/run/review-launch.test.ts
+  - packages/engine/test/run/run-office.ts
+  - packages/engine/test/run/start.test.ts
+  - packages/engine/test/run/test-roles.ts
+  - packages/engine/test/run/work-run.ci.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - scripts/check-backlog-pr.test.ts
+  - scripts/check-ready-gate.test.ts
 type: feature
 ordinal: 450000
 ---
@@ -85,3 +137,24 @@ test_plan:
 - [x] #9 The work preview names the role and the model a story would run with.
 - [x] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-15 21:24 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 3, failed 0
+- Budget used: 550,178 of 2,000,000 tokens
+- Runs: 1; resumes: 6
+- Parks: 6
+  - 2026-11-13 13:41 UTC ambiguous-spec: CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 49…
+  - 2026-11-13 15:28 UTC ambiguous-spec: The ready-gate CI check fails because this repository, as an office, has no role file in .dipo/roles/ and its Ready stories DIPO-500 to DIPO-504 carry no role: label, which R17 now requires. Will you…
+  - 2026-11-15 10:44 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+  - 2026-11-15 12:10 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+  - 2026-11-15 12:13 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+  - 2026-11-15 14:43 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
