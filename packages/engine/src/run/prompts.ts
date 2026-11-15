@@ -1,6 +1,6 @@
-// The prompts of a run's first session (DIPO-74; 0014): the L1+L2 system
-// file for `implement-box` (DIPO-272) and the developer role, and the L4 task message from the
-// story, its dependencies and the context pack the default provider gathers from a checkout. A real run reads
+// The prompts of a run's first session (DIPO-74; 0014): the L1+L2 system file for `implement-box`
+// (DIPO-272) and the run's role file (DIPO-477), and the L4 task message from the story, its
+// dependencies and the context pack the default provider gathers from a checkout. A real run reads
 // its new worktree; the dry run reads `_base`, which holds the same commit the worktree would start
 // from. The session id is made here too: a UUID derived from an engine-made id.
 
@@ -39,6 +39,8 @@ export interface RunPromptsInput {
   readonly handoff?: HandoffFacts;
   /** The developer works in its own box (DIPO-271): the scope section is a forecast (DIPO-272). */
   readonly box?: boolean;
+  /** The role the run runs as: its instructions are the system file's L2 (DIPO-477). */
+  readonly role: { readonly instructions: string };
 }
 
 export interface RunPrompts {
@@ -89,7 +91,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
   });
   return {
-    systemFile: renderSystemFile("implement-box", "developer"),
+    systemFile: renderSystemFile("implement-box", input.role.instructions),
     taskMessage: task.text,
     sections: task.sections,
   };

@@ -2,7 +2,7 @@
 // fixture on a bare `origin`, loaded as an office with the story index and the gate store. Shared by
 // story-gate.test.ts and its CI-only sibling story-gate.ci.test.ts.
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type OfficeId, type ReadReply, StoryKey } from "@dipsaus-orchestrator/contract";
@@ -26,6 +26,8 @@ import {
 } from "../office/helpers";
 import { keyOf } from "../stories/helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { SEED_ROLE_FILE, seedRoleText } from "../../src/backlog/init/ops";
+import { ROLES_DIR } from "../../src/roles/parse";
 
 export interface Warning {
   readonly message: string;
@@ -79,11 +81,24 @@ export async function publish(repo: TempRepoWithRemote, message: string): Promis
   await repo.git("push", "--quiet", "origin", "main");
 }
 
-/** The Backlog fixture on a bare `origin`, loaded as an office with the index and the gate. */
+/**
+ * Writes the developer role file office init seeds into the checkout at `dir` (0017), so the
+ * roster has the role a story's `role:developer` label names (R17, DIPO-477).
+ */
+export function writeDeveloperRole(dir: string): void {
+  mkdirSync(join(dir, ROLES_DIR), { recursive: true });
+  writeFileSync(join(dir, SEED_ROLE_FILE), seedRoleText());
+}
+
+/**
+ * The Backlog fixture on a bare `origin` with the developer role file, loaded as an office with the
+ * index and the gate.
+ */
 export function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> {
   return withBareRemote(
     async (repo) => {
       mkdirSync(join(repo.dir, "backlog", "archive", "tasks"), { recursive: true });
+      writeDeveloperRole(repo.dir);
       await repo.commitAll("fixture");
       await repo.git("push", "--quiet", "-u", "origin", "main");
       await repo.git("remote", "set-head", "origin", "main");

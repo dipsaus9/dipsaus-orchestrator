@@ -4,13 +4,13 @@
 // tags neutralised, so a README cannot close `<scan_evidence>` and start a section of its own.
 
 import { neutraliseTags, rendered, renderSystemFile, renderTemplate } from "../prompts";
-import { TASK_TEMPLATES } from "../prompts/templates";
+import { ROLE_TEMPLATES, TASK_TEMPLATES } from "../prompts/templates";
 
 import type { EvidenceBundle } from "./evidence";
 
 /** The system file of every fallback session; the same bytes for every office. */
 export function scanSystemFile(): string {
-  return renderSystemFile("scan", "scanner");
+  return renderSystemFile("scan", ROLE_TEMPLATES.scanner);
 }
 
 function requestText(bundle: EvidenceBundle): string {

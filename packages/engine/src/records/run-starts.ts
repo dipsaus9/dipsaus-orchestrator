@@ -10,6 +10,8 @@ export interface RunStart {
   readonly story: string;
   readonly agent: string;
   readonly tier: string;
+  /** The role it runs as, from the story's role label (DIPO-477, migration 14). */
+  readonly role: string;
   readonly model: string;
   readonly loopCap: number;
   readonly startedAt: number;
@@ -21,12 +23,13 @@ interface RunStartRow {
   story_id: string;
   agent_id: string;
   tier: string;
+  role: string;
   model: string;
   loop_cap: number;
   started_at: number;
 }
 
-const SELECT = `select run_id, key, story_id, agent_id, tier, model, loop_cap, started_at
+const SELECT = `select run_id, key, story_id, agent_id, tier, role, model, loop_cap, started_at
   from run_starts where office_id = $office_id`;
 
 function startOf(row: RunStartRow): RunStart {
@@ -36,6 +39,7 @@ function startOf(row: RunStartRow): RunStart {
     story: row.story_id,
     agent: row.agent_id,
     tier: row.tier,
+    role: row.role,
     model: row.model,
     loopCap: row.loop_cap,
     startedAt: row.started_at,
@@ -44,15 +48,16 @@ function startOf(row: RunStartRow): RunStart {
 
 export function insertRunStart(office: OfficeHandle, start: RunStart): void {
   office.run(
-    `insert into run_starts (office_id, run_id, key, story_id, agent_id, tier, model, loop_cap,
-       started_at)
-     values ($office_id, $run, $key, $story, $agent, $tier, $model, $loop_cap, $at)`,
+    `insert into run_starts (office_id, run_id, key, story_id, agent_id, tier, role, model,
+       loop_cap, started_at)
+     values ($office_id, $run, $key, $story, $agent, $tier, $role, $model, $loop_cap, $at)`,
     {
       run: start.runId,
       key: start.key,
       story: start.story,
       agent: start.agent,
       tier: start.tier,
+      role: start.role,
       model: start.model,
       loop_cap: start.loopCap,
       at: start.startedAt,

@@ -52,6 +52,7 @@ function readyTask(id: number, title: string, status = "Ready"): string {
     "created_date: '2026-10-12 11:28'",
     "labels:",
     "  - 'tier:M'",
+    "  - 'role:developer'",
     "milestone: m-3",
     "dependencies: []",
     "references:",

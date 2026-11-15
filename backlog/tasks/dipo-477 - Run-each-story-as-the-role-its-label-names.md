@@ -1,10 +1,10 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 15:06'
+updated_date: '2026-11-15 21:24'
 labels:
   - 'tier:L'
   - 'role:developer'
@@ -27,6 +27,58 @@ references:
   - docs/decisions/0012-story-standard.md
   - docs/decisions/0014-worker-prompt-assembly.md
   - docs/decisions/0001-foundational-decisions.md
+modified_files:
+  - docs/decisions/0001-foundational-decisions.md
+  - docs/decisions/0012-story-standard.md
+  - docs/decisions/0014-worker-prompt-assembly.md
+  - packages/cli/src/run-command.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/daemon/test/integration/reattach-kill.ci.test.ts
+  - packages/engine/src/backlog/init/ops.ts
+  - packages/engine/src/db/migrations/0014-run-roles.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/gate/rules.ts
+  - packages/engine/src/prompts/index.ts
+  - packages/engine/src/prompts/system.ts
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/run-records.ts
+  - packages/engine/src/records/run-starts.ts
+  - packages/engine/src/run/idea-audits.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/prompts.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/review-launch.ts
+  - packages/engine/src/run/work-run.ts
+  - packages/engine/src/scan/request.ts
+  - packages/engine/src/views/work.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/engine/loop-office.ts
+  - packages/engine/test/gate-decisions/store.test.ts
+  - packages/engine/test/gate/fixtures.ts
+  - packages/engine/test/gate/gate.test.ts
+  - packages/engine/test/gate/gated-office.ts
+  - packages/engine/test/gate/story-gate.ci.test.ts
+  - packages/engine/test/gate/story-gate.test.ts
+  - packages/engine/test/office/forget.test.ts
+  - packages/engine/test/prompts/review.test.ts
+  - packages/engine/test/prompts/store.test.ts
+  - packages/engine/test/prompts/system.test.ts
+  - packages/engine/test/run/next-up.test.ts
+  - packages/engine/test/run/planning-confirm-ready.test.ts
+  - packages/engine/test/run/planning-questions.test.ts
+  - packages/engine/test/run/reattach.test.ts
+  - packages/engine/test/run/review-launch.test.ts
+  - packages/engine/test/run/run-office.ts
+  - packages/engine/test/run/start.test.ts
+  - packages/engine/test/run/test-roles.ts
+  - packages/engine/test/run/work-run.ci.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - scripts/check-backlog-pr.test.ts
+  - scripts/check-ready-gate.test.ts
 type: feature
 ordinal: 450000
 ---
@@ -74,14 +126,35 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 R17 fails a story with no role label, saying a role label is needed and listing the roster's roles.
-- [ ] #2 R17 passes a story with exactly one role label naming a roster role, and fails one with two role labels or a role not in the roster.
-- [ ] #3 A run started for a story labelled role:<name> records <name> as the role of its run row, its agents and its work.assigned entry.
-- [ ] #4 The system file of the run's first session is the implement-box contract followed by the instructions of the labelled role file.
-- [ ] #5 A role file with a model and an effort runs its sessions with them; one without them runs with the tier's model and effort, and the tier's caps apply in both cases.
-- [ ] #6 After the role file changes on the base, a resumed or fix-round session of a run started earlier uses the instructions, model and effort the run started with.
-- [ ] #7 A run started before this change has no stored role, and its next session uses the bundled developer instructions and the tier's model and effort.
-- [ ] #8 The bundled developer text is no longer a run role: the developer role template is removed from the run's system file path.
-- [ ] #9 The work preview names the role and the model a story would run with.
-- [ ] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
+- [x] #1 R17 fails a story with no role label, saying a role label is needed and listing the roster's roles.
+- [x] #2 R17 passes a story with exactly one role label naming a roster role, and fails one with two role labels or a role not in the roster.
+- [x] #3 A run started for a story labelled role:<name> records <name> as the role of its run row, its agents and its work.assigned entry.
+- [x] #4 The system file of the run's first session is the implement-box contract followed by the instructions of the labelled role file.
+- [x] #5 A role file with a model and an effort runs its sessions with them; one without them runs with the tier's model and effort, and the tier's caps apply in both cases.
+- [x] #6 After the role file changes on the base, a resumed or fix-round session of a run started earlier uses the instructions, model and effort the run started with.
+- [x] #7 A run started before this change has no stored role, and its next session uses the bundled developer instructions and the tier's model and effort.
+- [x] #8 The bundled developer text is no longer a run role: the developer role template is removed from the run's system file path.
+- [x] #9 The work preview names the role and the model a story would run with.
+- [x] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-15 21:24 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 3, failed 0
+- Budget used: 550,178 of 2,000,000 tokens
+- Runs: 1; resumes: 6
+- Parks: 6
+  - 2026-11-13 13:41 UTC ambiguous-spec: CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 49…
+  - 2026-11-13 15:28 UTC ambiguous-spec: The ready-gate CI check fails because this repository, as an office, has no role file in .dipo/roles/ and its Ready stories DIPO-500 to DIPO-504 carry no role: label, which R17 now requires. Will you…
+  - 2026-11-15 10:44 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+  - 2026-11-15 12:10 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+  - 2026-11-15 12:13 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+  - 2026-11-15 14:43 UTC worker-failed: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->

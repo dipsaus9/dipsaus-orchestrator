@@ -54,6 +54,7 @@ import {
 } from "../../src/run/next-up";
 import type { PlainTask } from "../../src/story-store/story";
 import { insertClaim, releaseClaim } from "../../src/worktree/records";
+import { DEVELOPER_FILE, DEVELOPER_LABEL } from "./test-roles";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { backlogLayout } from "../story-store/backlog";
 
@@ -65,7 +66,7 @@ function task(id: string, overrides: Partial<PlainTask> = {}): PlainTask {
     status: "Ready",
     assignee: [],
     created: "2026-11-04 12:24",
-    labels: ["tier:S"],
+    labels: ["tier:S", DEVELOPER_LABEL],
     subtasks: [],
     references: [],
     documentation: [],
@@ -142,6 +143,7 @@ beforeEach(async () => {
     views: w.tasks.filter((x) => x.status === "Ready"),
     unparsed: [],
     checkout: { path: "/base", base: "main" },
+    roles: [DEVELOPER_FILE],
   });
   const nextRequest = createUlid(t.clock);
   const nextUp = new NextUp({

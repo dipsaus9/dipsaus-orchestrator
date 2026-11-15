@@ -46,6 +46,7 @@ describe("the Ready gate on the Backlog CLI", () => {
             ),
             failed("TASK-2", "R07", "milestone is missing or does not exist"),
             failed("TASK-2", "R11", "no declared scope; add at least one path with --ref"),
+            failed("TASK-2", "R17", "needs a role label role:<name>; the roster has developer"),
             failed(
               "TASK-2",
               "R18",

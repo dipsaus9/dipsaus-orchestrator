@@ -49,9 +49,15 @@
 // 6. The claim (DIPO-38) runs the pickup re-check (the Ready gate in `pickup` mode, stored through
 //    DIPO-71) first inside its git queue item. A failed re-check moves the story to Refined through
 //    the backlog lane and emits `story.state` with the gate messages in `detail`.
-// 7. A claimed story gets its run row (with the slot setup took), its developer agent (with the
-//    engine-made session id), the configuration snapshot and the `setup` phase, and
-//    `work.assigned` and `work.phase setup` in the same transaction.
+// 7. A claimed story gets its run row (with the slot setup took), its agent (with the engine-made
+//    session id), the configuration snapshot and the `setup` phase, and `work.assigned` and
+//    `work.phase setup` in the same transaction.
+//
+// A story runs as the role its label names (DIPO-477, 0012 F12): the role file of that name on the
+// base, read with the stories (`BaseRead.roles`). The run row keeps the role's name, instructions,
+// model and effort, so every later session uses the role the run started with. The role's model
+// and effort replace the tier's when the file sets them; the tier's caps apply either way. A story
+// whose role label is missing, doubled or names no valid role file is left to the pickup gate (R17).
 // 8. With a launcher, the worker host starts and `work.phase build` follows; a failed setup or
 //    launch check rolled the claim back in step 6 and put its own notice on the office (the story
 //    stays Ready).
@@ -122,7 +128,16 @@ import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
 
 import { recordRunCriteria } from "../records/criteria";
-import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
+import { readBaseRoles } from "../roles/base";
+import type { Role } from "../roles/parse";
+import {
+  planRefusedText,
+  roleCaps,
+  type PreparedRun,
+  type RunFacts,
+  type RunLauncher,
+  type RunRole,
+} from "./launch";
 import { markPhase } from "../ingest/markers";
 
 import { PICKUP_START, placeTaken, type Places } from "../run-state/places";
@@ -134,9 +149,6 @@ import {
 } from "../records/run-records";
 import { openDependencies, pickupOrder, READY_STATUS, statusSkip } from "../records/select";
 import { type StartsPausedState, startsPausedRefusal } from "./starts-paused";
-
-/** The role every M0 run starts with (0012 F12). */
-export const DEVELOPER_ROLE = RoleId.parse("developer");
 
 /** The status a failed pickup check moves a story back to (0012). */
 export const REFINED_STATUS = "Refined";
@@ -169,6 +181,11 @@ export interface BaseRead {
   readonly unparsed: readonly string[];
   /** The `_base` checkout that was read. */
   readonly checkout: BaseCheckout;
+  /**
+   * The valid role files on the base, read with the stories (DIPO-477): a story runs as the one
+   * its role label names.
+   */
+  readonly roles: readonly Role[];
 }
 
 /** How `work.run` reaches the office's base. */
@@ -273,6 +290,9 @@ interface Startable {
   readonly fields: ReturnType<typeof parseFieldBlock>["fields"];
   readonly branch: string;
   readonly tier: string;
+  /** The role its label names, from its role file on the base (DIPO-477). */
+  readonly role: RunRole;
+  /** The tier's caps with the role's model and effort when its file sets them (`roleCaps`). */
   readonly caps: OfficeConfig["tiers"]["S"];
   readonly taskFile: string;
 }
@@ -289,6 +309,8 @@ interface CheckInput {
   readonly view: PlainTask | undefined;
   readonly unparsed: boolean;
   readonly checkout: BaseCheckout;
+  /** The role files on the base the view was read from (`BaseRead.roles`). */
+  readonly roles: readonly Role[];
   /** Why no slot is free for a new pickup (`slotsFullText`), or null. */
   readonly full: string | null;
   readonly config: OfficeConfig;
@@ -325,12 +347,13 @@ interface BasePass {
   again: boolean;
 }
 
-/** Inside the run's transaction: the developer agent with the engine-made session id (0007). */
-function recordDeveloper(
+/** Inside the run's transaction: the run's first agent with the engine-made session id (0007). */
+function recordFirstAgent(
   handle: OfficeHandle,
   input: {
     readonly runId: RunId;
     readonly agent: AgentId;
+    readonly role: RoleId;
     readonly caps: OfficeConfig["tiers"]["S"];
     readonly prepared: PreparedRun | null;
     readonly at: number;
@@ -342,7 +365,7 @@ function recordDeveloper(
     {
       agentId: input.agent,
       runId: input.runId,
-      role: DEVELOPER_ROLE,
+      role: input.role,
       model: caps.model,
       effort: prepared === null ? null : caps.effort,
       sessionId: prepared === null ? null : prepared.spec.session.id,
@@ -424,6 +447,23 @@ function repeatsChecks(
 
 function refused(office: OfficeId, check: string, message: string): CommandError {
   return new CommandError(RUN_REFUSED, message, { office, check });
+}
+
+/**
+ * The role a story runs as (DIPO-477): the role file its one role label names, or null when it has
+ * no role label, more than one, or one that names no valid role file on the base (R17 says which).
+ */
+export function runRoleOf(labelled: readonly string[], roles: readonly Role[]): RunRole | null {
+  const [name] = labelled;
+  if (labelled.length !== 1) return null;
+  const role = roles.find((candidate) => candidate.name === name);
+  if (role === undefined) return null;
+  return {
+    name: RoleId.parse(role.name),
+    instructions: role.instructions,
+    ...(role.model === undefined ? {} : { model: role.model }),
+    ...(role.effort === undefined ? {} : { effort: role.effort }),
+  };
 }
 
 /** The skip of a check result that is a reason, with the capacity detail when it has one. */
@@ -670,6 +710,7 @@ export class WorkRun {
           view: views.get(candidate.story),
           unparsed: read.unparsed.includes(candidate.story),
           checkout: read.checkout,
+          roles: read.roles,
           full,
           config,
         });
@@ -706,7 +747,13 @@ export class WorkRun {
         // From the decision until the run row the start holds its slot (DIPO-314, DIPO-456).
         const release = this.#hold(office, runId, candidate);
         releases.push(release);
-        this.#recordStart(ctx, candidate, { runId, agent, tier: checked.tier, caps: checked.caps });
+        this.#recordStart(ctx, candidate, {
+          runId,
+          agent,
+          tier: checked.tier,
+          role: checked.role.name,
+          caps: checked.caps,
+        });
         started.push({ story: candidate.story, key: candidate.key, run: runId });
         const input: StartInput = { candidate, config, configHash, runId, agent };
         const later = this.#afterAnswer(ctx);
@@ -743,6 +790,7 @@ export class WorkRun {
       readonly runId: RunId;
       readonly agent: AgentId;
       readonly tier: string;
+      readonly role: string;
       readonly caps: OfficeConfig["tiers"]["S"];
     },
   ): void {
@@ -753,6 +801,7 @@ export class WorkRun {
       story: candidate.story,
       agent: start.agent,
       tier: start.tier,
+      role: start.role,
       model: start.caps.model,
       loopCap: start.caps.loops,
       startedAt: ctx.now,
@@ -860,10 +909,17 @@ export class WorkRun {
       return "gate";
     }
     const branch = fields.branch;
-    const tier = readLabels(view.labels).tiers[0];
+    const labels = readLabels(view.labels);
+    const tier = labels.tiers[0];
     const caps =
       tier === undefined ? undefined : c.config.tiers[tier as keyof OfficeConfig["tiers"]];
-    if (typeof branch !== "string" || !branch.startsWith(`${story}/`) || caps === undefined) {
+    const role = runRoleOf(labels.roles, c.roles);
+    if (
+      typeof branch !== "string" ||
+      !branch.startsWith(`${story}/`) ||
+      caps === undefined ||
+      role === null
+    ) {
       return "gate";
     }
     const taskFile = relative(c.checkout.path, view.file);
@@ -876,7 +932,15 @@ export class WorkRun {
       if (!(error instanceof ContractTooLargeError)) throw error;
       return { tooLarge: `${story} cannot start: ${error.code}: ${error.message}` };
     }
-    return { view, fields, branch, tier: tier as string, caps, taskFile };
+    return {
+      view,
+      fields,
+      branch,
+      tier: tier as string,
+      role,
+      caps: roleCaps(caps, role),
+      taskFile,
+    };
   }
 
   /**
@@ -931,6 +995,7 @@ export class WorkRun {
         agent: input.agent,
         view: checked.view,
         fields: checked.fields,
+        role: checked.role,
         caps: checked.caps,
         config: input.config,
         taskFile: checked.taskFile,
@@ -1003,6 +1068,7 @@ export class WorkRun {
         view: read.views.find((view) => view.id === candidate.story),
         unparsed: read.unparsed.includes(candidate.story),
         checkout: read.checkout,
+        roles: read.roles,
         // Its slot is held since the decision.
         full: null,
         config: input.config,
@@ -1131,6 +1197,7 @@ export class WorkRun {
       view: read.views.find((view) => view.id === candidate.story),
       unparsed: read.unparsed.includes(candidate.story),
       checkout: read.checkout,
+      roles: read.roles,
       full: null,
       // The configuration in force now: the fresh base may have changed it.
       config: this.#deps.offices.config(office) ?? config,
@@ -1198,8 +1265,8 @@ export class WorkRun {
   }
 
   /**
-   * The claimed story's run row (with the slot setup took), its developer agent, the
-   * configuration snapshot and the `setup` phase, with `work.assigned` and `work.phase setup`, in
+   * The claimed story's run row (with the slot setup took) with the role it runs as, its first
+   * agent, the configuration snapshot and the `setup` phase, with `work.assigned` and `work.phase setup`, in
    * one transaction.
    */
   #recordRun(
@@ -1211,7 +1278,7 @@ export class WorkRun {
   ): { readonly work: WorkRef; readonly progress: Progress } {
     const handle = ctx.office;
     const { story, key } = c.candidate;
-    const { view, tier, caps } = checked;
+    const { view, tier, role, caps } = checked;
     const { runId, agent } = facts;
     const prepared = outcome.setup as PreparedRun | null;
     const work: WorkRef = {
@@ -1219,7 +1286,7 @@ export class WorkRun {
       key,
       run: runId,
       agent,
-      role: DEVELOPER_ROLE,
+      role: role.name,
       tier,
       model: caps.model,
     };
@@ -1241,7 +1308,13 @@ export class WorkRun {
         key,
         story,
         tier,
-        role: DEVELOPER_ROLE,
+        role: role.name,
+        // The role file the run started with; every later session uses it (DIPO-477).
+        roleFile: {
+          instructions: role.instructions,
+          model: role.model ?? null,
+          effort: role.effort ?? null,
+        },
         model: caps.model,
         startSha: outcome.claim.startSha,
         branch: outcome.claim.branch,
@@ -1270,7 +1343,7 @@ export class WorkRun {
           .filter((criterion) => criterion.checked)
           .map((criterion) => criterion.index),
       });
-      recordDeveloper(handle, { runId, agent, caps, prepared, at });
+      recordFirstAgent(handle, { runId, agent, role: role.name, caps, prepared, at });
       // The context pack and the prompt records of the first session.
       if (prepared !== null) {
         recordPrepared(handle, {
@@ -1486,6 +1559,7 @@ export class WorkRun {
         view: views.get(candidate.story),
         unparsed: read.unparsed.includes(candidate.story),
         checkout: read.checkout,
+        roles: read.roles,
         full: full ?? (chosen === null ? null : ONE_PREVIEWED),
         config,
       });
@@ -1535,6 +1609,7 @@ export class WorkRun {
         branch: startable.branch,
         view: startable.view,
         fields: startable.fields,
+        role: startable.role,
         caps: startable.caps,
         config,
         taskFile: startable.taskFile,
@@ -1618,7 +1693,7 @@ export function storyRunBase(deps: {
     async read(office, ids) {
       const git = gitOf(office);
       const checkout = await git.ensureBaseWorktree();
-      return git.run(async () => {
+      const read = await git.run(async () => {
         // The whole list (DIPO-323): its statuses decide whether a dependency is Done.
         const listed = await deps.stories.list(checkout.path, "task");
         const statuses = new Map(listed.entries.map((entry) => [entry.id, entry.group]));
@@ -1642,6 +1717,9 @@ export function storyRunBase(deps: {
           checkout: { path: checkout.path, base: checkout.base },
         };
       });
+      // The role files on the same base, from git's objects (DIPO-477); none without a base ref.
+      const roles = await readBaseRoles(git);
+      return { ...read, roles: roles?.roles ?? [] };
     },
     planningHold: (office, key) => deps.stories.planningHold(office, key),
   };

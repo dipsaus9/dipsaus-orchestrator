@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { CONTRACT_TEMPLATES, measurePart, renderSystemFile } from "../../src/prompts";
+import {
+  CONTRACT_TEMPLATES,
+  DEVELOPER_SEED,
+  measurePart,
+  renderSystemFile,
+} from "../../src/prompts";
 import { normaliseNewlines } from "../../src/prompts/templates";
 import { expectGolden } from "./helpers";
 
@@ -19,7 +24,7 @@ const ONE_PAGE_LINES = 50;
 // The box worker's contract (DIPO-272 AC #4, 0008, 0014), the only developer contract
 // (DIPO-342).
 function box(): string {
-  return renderSystemFile("implement-box", "developer");
+  return renderSystemFile("implement-box", DEVELOPER_SEED);
 }
 
 describe("box worker system file", () => {
@@ -193,14 +198,14 @@ describe("wrap-up rule (DIPO-256, DIPO-466)", () => {
     "At about 80% of any cap, stop new work, hand a part of what works now, finish what you started and report done, or blocked with what is left.";
 
   it("is in the box contract and asks for a part of what works", () => {
-    expect(renderSystemFile("implement-box", "developer")).toContain(rule);
+    expect(renderSystemFile("implement-box", DEVELOPER_SEED)).toContain(rule);
   });
 });
 
 // DIPO-466: a cap never throws away a run's work unseen, so the worker hands its work as it goes.
 describe("a part after each criterion (DIPO-466)", () => {
   it("asks for a part after each criterion met with its tests and says a part is cheap", () => {
-    const text = renderSystemFile("implement-box", "developer");
+    const text = renderSystemFile("implement-box", DEVELOPER_SEED);
     expect(text).toContain(
       '- Part: run `dipo-part "message"` after each criterion you meet with its tests, with one short imperative line that says what it does.',
     );

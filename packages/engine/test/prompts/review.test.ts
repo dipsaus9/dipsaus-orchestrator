@@ -9,7 +9,9 @@ import {
   ContractTooLargeError,
   PROMPT_TAGS,
   REVIEW_SECTION_ORDER,
+  DEVELOPER_SEED,
   renderSystemFile,
+  ROLE_TEMPLATES,
   type ReviewChangedPath,
   type ReviewTaskInput,
   withReviewCommit,
@@ -145,7 +147,7 @@ function names(text: string): string[] {
 }
 
 // DIPO-299: a box run's verify is CI on the PR; dipo runs none of its own.
-const box = (): string => renderSystemFile("review-box", "reviewer");
+const box = (): string => renderSystemFile("review-box", ROLE_TEMPLATES.reviewer);
 
 describe("the reviewer's system file (L1 + L2)", () => {
   it("matches the golden file", async () => {
@@ -202,7 +204,7 @@ describe("the reviewer's system file (L1 + L2)", () => {
   });
 
   it("differs from the developer's", () => {
-    expect(box()).not.toBe(renderSystemFile("implement-box", "developer"));
+    expect(box()).not.toBe(renderSystemFile("implement-box", DEVELOPER_SEED));
   });
 
   // DIPO-346: dipo runs the verify in the developer's box at done (0002).

@@ -235,6 +235,7 @@ describe("office.forget and runs (DIPO-48)", () => {
             story: "TASK-1",
             agent: s.ids.next("agt"),
             tier: "S",
+            role: "developer",
             model: "haiku",
             loopCap: 3,
             startedAt: 0,

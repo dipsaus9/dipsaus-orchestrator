@@ -200,6 +200,7 @@ function launchLines(launch: WorkerLaunchPreview): string[] {
     section(`Worker launch (${launch.adapter})`),
     `program:           ${program ?? ""}`,
     `working directory: ${launch.cwd}`,
+    `role:              ${launch.role}`,
     `model:             ${launch.model}`,
     `effort:            ${launch.effort}`,
     `caps:              ${count(launch.caps.budgetTokens)} tokens, ${count(launch.caps.maxTurns)} turns, ${count(launch.caps.maxMinutes)} minutes, ${count(launch.caps.loops)} loops`,

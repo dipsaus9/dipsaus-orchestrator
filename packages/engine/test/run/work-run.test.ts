@@ -73,6 +73,7 @@ import { activeStoryViews } from "../../src/views/story";
 import { activeWorkViews } from "../../src/views/work";
 import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
 import { hangingSpawn } from "../platform/hanging";
+import { DEVELOPER_FILE, DEVELOPER_LABEL } from "./test-roles";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 
 import { addAgent, storyRun } from "./rounds-helpers";
@@ -88,7 +89,7 @@ function task(id: string, status: string, overrides: Partial<PlainTask> = {}): P
     status,
     assignee: [],
     created: "2026-10-12 11:28",
-    labels: ["tier:S"],
+    labels: ["tier:S", DEVELOPER_LABEL],
     subtasks: [],
     references: ["src/"],
     documentation: [],
@@ -236,6 +237,7 @@ beforeEach(async () => {
     views: tasks.filter((x) => (ids === null ? x.status === "Ready" : ids.includes(x.id))),
     unparsed: [],
     checkout: { path: "/base", base: "main" },
+    roles: [DEVELOPER_FILE],
   });
   const runDeps: WorkRunDeps = {
     places,

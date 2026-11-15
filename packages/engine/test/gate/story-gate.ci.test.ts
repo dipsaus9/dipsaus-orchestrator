@@ -106,12 +106,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const rejected = await gates.recordGateDecision(officeId, task1, "pickup");
           expect(rejected.passed).toBe(false);
           expect(rejected.mode).toBe("pickup");
-          expect(rejected.result.failures.map((f) => f.rule)).toEqual(["R06", "R07", "R11"]);
+          expect(rejected.result.failures.map((f) => f.rule)).toEqual(["R06", "R07", "R11", "R17"]);
           expect(rejected.ruleResults.map((r) => r.rule)).toEqual(ruleNamesFor("pickup"));
           expect(rejected.ruleResults.filter((r) => !r.passed).map((r) => r.rule)).toEqual([
             "R06",
             "R07",
             "R11",
+            "R17",
           ]);
           expect(gateDecisionsOf(office, task1)).toEqual([
             {
@@ -148,6 +149,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             "m-0",
             "--ref",
             "packages/export/",
+            "--add-label",
+            "role:developer",
           ]);
           await publish(repo, "make TASK-1 pass the gate");
           await git.fetch();

@@ -12,7 +12,7 @@ A worker gets a short prompt that code builds from structured data. It does not 
 |---|---|---|---|
 | L0 | Claude Code's default system prompt and tools | Default, with `--exclude-dynamic-system-prompt-sections` | Claude Code |
 | L1 | The worker contract: what dipo does, what the worker sends back through the door (0008), and "facts are pre-fetched, do not re-fetch" | `--append-system-prompt-file`, first part | `engine/src/prompts/contract/<kind>.md` (`box`, `review`) |
-| L2 | Role instructions | The same file, after L1 | `.dipo/roles/<name>.md` (0017); runs use the bundled `developer` and `reviewer` instructions until a later story reads the file |
+| L2 | Role instructions | The same file, after L1 | A story run: the instructions of the role file its label names (`.dipo/roles/<name>.md`, 0017), as the run stored them at its start; a run started before runs stored them uses the bundled developer instructions. The reviewer, planner, auditor and scanner: engine code |
 | L3 | Project rules | Claude Code's own `CLAUDE.md` and `AGENTS.md` loading | The repository |
 | L4 | The task message: story data, context, handoff, feedback | First user message | `engine/src/prompts/task/` |
 | L5 | Later messages: feedback, answers, steers | New user messages | `engine/src/prompts/feedback/` |
@@ -141,3 +141,4 @@ Maintainer text is always wrapped in a template and never starts a message, so i
 - The four-arm measurement harness against the `dipsaus-ai` baseline: 96 runs, rating rules and decision thresholds (2026-10-10). It was never built. Removed from this ADR (2026-10-24); it gets a story of its own when the maintainer wants the measurement. The design is in git history.
 - `needsPermission` in the report. A box worker has every permission (0008).
 - A separate `outcome` section with the story's Outcome line (2026-10-10). Replaced by the Story line inside `story` (2026-11-03, 0012).
+- The bundled `developer` instructions as every story run's L2 (2026-10-24). Replaced by the run's role file (2026-11-13); the bundled text is only the seed office init writes as the developer role file (0017).

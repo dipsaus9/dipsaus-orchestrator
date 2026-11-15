@@ -243,18 +243,49 @@ const CASES: readonly Case[] = [
   },
   {
     name: "R16 no tier",
-    input: input({ labels: ["export"] }),
+    input: input({ labels: ["export", "role:developer"] }),
     expected: [`${prefix("R16")}needs exactly one tier from S, M, L, found none`],
   },
   {
     name: "R16 two tiers",
-    input: input({ labels: ["tier:S", "tier:M"] }),
+    input: input({ labels: ["tier:S", "tier:M", "role:developer"] }),
     expected: [`${prefix("R16")}needs exactly one tier from S, M, L, found S, M`],
   },
   {
     name: "R16 tier outside the office set",
-    input: input({ labels: ["tier:XL"] }),
+    input: input({ labels: ["tier:XL", "role:developer"] }),
     expected: [`${prefix("R16")}needs exactly one tier from S, M, L, found XL`],
+  },
+  {
+    name: "R17 no role label",
+    input: input(
+      { labels: ["tier:M"] },
+      {
+        roster: [
+          { name: "developer", code: true, kind: "code" },
+          { name: "writer", code: true, kind: "code" },
+        ],
+      },
+    ),
+    expected: [`${prefix("R17")}needs a role label role:<name>; the roster has developer, writer`],
+  },
+  {
+    name: "R17 no role label with an empty roster",
+    input: input({ labels: ["tier:M"] }, { roster: [] }),
+    expected: [`${prefix("R17")}needs a role label role:<name>; the roster has none`],
+  },
+  {
+    name: "R17 two role labels",
+    input: input(
+      { labels: ["tier:M", "role:developer", "role:writer"] },
+      {
+        roster: [
+          { name: "developer", code: true, kind: "code" },
+          { name: "writer", code: true, kind: "code" },
+        ],
+      },
+    ),
+    expected: [`${prefix("R17")}needs exactly one role label, found developer, writer`],
   },
   {
     name: "R17 role not in the roster",
@@ -262,12 +293,12 @@ const CASES: readonly Case[] = [
       { labels: ["tier:M", "role:designer"] },
       { roster: [{ name: "developer", code: true, kind: "code" }] },
     ),
-    expected: [`${prefix("R17")}role designer is not in the roster`],
+    expected: [`${prefix("R17")}role designer is not in the roster; the roster has developer`],
   },
   {
     name: "R17 role label with an empty roster",
-    input: input({ labels: ["tier:M", "role:developer"] }),
-    expected: [`${prefix("R17")}role developer is not in the roster`],
+    input: input({ labels: ["tier:M", "role:developer"] }, { roster: [] }),
+    expected: [`${prefix("R17")}role developer is not in the roster; the roster has none`],
   },
   {
     name: "R18 branch of another id",
@@ -335,7 +366,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: "R21 flagged without a manual entry",
-    input: input({ labels: ["tier:M", "test-before-merge"] }),
+    input: input({ labels: ["tier:M", "role:developer", "test-before-merge"] }),
     expected: [`${prefix("R21")}flagged test-before-merge but the test plan has no manual entry`],
   },
   {
@@ -367,7 +398,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: "R23 flagged spike",
-    input: input({ ...SPIKE_STORY, labels: ["tier:M", "test-before-merge"] }),
+    input: input({ ...SPIKE_STORY, labels: ["tier:M", "role:developer", "test-before-merge"] }),
     expected: [
       `${prefix("R23")}spike cannot have a test plan or be flagged test-before-merge; it ships no behavior`,
     ],
@@ -463,7 +494,7 @@ describe("evaluateGate", () => {
 
   it("passes a story labelled dropped whose criterion names the task notes: R27 and R28 are removed (0012)", () => {
     const story = {
-      labels: ["tier:M", "dropped", "on-hold"],
+      labels: ["tier:M", "role:developer", "dropped", "on-hold"],
       acceptanceCriteria: [
         { index: 1, checked: false, text: "Writes the task notes by the maintainer" },
       ],
@@ -499,6 +530,7 @@ describe("evaluateGate", () => {
       "R10",
       "R12",
       "R16",
+      "R17",
     ]);
   });
 
@@ -978,7 +1010,10 @@ describe("R29 test plan files inside the References", () => {
     });
 
     // A failing story keeps its failures; the warning never adds one.
-    const story = input({ labels: ["tier:S", "tier:M"], description: daemonPlan });
+    const story = input({
+      labels: ["tier:S", "tier:M", "role:developer"],
+      description: daemonPlan,
+    });
     const result = evaluateGate(story, "ready");
     expect(messages(result)).toEqual([
       `${prefix("R16")}needs exactly one tier from S, M, L, found S, M`,
@@ -1350,7 +1385,7 @@ const criteria = (n: number) =>
 const references = (n: number) => Array.from({ length: n }, (_, i) => `packages/export/f${i}.ts`);
 const sized = (tier: string, nCriteria: number, nReferences: number) =>
   input({
-    labels: [`tier:${tier}`],
+    labels: [`tier:${tier}`, "role:developer"],
     acceptanceCriteria: criteria(nCriteria),
     references: references(nReferences),
   });

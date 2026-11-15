@@ -363,10 +363,10 @@ describe("the base schema", () => {
       try {
         const db = state.connection;
         expect(MIGRATIONS.map((step) => step.version)).toEqual([
-          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
         ]);
         expect(db.get<{ user_version: number }>("pragma user_version")).toEqual({
-          user_version: 13,
+          user_version: 14,
         });
         const tables = db
           .all<{ name: string; strict: number }>(

@@ -4105,6 +4105,10 @@
                     "type": "string"
                   }
                 },
+                "role": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
                 "model": {
                   "type": "string"
                 },
@@ -4180,6 +4184,7 @@
                 "runDir",
                 "cwd",
                 "argv",
+                "role",
                 "model",
                 "effort",
                 "caps",

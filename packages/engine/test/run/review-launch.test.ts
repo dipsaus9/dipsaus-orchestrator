@@ -41,6 +41,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { renderSystemFile } from "../../src/prompts/system";
+import { ROLE_TEMPLATES } from "../../src/prompts/templates";
 import { reviewComment, reviewerEffort, type StoredReviewVerdict } from "../../src/review";
 import { reviewCommitFile, ReviewLauncher } from "../../src/run";
 import { findRun, recordConfigSnapshot, type StoredRun } from "../../src/records";
@@ -587,7 +588,7 @@ describe("the reviewer's system file", () => {
       const office = w.rounds.office.officeId as OfficeId;
       const session = await startSession(w);
       const text = readFileSync(session.spec.systemFile, "utf8");
-      expect(text).toBe(renderSystemFile("review-box", "reviewer"));
+      expect(text).toBe(renderSystemFile("review-box", ROLE_TEMPLATES.reviewer));
       expect(text).toContain("the engine ran it on this change in the developer's box");
       await w.launcher.finish(office, w.run.runId, session.agent);
     }));

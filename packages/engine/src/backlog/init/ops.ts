@@ -31,7 +31,7 @@ import { listAll } from "../list";
 import { parseView } from "../plain";
 import { type BacklogCli, runBacklog } from "../runner";
 import { DONE_STATUS } from "../../merge/close-out";
-import developerInstructions from "../../prompts/roles/developer.md" with { type: "text" };
+import { DEVELOPER_SEED } from "../../prompts/templates";
 import { ROLE_FILE_VERSION, ROLES_DIR } from "../../roles/parse";
 import { ROLE_PREFIX, readLabels } from "../../story-store/fields/labels";
 
@@ -65,7 +65,7 @@ export const SEED_ROLE_PURPOSE = "Implements one story in this repository.";
 
 /** The text of the seeded role file: frontmatter, then the bundled developer instructions. */
 export function seedRoleText(): string {
-  return `---\nversion: ${ROLE_FILE_VERSION}\npurpose: ${SEED_ROLE_PURPOSE}\n---\n\n${developerInstructions.trim()}\n`;
+  return `---\nversion: ${ROLE_FILE_VERSION}\npurpose: ${SEED_ROLE_PURPOSE}\n---\n\n${DEVELOPER_SEED.trim()}\n`;
 }
 
 export const InitTarget = z.discriminatedUnion("step", [

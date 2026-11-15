@@ -33,7 +33,7 @@ import { findRun, findStoryPr } from "../../src/records";
 import { StoryIndex } from "../../src/stories/feature";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
 import { countRows } from "../commands/helpers";
-import { backlog, CLI, publish } from "../gate/gated-office";
+import { backlog, CLI, publish, writeDeveloperRole } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
 import {
@@ -78,7 +78,11 @@ async function withRunOffice(
         "m-0",
         "--ref",
         "packages/export/",
+        "--add-label",
+        "role:developer",
       ]);
+      // The role TASK-1's label names (R17, DIPO-477).
+      writeDeveloperRole(repo.dir);
       await prepare(repo);
       await publish(repo, "make TASK-1 pass the gate");
 
