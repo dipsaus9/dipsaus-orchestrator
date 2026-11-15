@@ -4,9 +4,10 @@ title: A design or docs run parks when a part changes a file outside its kind's 
 status: Ready
 assignee: []
 created_date: '2026-11-13 13:08'
-updated_date: '2026-11-13 13:14'
+updated_date: '2026-11-13 15:06'
 labels:
   - 'tier:M'
+  - 'role:developer'
 milestone: m-4
 dependencies:
   - DIPO-477

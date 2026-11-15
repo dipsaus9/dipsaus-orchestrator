@@ -4,9 +4,10 @@ title: 'Role files name their kind: code, design or docs'
 status: Done
 assignee: []
 created_date: '2026-11-13 12:49'
-updated_date: '2026-11-15 09:46'
+updated_date: '2026-11-13 15:06'
 labels:
   - 'tier:M'
+  - 'role:developer'
 milestone: m-4
 dependencies:
   - DIPO-471

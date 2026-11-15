@@ -4,9 +4,10 @@ title: Skip the verify at done for design and docs runs
 status: Refined
 assignee: []
 created_date: '2026-11-13 13:33'
-updated_date: '2026-11-13 13:33'
+updated_date: '2026-11-13 15:06'
 labels:
   - 'tier:S'
+  - 'role:developer'
 milestone: m-4
 dependencies:
   - DIPO-503

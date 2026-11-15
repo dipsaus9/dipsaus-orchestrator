@@ -4,9 +4,10 @@ title: Run each story as the role its label names
 status: Ready
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-13 09:13'
+updated_date: '2026-11-13 15:06'
 labels:
   - 'tier:L'
+  - 'role:developer'
 milestone: m-4
 dependencies:
   - DIPO-471
