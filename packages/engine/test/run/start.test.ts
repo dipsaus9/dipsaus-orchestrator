@@ -1081,6 +1081,7 @@ const WRITER: Role = {
   name: "writer",
   purpose: "Writes the user guide.",
   instructions: "# Role: writer\n\nYou write the user guide for one story.",
+  kind: "code",
 };
 /** The writer role file with a model and an effort of its own. */
 const TUNED: Role = { ...WRITER, model: "opus-writer", effort: "max" };

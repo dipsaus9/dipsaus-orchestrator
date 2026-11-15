@@ -9,6 +9,7 @@ export const DEVELOPER_FILE: Role = {
   name: "developer",
   purpose: "Implements one story in this repository.",
   instructions: DEVELOPER_SEED.trim(),
+  kind: "code",
 };
 
 /** The role label of the seeded developer role. */

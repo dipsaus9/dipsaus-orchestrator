@@ -69,7 +69,7 @@ export const ACTIVE_TASKS: readonly GateTask[] = [
 export const STORY_FOLDERS: readonly string[] = ["backlog", ".backlog"];
 
 /** The roster of the passing story: the developer role file (R17). */
-export const ROSTER: readonly GateRole[] = [{ name: "developer", code: true }];
+export const ROSTER: readonly GateRole[] = [{ name: "developer", code: true, kind: "code" }];
 
 export function input(
   story: Partial<GateStory> = {},

@@ -262,8 +262,8 @@ const CASES: readonly Case[] = [
       { labels: ["tier:M"] },
       {
         roster: [
-          { name: "developer", code: true },
-          { name: "writer", code: true },
+          { name: "developer", code: true, kind: "code" },
+          { name: "writer", code: true, kind: "code" },
         ],
       },
     ),
@@ -280,8 +280,8 @@ const CASES: readonly Case[] = [
       { labels: ["tier:M", "role:developer", "role:writer"] },
       {
         roster: [
-          { name: "developer", code: true },
-          { name: "writer", code: true },
+          { name: "developer", code: true, kind: "code" },
+          { name: "writer", code: true, kind: "code" },
         ],
       },
     ),
