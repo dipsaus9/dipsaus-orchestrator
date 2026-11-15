@@ -11,6 +11,7 @@ import {
   GATE_RULES,
   type GateInput,
   type GateMode,
+  type GateRole,
   type GateResult,
   TIER_CEILINGS,
 } from "../../src/gate";
@@ -259,7 +260,7 @@ const CASES: readonly Case[] = [
     name: "R17 role not in the roster",
     input: input(
       { labels: ["tier:M", "role:designer"] },
-      { roster: [{ name: "developer", code: true }] },
+      { roster: [{ name: "developer", code: true, kind: "code" }] },
     ),
     expected: [`${prefix("R17")}role designer is not in the roster`],
   },
@@ -377,8 +378,8 @@ const CASES: readonly Case[] = [
       { labels: ["tier:M", "role:designer"] },
       {
         roster: [
-          { name: "developer", code: true },
-          { name: "designer", code: false },
+          { name: "developer", code: true, kind: "code" },
+          { name: "designer", code: false, kind: "design" },
         ],
       },
     ),
@@ -444,7 +445,7 @@ describe("evaluateGate", () => {
   });
 
   it("passes R17 for a role label naming a roster role", () => {
-    const roster = [{ name: "developer", code: true }];
+    const roster: GateRole[] = [{ name: "developer", code: true, kind: "code" }];
     const result = evaluateGate(
       input({ labels: ["tier:M", "role:developer"] }, { roster }),
       "ready",
