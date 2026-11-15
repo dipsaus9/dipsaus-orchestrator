@@ -581,6 +581,18 @@ async function openRefined(columns = 120) {
     columns,
     rows: 30,
     snapshots: new Map([[OFFICES.dipsaus, { ...base, work: [], stories } as typeof base]]),
+    gates: new Map<string, unknown>([
+      [
+        "DIPO-502",
+        {
+          story: "DIPO-502",
+          key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B502",
+          passed: false,
+          failures: [{ rule: "R09", message: "ready DIPO-502 failed R09: no test plan" }],
+          rules: 28,
+        },
+      ],
+    ]),
   });
   mounted.push(view.ui);
   await view.ui.waitFor("daemon live");
@@ -595,9 +607,37 @@ describe("setting Refined stories Ready from the Queue (DIPO-482)", () => {
   it("shows on each Refined row that the gate passes, or its first failure", async () => {
     const { ui } = await openRefined();
     const frame = ui.frame();
-    expect(frame).toMatch(/✓ DIPO-501 +Passing story +M +gate passes/);
-    expect(frame).toMatch(/✗ DIPO-502 +Failing story +M +no test plan/);
-    expect(frame).toMatch(/✓ DIPO-503 +Second passing +M +gate passes/);
+    expect(frame).toMatch(/✓ DIPO-501 +Passing s… +M +gate passes · space Y to set Ready/);
+    expect(frame).toMatch(/✗ DIPO-502 +Failing s… +M +no test plan/);
+    expect(frame).toMatch(/✓ DIPO-503 +Second pa… +M +gate passes · space Y to set Ready/);
+  });
+
+  it("ends the preview of a Refined story with the next step (DIPO-496)", async () => {
+    const { ui } = await openRefined();
+    await ui.press("j");
+    await ui.waitFor("▌ ✓ DIPO-501");
+    await ui.waitFor("Next  space then Y here, or dipo ready DIPO-501");
+    await ui.press("j");
+    await ui.waitFor("▌ ✗ DIPO-502");
+    await ui.waitFor("Next  fix R09, then set it Ready");
+  });
+
+  it("reads gate not checked yet on a Refined row with no decision for its content (DIPO-496)", async () => {
+    const base = goldenSnapshots.get(OFFICES.dipsaus)!;
+    const view = await mount({
+      columns: 120,
+      rows: 30,
+      snapshots: new Map([
+        [
+          OFFICES.dipsaus,
+          { ...base, work: [], stories: [queued(505, "Unchecked", "refined")] } as typeof base,
+        ],
+      ]),
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("daemon live");
+    await view.ui.press("3");
+    await view.ui.waitFor("gate not checked yet");
   });
 
   it("marks with space, lists the marked ones in one confirm on Y, and shows the result per story", async () => {

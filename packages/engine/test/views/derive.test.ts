@@ -102,7 +102,7 @@ describe("story view", () => {
             status: "Parked",
             park: { reason: "by-maintainer", from: "Ready", note: "later" },
           }),
-          task("TASK-3"),
+          task("TASK-3", { gateHash: "h" }),
         ]);
         const key3 = keyOf(office, "TASK-3");
         office.immediate(() =>
@@ -151,6 +151,43 @@ describe("story view", () => {
         expect(storyView(office, keyOf(office, "TASK-1"))).toMatchObject({ column: "ready" });
         expect(storyView(office, keyOf(office, "TASK-1"))).not.toHaveProperty("waitingOn");
         expect(storyView(office, keyOf(office, "TASK-2"))?.parked?.since).toBe(since);
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("counts a gate decision only for the story's current content (DIPO-496)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        const decide = (key: ReturnType<typeof keyOf>, contentHash: string, passed: boolean) =>
+          office.immediate(() =>
+            storeGateDecision(office, t.ids, {
+              key,
+              result: {
+                mode: "ready",
+                passed,
+                failures: passed ? [] : [{ rule: "R07", message: "R07: milestone is missing" }],
+              } as never,
+              contentHash,
+              at: t.clock.now(),
+            }),
+          );
+        pass(t, office, [task("TASK-1", { gateHash: "new" }), task("TASK-2")]);
+        const [one, two] = [keyOf(office, "TASK-1"), keyOf(office, "TASK-2")];
+        // A pass for older content is no pass; a story whose hash is unknown has none either.
+        decide(one, "old", true);
+        decide(two, "new", true);
+        expect(storyView(office, one)).not.toHaveProperty("gatePasses");
+        expect(storyView(office, two)).not.toHaveProperty("gatePasses");
+        // A decision for the current content is used, a newer stale one does not hide it.
+        t.clock.advance(1000);
+        decide(one, "new", true);
+        t.clock.advance(1000);
+        decide(one, "old", false);
+        expect(storyView(office, one)).toMatchObject({ gatePasses: true });
+        expect(storyView(office, one)).not.toHaveProperty("gateFailures");
       } finally {
         t.state.close();
       }

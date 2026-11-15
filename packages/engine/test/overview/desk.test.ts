@@ -17,6 +17,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { storeGateDecision } from "../../src/gate-decisions/decisions";
 import { mergeGateSummary } from "../../src/run-state/gates";
 
 import { LANE_STUCK_MS, laneDeskItems } from "../../src/backlog/lane";
@@ -1130,6 +1131,56 @@ describe("what the desk preview shows (DIPO-459)", () => {
           "NEXT UP",
           "PARKED BY YOU",
         ]);
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("shows one READY TO SET item for Refined stories passing for their current content (DIPO-496)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [
+          task("DIPO-1", { status: "Refined", gateHash: "h1" }),
+          task("DIPO-2", { status: "Refined", gateHash: "h2" }),
+          task("DIPO-3", { status: "Refined", gateHash: "h3" }),
+        ]);
+        const sources = {
+          ...ALL_SOURCES,
+          nextUp: () => [
+            {
+              story: StoryId.parse("DIPO-9"),
+              key: keyOf(office, "DIPO-1"),
+              title: "Nine",
+              why: "first Ready story",
+              shared: [],
+              since: t.clock.now(),
+            },
+          ],
+        };
+        expect(desk(office, all, sources, t.clock.now()).map((item) => item.kind)).toEqual([
+          "NEXT UP",
+        ]);
+        const decide = (id: string, contentHash: string) =>
+          office.immediate(() =>
+            storeGateDecision(office, t.ids, {
+              key: keyOf(office, id),
+              result: { mode: "ready", passed: true, failures: [] } as never,
+              contentHash,
+              at: t.clock.now(),
+            }),
+          );
+        decide("DIPO-1", "h1");
+        decide("DIPO-2", "h2");
+        decide("DIPO-3", "stale");
+        const items = desk(office, all, sources, t.clock.now());
+        expect(items.map((item) => item.kind)).toEqual(["NEXT UP", "READY TO SET"]);
+        expect(items[1]).toMatchObject({
+          detail:
+            "2 stories Refined but passing the gate: space and Y in the Queue (3) · DIPO-1, DIPO-2",
+          actions: [{ command: "story.ready", cli: "dipo ready DIPO-1 DIPO-2" }],
+        });
       } finally {
         t.state.close();
       }

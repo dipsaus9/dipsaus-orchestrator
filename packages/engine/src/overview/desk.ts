@@ -35,7 +35,9 @@
 // 7. next up (0010, `run/next-up.ts`): one Ready story per free run slot, in next-up order, with
 //    one line of why and the files its references share with running stories, offering
 //    `dipo next confirm <ID>` and `dipo next decline <ID>`;
-// 8. the stories parked `by-maintainer`, listed apart as "Parked by you".
+// 8. one READY TO SET item while Refined stories pass the gate for their current content (DIPO-496),
+//    an office item naming them and offering `dipo ready <ID>...`;
+// 9. the stories parked `by-maintainer`, listed apart as "Parked by you".
 // Within a group the items whose story blocks the most active stories come first, then the oldest.
 //
 // Every stored free text an item shows (questions, park details, gate summaries, PR titles, check
@@ -283,6 +285,7 @@ export const DESK_CONSEQUENCES: Readonly<Partial<Record<CommandName, string>>> =
   "nextUp.confirm":
     "Nothing starts until you confirm. Declined stories return once their task file changes.",
   "nextUp.decline": "Declined stories return once their task file changes.",
+  "story.ready": "Each story is checked against the gate again and set Ready through a backlog PR.",
   "daemon.resumeStarts": "Lift it early, only if you raised your plan.",
   "daemon.update":
     "New starts pause, dipo builds the base, replaces its binary and restarts. A failed build keeps the old one.",
@@ -305,7 +308,8 @@ const GROUP = {
   hand: 5,
   proposal: 6,
   nextUp: 7,
-  byYou: 8,
+  readyToSet: 8,
+  byYou: 9,
 } as const;
 
 /** A hand item's rank in group 5: its kind's place in `KNOWN_DESK_KINDS`, an unlisted kind last. */
@@ -316,6 +320,9 @@ function kindRank(kind: string): number {
 
 /** The kind of a story offered for a free run slot (0010). */
 export const NEXT_UP_KIND = "NEXT UP";
+
+/** The kind of the one item that says Refined stories pass the gate and wait for you (DIPO-496). */
+export const READY_TO_SET_KIND = "READY TO SET";
 
 /** What a NEXT UP item says about the files its references share with running stories. */
 export function sharedText(shared: NextUpDeskItem["shared"]): string {
@@ -977,6 +984,26 @@ class DeskBuilder {
     });
   }
 
+  /**
+   * Group 8: one item while Refined stories pass the gate for their current content, naming them
+   * and the command that sets them Ready (DIPO-496); an office item, gone when none passes.
+   */
+  readyToSet(): void {
+    const ids = activeStoryViews(this.#office)
+      .filter((view) => view.column === "refined" && view.gatePasses === true)
+      .map((view) => String(view.story));
+    if (ids.length === 0) return;
+    const noun = ids.length === 1 ? "story" : "stories";
+    const since = this.#now ?? 0;
+    this.#add(GROUP.readyToSet, 0, since, {
+      kind: READY_TO_SET_KIND,
+      detail: `${ids.length} ${noun} Refined but passing the gate: space and Y in the Queue (3) · ${ids.join(", ")}`,
+      since: iso(since),
+      blocks: [],
+      actions: this.#action("story.ready", `dipo ready ${ids.join(" ")}`),
+    });
+  }
+
   /** The items in desk order: group, rank in it, most blocked stories, oldest, then by story. */
   sorted(): DeskItem[] {
     return this.#items
@@ -1011,6 +1038,7 @@ export function desk(
   builder.handActions();
   builder.proposals();
   builder.nextUp();
+  builder.readyToSet();
   return builder.sorted();
 }
 

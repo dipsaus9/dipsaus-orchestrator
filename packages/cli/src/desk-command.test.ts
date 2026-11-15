@@ -222,6 +222,22 @@ describe("formatDesk", () => {
     expect(lines.slice(1)).toEqual(EXAMPLE_LINES.slice(1));
   });
 
+  it("prints the READY TO SET item with its command line (DIPO-496)", () => {
+    const ready = DeskItem.parse({
+      kind: "READY TO SET",
+      detail:
+        "2 stories Refined but passing the gate: space and Y in the Queue (3) · DIPO-5, DIPO-6",
+      since: ago(0),
+      blocks: [],
+      actions: [{ command: "story.ready", cli: "dipo ready DIPO-5 DIPO-6" }],
+    });
+    expect(formatDesk("demo", [ready], NOW)).toEqual([
+      "demo · desk 1 · parked by you 0",
+      "READY TO SET   2 stories Refined but passing the gate: space and Y in the Queue (3) · DIPO-5, DIPO-6  0m",
+      "             dipo ready DIPO-5 DIPO-6",
+    ]);
+  });
+
   it("prints Nothing waits on you. for an empty desk", () => {
     expect(formatDesk("demo", [], NOW)).toEqual([EMPTY_DESK]);
     expect(EMPTY_DESK).toBe("Nothing waits on you.");

@@ -320,10 +320,10 @@ export function writeMirror(
     `insert into backlog_mirror
        (office_id, key, content_hash, kind, status, title, tier, role, labels, read_at, source,
         waiting_on, park, park_since, criteria_met, criteria_total, criteria_numbers,
-        gate_sha, gate_dependencies, gate_branch)
+        gate_sha, gate_dependencies, gate_branch, gate_hash)
      values ($office_id, $key, $hash, $kind, $status, $title, $tier, $role, $labels, $at, $source,
         $waiting_on, $park, $park_since, $criteria_met, $criteria_total, $criteria_numbers,
-        $gate_sha, $gate_dependencies, $gate_branch)
+        $gate_sha, $gate_dependencies, $gate_branch, $gate_hash)
      on conflict (office_id, key) do update set
        content_hash = excluded.content_hash, kind = excluded.kind, status = excluded.status,
        title = excluded.title, tier = excluded.tier, role = excluded.role,
@@ -334,7 +334,7 @@ export function writeMirror(
          else excluded.park_since end,
        park = excluded.park,
        criteria_met = excluded.criteria_met, criteria_total = excluded.criteria_total,
-       criteria_numbers = excluded.criteria_numbers,
+       criteria_numbers = excluded.criteria_numbers, gate_hash = excluded.gate_hash,
        gate_dependencies = case when excluded.gate_sha is null then backlog_mirror.gate_dependencies
          else excluded.gate_dependencies end,
        gate_branch = case when excluded.gate_sha is null then backlog_mirror.gate_branch
@@ -344,6 +344,7 @@ export function writeMirror(
       gate_sha: gate === undefined ? null : (gateSha ?? null),
       gate_dependencies: gate === undefined ? null : JSON.stringify(gate.dependencies),
       gate_branch: gate?.branch ?? null,
+      gate_hash: story.gateHash ?? null,
       key,
       hash: story.contentHash,
       kind: story.kind,

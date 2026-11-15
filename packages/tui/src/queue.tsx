@@ -71,6 +71,18 @@ function gateReason(view: StoryView): string {
   return failure === undefined ? (view.gateMessages?.[0] ?? "") : failure.text;
 }
 
+const PASSES_STEP = "gate passes · space Y to set Ready";
+const NOT_CHECKED = "gate not checked yet";
+
+/** Whether a Refined story has no gate decision for its current content (DIPO-496). */
+function gateUnchecked(view: StoryView): boolean {
+  return (
+    view.gatePasses !== true &&
+    (view.gateFailures ?? []).length === 0 &&
+    (view.gateMessages ?? []).length === 0
+  );
+}
+
 interface Layout {
   readonly width: number;
   readonly idWidth: number;
@@ -81,7 +93,15 @@ interface Layout {
 function layoutOf(rows: readonly QueueRow[], width: number, split: boolean): Layout {
   const idWidth = Math.max(8, ...rows.map((row) => String(row.view.story).length));
   const prefix = 4 + idWidth + 2;
-  const reasonWidth = split ? REASON_WIDTH : Math.min(18, Math.max(0, width - prefix - 3 - 20));
+  const base = split ? REASON_WIDTH : Math.min(18, Math.max(0, width - prefix - 3 - 20));
+  // A Refined row says its step in full (DIPO-496), so the reason column grows for it.
+  const refined = rows.filter((row) => row.group === "refined").map((row) => row.view);
+  const step = refined.some((view) => view.gatePasses === true)
+    ? PASSES_STEP.length
+    : refined.some(gateUnchecked)
+      ? NOT_CHECKED.length
+      : 0;
+  const reasonWidth = Math.max(base, Math.min(step, Math.max(0, width - prefix - 3 - 11)));
   return { width, idWidth, titleWidth: Math.max(0, width - prefix - 3 - reasonWidth), reasonWidth };
 }
 
@@ -95,7 +115,8 @@ function reasonSpans(row: QueueRow, layout: Layout, chain: Chain, ascii: boolean
   }
   if (row.group === "refined") {
     // The gate's stored verdict (DIPO-482): it passes, or the first failure in plain words.
-    if (view.gatePasses === true) return [{ text: "gate passes", role: "ok" }];
+    if (view.gatePasses === true) return [{ text: PASSES_STEP, role: "ok" }];
+    if (gateUnchecked(view)) return [{ text: NOT_CHECKED, role: "dim" }];
     const ellipsis = glyphs(ascii).ellipsis;
     return [{ text: truncate(gateReason(view), layout.reasonWidth, ellipsis), role: "dim" }];
   }
@@ -292,6 +313,36 @@ function chainLines(chain: Chain, display: Display): Span[][] {
   return lines;
 }
 
+/** The last line of a Refined story's preview: the next step to make it Ready (DIPO-496). */
+function nextStepLine(input: PreviewInput): Span[] {
+  const { row, gate } = input;
+  const id = String(row.view.story);
+  const passes = gate === undefined || gate === null ? row.view.gatePasses === true : gate.passed;
+  if (passes) {
+    return [
+      { text: "Next  ", role: "dim" },
+      { text: "space", role: "acc" },
+      { text: " then " },
+      { text: "Y", role: "acc" },
+      { text: ` here, or dipo ready ${id}` },
+    ];
+  }
+  const rules = (gate === undefined || gate === null ? [] : gate.failures)
+    .map((failure) => failure.rule)
+    .filter((rule): rule is string => rule !== undefined);
+  const own = (row.view.gateFailures ?? []).map((failure) => failure.rule);
+  const fix = [...new Set(rules.length > 0 ? rules : own)];
+  return [
+    { text: "Next  ", role: "dim" },
+    {
+      text:
+        fix.length === 0
+          ? "check the gate: it has no decision for this content yet"
+          : `fix ${fix.join(", ")}, then set it Ready`,
+    },
+  ];
+}
+
 /** The preview's lines: the kind, the title, the labelled facts, the chain and where to fix it. */
 function previewLines(input: PreviewInput): Span[][] {
   const { row, chain, gate, width, display } = input;
@@ -325,6 +376,7 @@ function previewLines(input: PreviewInput): Span[][] {
     lines.push([i === 0 ? label("Touches") : { text: " ".repeat(LABEL_WIDTH) }, { text: path }]);
   });
   lines.push(...chainLines(chain, display));
+  if (row.group === "refined") lines.push([], nextStepLine(input));
   return lines;
 }
 

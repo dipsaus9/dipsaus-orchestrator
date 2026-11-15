@@ -168,12 +168,14 @@ interface StoryViewRow {
   waiting_on: string | null;
   park: string | null;
   park_since: number | null;
+  gate_hash: string | null;
 }
 
 const VIEW_SELECT = `
   select s.key as key, s.story_id as story_id, s.removed_at as removed_at,
          m.kind as kind, m.status as status, m.title as title, m.tier as tier,
-         m.waiting_on as waiting_on, m.park as park, m.park_since as park_since
+         m.waiting_on as waiting_on, m.park as park, m.park_since as park_since,
+         m.gate_hash as gate_hash
     from stories s
     left join backlog_mirror m on m.office_id = s.office_id and m.key = s.key
    where s.office_id = $office_id`;
@@ -191,17 +193,24 @@ function parkOf(json: string | null, since: number | null): ParkFacts | undefine
   return parsed.success ? { ...parsed.data, since } : undefined;
 }
 
-/** The story's latest Ready gate decision: whether it passed and the failed rules; null if none. */
+/**
+ * The story's latest Ready gate decision made for its current content (`gateHash`, the hash of
+ * `gateContentHash` kept on its mirror row): whether it passed and the failed rules. Null when
+ * there is none, or the content has changed since (DIPO-496).
+ */
 export function latestGate(
   office: OfficeHandle,
   key: string,
+  gateHash: string | null,
 ): { passed: boolean; failures: GateFailureFact[] } | null {
+  if (gateHash === null) return null;
   const row = office.get<{ decision: string; rule_results: string }>(
     `select d.decision, d.rule_results from gate_decisions d
        join gates g on g.office_id = d.office_id and g.gate_id = d.gate_id
       where d.office_id = $office_id and g.key = $key and g.kind in ('ready', 'pickup')
+        and d.content_hash = $hash
       order by d.decided_at desc, d.rowid desc limit 1`,
-    { key },
+    { key, hash: gateHash },
   );
   if (row === null) return null;
   if (row.decision !== "rejected") return { passed: true, failures: [] };
@@ -239,7 +248,7 @@ function viewOfRow(
       ? "Removed"
       : lifecycleOf(row.kind, row.status);
   const park = parkOf(row.park, row.park_since);
-  const refined = lifecycle === "Refined" ? latestGate(office, row.key) : null;
+  const refined = lifecycle === "Refined" ? latestGate(office, row.key, row.gate_hash) : null;
   const ref = work.get(row.key);
   const pr = latestStoryPr(office, row.key);
   return deriveStoryView({
