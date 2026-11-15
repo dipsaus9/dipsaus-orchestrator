@@ -185,7 +185,10 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
           DEFAULT_CONFIG,
         );
         expect(
-          evaluateGate({ ...input, roster: [{ name: "developer", code: true }] }, "ready").failures,
+          evaluateGate(
+            { ...input, roster: [{ name: "developer", code: true, kind: "code" }] },
+            "ready",
+          ).failures,
         ).toEqual([]);
 
         // A confirmed edit: title, Story line, context, criteria and references; the block stays.

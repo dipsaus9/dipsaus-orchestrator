@@ -4929,6 +4929,10 @@
               "instructions": {
                 "type": "string"
               },
+              "kind": {
+                "type": "string",
+                "enum": ["code", "design", "docs"]
+              },
               "model": {
                 "type": "string"
               },
@@ -4936,7 +4940,7 @@
                 "type": "string"
               }
             },
-            "required": ["name", "purpose", "instructions"]
+            "required": ["name", "purpose", "instructions", "kind"]
           }
         },
         "invalid": {

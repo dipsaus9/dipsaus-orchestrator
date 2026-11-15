@@ -16,7 +16,8 @@ import { EngineGit } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { BACKLOG_FIXTURE, officeSetup, resultOf, send } from "./helpers";
 
-const ROLE = (purpose: string) => `---\nversion: 1\npurpose: ${purpose}\n---\nDo the work.\n`;
+const ROLE = (purpose: string, kind = "code") =>
+  `---\nversion: 1\npurpose: ${purpose}\nkind: ${kind}\n---\nDo the work.\n`;
 
 function writeRole(dir: string, name: string, text: string): void {
   mkdirSync(join(dir, ".dipo", "roles"), { recursive: true });
@@ -44,12 +45,12 @@ describe("the roster from role files on the base", () => {
           await send(s, "office.open", { path: repo.dir }),
         ).office;
         resultOf(await send(s, "fixture.ping", {}, office));
-        expect(s.manager.roster(office)).toEqual([{ name: "developer", code: true }]);
+        expect(s.manager.roster(office)).toEqual([{ name: "developer", code: true, kind: "code" }]);
 
         // Another clone adds a valid and an invalid role on the base.
         const clone = join(repo.root, "clone");
         await repo.run(["git", "clone", "--quiet", repo.remote, clone], repo.root);
-        writeRole(clone, "tester", ROLE("Tests"));
+        writeRole(clone, "tester", ROLE("Tests", "design"));
         writeRole(clone, "broken", "---\nversion: 1\n---\nBody\n");
         await repo.run(["git", "add", "--all"], clone);
         await repo.run(["git", "commit", "--quiet", "-m", "more roles"], clone);
@@ -82,12 +83,12 @@ describe("the roster from role files on the base", () => {
         });
         if (!reply.ok) throw new Error(reply.error.message);
         const view = reply.result as {
-          roles: { name: string; purpose: string; instructions: string }[];
+          roles: { name: string; purpose: string; instructions: string; kind: string }[];
           invalid: { path: string; problem: string }[];
         };
         expect(view.roles).toEqual([
-          { name: "developer", purpose: "Builds", instructions: "Do the work." },
-          { name: "tester", purpose: "Tests", instructions: "Do the work." },
+          { name: "developer", purpose: "Builds", instructions: "Do the work.", kind: "code" },
+          { name: "tester", purpose: "Tests", instructions: "Do the work.", kind: "design" },
         ]);
         expect(view.invalid).toHaveLength(1);
         expect(view.invalid[0]?.path).toBe(".dipo/roles/broken.md");

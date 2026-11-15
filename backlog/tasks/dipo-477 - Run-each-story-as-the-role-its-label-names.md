@@ -1,12 +1,13 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: In Progress
+status: Ready
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-15 17:02'
+updated_date: '2026-11-13 15:06'
 labels:
   - 'tier:L'
+  - 'role:developer'
 milestone: m-4
 dependencies:
   - DIPO-471
@@ -52,13 +53,7 @@ Amend 0012 (R17), 0014 section 1 (L2 is the run's role file) and 0001 Roles.
 
 ```dipo
 branch: "DIPO-477/run-each-story-as-role-its-label-names"
-unknowns:
-  - q: "CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 497, 501, 502, 503). Running `bun scripts/check-ready-gate.ts` here fails R17 for all 8. I can't fix this in the branch: the labels mean changing task files, including DIPO-477's own. Adding only the role file would also stop office init from labelling, because init plans both steps only while .dipo/roles/ is empty (0017). Will you run `dipo office init` on this repository before this PR merges, so main has the seed role file and role:developer on every open story and dipo can merge main into this branch? Or should I handle it another way?"
-    status: "resolved"
-    answer: "Main now has .dipo/roles/developer.md and role:developer on every open story (office init). Merge main into the branch and continue."
-  - q: "The ready-gate CI check fails because this repository, as an office, has no role file in .dipo/roles/ and its Ready stories DIPO-500 to DIPO-504 carry no role: label, which R17 now requires. Will you run `dipo office init` on main, or file a backlog change that seeds .dipo/roles/developer.md and labels the open stories role:developer, before this branch merges main again? Or do you want me to add the role file and the labels on this branch? My box's backlog is behind the branch (DIPO-504 is missing, and DIPO-475 and DIPO-496 still read Ready), so labelling from here would write stale task files. Also, init labels stories only while the base has no role file, so adding the role file here would stop init from labelling them."
-    status: "resolved"
-    answer: "PR #723 is merged: main has .dipo/roles/developer.md and role:developer on every open story. Merge main into your branch and continue; do not add role files or labels on your branch."
+unknowns: []
 test_plan:
   entries:
     - kind: "automated"
@@ -79,84 +74,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 R17 fails a story with no role label, saying a role label is needed and listing the roster's roles.
-- [x] #2 R17 passes a story with exactly one role label naming a roster role, and fails one with two role labels or a role not in the roster.
-- [x] #3 A run started for a story labelled role:<name> records <name> as the role of its run row, its agents and its work.assigned entry.
-- [x] #4 The system file of the run's first session is the implement-box contract followed by the instructions of the labelled role file.
-- [x] #5 A role file with a model and an effort runs its sessions with them; one without them runs with the tier's model and effort, and the tier's caps apply in both cases.
-- [x] #6 After the role file changes on the base, a resumed or fix-round session of a run started earlier uses the instructions, model and effort the run started with.
-- [x] #7 A run started before this change has no stored role, and its next session uses the bundled developer instructions and the tier's model and effort.
-- [x] #8 The bundled developer text is no longer a run role: the developer role template is removed from the run's system file path.
-- [x] #9 The work preview names the role and the model a story would run with.
-- [x] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
+- [ ] #1 R17 fails a story with no role label, saying a role label is needed and listing the roster's roles.
+- [ ] #2 R17 passes a story with exactly one role label naming a roster role, and fails one with two role labels or a role not in the roster.
+- [ ] #3 A run started for a story labelled role:<name> records <name> as the role of its run row, its agents and its work.assigned entry.
+- [ ] #4 The system file of the run's first session is the implement-box contract followed by the instructions of the labelled role file.
+- [ ] #5 A role file with a model and an effort runs its sessions with them; one without them runs with the tier's model and effort, and the tier's caps apply in both cases.
+- [ ] #6 After the role file changes on the base, a resumed or fix-round session of a run started earlier uses the instructions, model and effort the run started with.
+- [ ] #7 A run started before this change has no stored role, and its next session uses the bundled developer instructions and the tier's model and effort.
+- [ ] #8 The bundled developer text is no longer a run role: the developer role template is removed from the run's system file path.
+- [ ] #9 The work preview names the role and the model a story would run with.
+- [ ] #10 Decisions 0012, 0014 and 0001 describe that a story runs as its labelled role file.
 <!-- AC:END -->
-
-## Implementation Notes
-
-<!-- SECTION:NOTES:BEGIN -->
-Parked 2026-11-13 13:41 UTC: ambiguous-spec
-- Detail: CI's ready-gate job will fail on this PR. R17 now requires a role label. This repository has no .dipo/roles/developer.md, and none of its 8 Ready stories has a role label (DIPO-475, 477, 478, 496, 49…
-- Run: run_01M7AH63HMJN8EH84AMSC0GWPV
-- Criteria met: 10 of 10 (as the worker reported them)
-- Loops: 0 of 8; CI attempts: 0 of 2
-- Review rounds: 0, failed 0 of 3
-- Budget used: 356,147 of 2,000,000 tokens; 170 of 300 turns; 18 of 180 minutes
-- Last good commit: 99d6c059fc06cb2261af49657f5ae2b51781af62
-
-Resumed 2026-11-13 15:04 UTC; grants: none; note: Main now has .dipo/roles/developer.md and role:developer on every open story (office init). Merge main into the branch and continue.
-
-Parked 2026-11-13 15:28 UTC: ambiguous-spec
-- Detail: The ready-gate CI check fails because this repository, as an office, has no role file in .dipo/roles/ and its Ready stories DIPO-500 to DIPO-504 carry no role: label, which R17 now requires. Will you…
-- Run: run_01M7AH63HMJN8EH84AMSC0GWPV
-- Criteria met: 10 of 10 (as the worker reported them)
-- Loops: 0 of 8; CI attempts: 1 of 2
-- Review rounds: 2, failed 0 of 3
-- Budget used: 503,854 of 2,000,000 tokens; 211 of 300 turns; 26 of 180 minutes
-- Last good commit: e8801a620f8c0ed91c5b84ab0171c5526ce56f8a
-
-Resumed 2026-11-15 10:42 UTC; grants: none; note: PR #723 is merged: main has .dipo/roles/developer.md and role:developer on every open story. Merge main into your branch and continue; do not add role files or labels on your branch.
-
-Parked 2026-11-15 10:44 UTC: worker-failed
-- Detail: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
-- Run: run_01M7AH63HMJN8EH84AMSC0GWPV
-- Criteria met: 10 of 10 (as the worker reported them)
-- Loops: 0 of 8; CI attempts: 1 of 2
-- Review rounds: 2, failed 0 of 3
-- Budget used: 503,854 of 2,000,000 tokens; 211 of 300 turns; 29 of 180 minutes
-- Last good commit: 9786165900859a66ae0bac1fb302749cc87e9a42
-
-Resumed 2026-11-15 12:10 UTC; grants: none; note: try a different version
-
-Parked 2026-11-15 12:10 UTC: worker-failed
-- Detail: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
-- Run: run_01M7AH63HMJN8EH84AMSC0GWPV
-- Criteria met: 10 of 10 (as the worker reported them)
-- Loops: 0 of 8; CI attempts: 1 of 2
-- Review rounds: 2, failed 0 of 3
-- Budget used: 503,854 of 2,000,000 tokens; 211 of 300 turns; 29 of 180 minutes
-- Last good commit: 4ed2001def4276da2d67c2acc3798bde7e8700b1
-
-Resumed 2026-11-15 12:13 UTC; grants: none; note: The box web route failed to start; fixed on the Mac. Merge main into your branch and continue; do not add role files or labels on your branch.
-
-Parked 2026-11-15 12:13 UTC: worker-failed
-- Detail: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
-- Run: run_01M7AH63HMJN8EH84AMSC0GWPV
-- Criteria met: 10 of 10 (as the worker reported them)
-- Loops: 0 of 8; CI attempts: 1 of 2
-- Review rounds: 2, failed 0 of 3
-- Budget used: 503,854 of 2,000,000 tokens; 211 of 300 turns; 29 of 180 minutes
-- Last good commit: e3d50748e76c7cce6761e00b6645d96aeb8547b3
-
-Resumed 2026-11-15 14:43 UTC; grants: none; note: The box web route failed to start; fixed on the Mac. Merge main into your branch and continue; do not add role files or labels on your branch.
-
-Parked 2026-11-15 14:43 UTC: worker-failed
-- Detail: dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not st…
-- Run: run_01M7AH63HMJN8EH84AMSC0GWPV
-- Criteria met: 10 of 10 (as the worker reported them)
-- Loops: 0 of 8; CI attempts: 1 of 2
-- Review rounds: 2, failed 0 of 3
-- Budget used: 503,854 of 2,000,000 tokens; 211 of 300 turns; 29 of 180 minutes
-- Last good commit: 55c370321c47633211c59024de6a2167d7ed55e3
-
-Resumed 2026-11-15 17:02 UTC; grants: none; note: The box web route failed after the self-update (Safe-Chain box unreachable); fixed on the Mac. Merge main into your branch and continue; do not add role files or labels on your branch.
-<!-- SECTION:NOTES:END -->

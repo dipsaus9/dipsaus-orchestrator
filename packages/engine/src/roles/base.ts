@@ -16,9 +16,9 @@ export interface BaseRoles {
   readonly files: ReadonlyMap<string, string | undefined>;
 }
 
-/** The roster the gate reads: every file role is a code role until M4. */
+/** The roster the gate reads: a role is a code role when its kind is `code`. */
 export function rosterOf(roles: readonly Role[]): GateRole[] {
-  return roles.map((role) => ({ name: role.name, code: true }));
+  return roles.map((role) => ({ name: role.name, code: role.kind === "code", kind: role.kind }));
 }
 
 /** Parses role files by path; a refused file becomes a problem, the rest become roles. */

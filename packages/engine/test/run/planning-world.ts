@@ -463,7 +463,7 @@ export function laneGate(s: {
     offices: {
       get: () => s.office,
       config: () => OFFICE_DEFAULTS,
-      roster: () => [{ name: "developer", code: true }],
+      roster: () => [{ name: "developer", code: true, kind: "code" }],
     },
     clock: s.t.clock,
     ids: s.t.ids,
