@@ -1,10 +1,10 @@
 ---
 id: DIPO-477
 title: Run each story as the role its label names
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:05'
-updated_date: '2026-11-15 12:10'
+updated_date: '2026-11-15 12:13'
 labels:
   - 'tier:L'
 milestone: m-4
@@ -74,10 +74,6 @@ test_plan:
     - kind: "manual"
       check: "Add a role file with its own model to a test office, label a Ready story with it and start the run."
       expect: "The run view shows the new role and its model, and the run's system file holds that role's instructions."
-park:
-  reason: "worker-failed"
-  from: "In Progress"
-  note: "dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box web route did not start: the box web route did not start: the Safe-Chain check failed: downloading is-number@7.0.0 through Safe-Chain did not work after 3 attempts (the web proxy refused the tunnel (502))\nthe Safe-Chain box dipo-safe-chain-7fa5569de6864b86 printed (last 3 lines):\n  {\"ready\":true,\"bundle\":\"/home/dipo/sc/tmp/safe-chain-ca-bundle-1794744611117.pem\"}\n  ==> /home/dipo/sc/npm.log <==\n  ==> /home/dipo/sc/pypi.log <==\nthe upstream listener's events (last 4 of 4):\n  {\"kind\":\"direct\",\"host\":\"malware-list.aikido.dev\",\"port\":443,\"address\":\"3.173.161.120\"}\n  {\"kind\":\"direct\",\"host\":\"registry.npmjs.org\",\"port\":443,\"address\":\"104.16.4.34\"}\n  {\"kind\":\"direct\",\"host\":\"malware-list.aikido.dev\",\"port\":443,\"address\":\"3.173.161.120\"}\n  {\"kind\":\"direct\",\"host\":\"pypi.org\",\"port\":443,\"address\":\"151.101.0.223\"}"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -139,4 +135,6 @@ Parked 2026-11-15 12:10 UTC: worker-failed
 - Review rounds: 2, failed 0 of 3
 - Budget used: 503,854 of 2,000,000 tokens; 211 of 300 turns; 29 of 180 minutes
 - Last good commit: 4ed2001def4276da2d67c2acc3798bde7e8700b1
+
+Resumed 2026-11-15 12:13 UTC; grants: none; note: The box web route failed to start; fixed on the Mac. Merge main into your branch and continue; do not add role files or labels on your branch.
 <!-- SECTION:NOTES:END -->
