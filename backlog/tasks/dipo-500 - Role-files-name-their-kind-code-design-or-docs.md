@@ -1,10 +1,10 @@
 ---
 id: DIPO-500
 title: 'Role files name their kind: code, design or docs'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 12:49'
-updated_date: '2026-11-13 15:03'
+updated_date: '2026-11-15 09:46'
 labels:
   - 'tier:M'
 milestone: m-4
@@ -21,6 +21,26 @@ references:
   - packages/tui/src/roles.tsx
   - docs/decisions/0017-testing-strategy-and-configuration.md
   - docs/decisions/0001-foundational-decisions.md
+modified_files:
+  - docs/decisions/0001-foundational-decisions.md
+  - docs/decisions/0017-testing-strategy-and-configuration.md
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/gate/types.ts
+  - packages/engine/src/roles/base.ts
+  - packages/engine/src/roles/parse.ts
+  - packages/engine/test/gate/gate.test.ts
+  - packages/engine/test/office/roles.test.ts
+  - packages/engine/test/roles/parse.test.ts
+  - packages/engine/test/roles/roster.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/roles.test.tsx
+  - packages/tui/src/roles.tsx
 type: feature
 ordinal: 471000
 ---
@@ -58,11 +78,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A role file with kind: design or kind: docs loads with that kind.
-- [ ] #2 A role file without a kind key loads as a code role.
-- [ ] #3 A role file with any other kind value is refused, and its problem names the file, the key and the values code, design and docs.
-- [ ] #4 The gate's roster marks a design or docs role as not code and a code role as code, and carries each role's kind.
-- [ ] #5 office.roles returns each role's kind.
-- [ ] #6 The Roles room shows each role's kind beside its model and effort.
-- [ ] #7 Decision 0017 describes the kind key and its three values, and 0001 Roles names the three kinds.
+- [x] #1 A role file with kind: design or kind: docs loads with that kind.
+- [x] #2 A role file without a kind key loads as a code role.
+- [x] #3 A role file with any other kind value is refused, and its problem names the file, the key and the values code, design and docs.
+- [x] #4 The gate's roster marks a design or docs role as not code and a code role as code, and carries each role's kind.
+- [x] #5 office.roles returns each role's kind.
+- [x] #6 The Roles room shows each role's kind beside its model and effort.
+- [x] #7 Decision 0017 describes the kind key and its three values, and 0001 Roles names the three kinds.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-15 09:46 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 60,243 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
