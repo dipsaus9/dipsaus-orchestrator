@@ -140,6 +140,7 @@ export interface RunPorts {
   /** The office's planning lane, which files what the maintainer confirms (DIPO-450). */
   readonly planningLane?: PlanningSessionsDeps["lane"];
   readonly planningRoleFiles?: PlanningSessionsDeps["roleFiles"];
+  readonly planningDecisionFiles?: PlanningSessionsDeps["decisionFiles"];
   /**
    * Copies into a run's box the merges dipo committed on its branch outside the box, before its
    * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
@@ -840,6 +841,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
       ...given("desk", ports.planningDesk),
       ...given("lane", ports.planningLane),
       ...given("roleFiles", ports.planningRoleFiles),
+      ...given("decisionFiles", ports.planningDecisionFiles),
       // An aside the session sends is audited when it arrives (DIPO-452).
       onIdea: (office) => audits.poke(office),
       ...given("tempOwner", ports.tempOwner),

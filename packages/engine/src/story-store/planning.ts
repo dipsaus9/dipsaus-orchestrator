@@ -11,6 +11,7 @@ import {
   type FieldBlockPark,
   type LaneFlush,
   type Lifecycle,
+  type PlanningSummary,
   type StoryKey,
   TestPlan,
 } from "@dipsaus-orchestrator/contract";
@@ -354,9 +355,45 @@ export type PlanningHold =
    */
   | "holdFailed";
 
-/** Pure: a new story's description (0012 F3): the Story line, and the context below it. */
-export function storyDescription(storyLine: string, context?: string): string {
+/**
+ * Pure: the three sections of a planning summary (DIPO-505, 0012 F3), each with its list or `None.`.
+ */
+export function summarySections(summary: PlanningSummary): string {
+  const list = (items: readonly string[]) =>
+    items.length === 0 ? "None." : items.map((item) => `- ${item}`).join("\n");
+  return [
+    "## What it does not do",
+    list(summary.notDoing),
+    "",
+    "## ADR lines that change",
+    list(
+      summary.adrLines.map((line) =>
+        line.quote === null
+          ? `${line.file}, ${line.section}: new line: ${line.becomes}`
+          : `${line.file}, ${line.section}: "${line.quote}" becomes: ${line.becomes}`,
+      ),
+    ),
+    "",
+    "## Risks and choices",
+    list(summary.risks.map((risk) => `${risk.kind}: ${risk.text}`)),
+  ].join("\n");
+}
+
+/**
+ * Pure: a new story's description (0012 F3): the Story line, the context below it and then the
+ * planning summary's sections.
+ */
+export function storyDescription(
+  storyLine: string,
+  context?: string,
+  summary?: PlanningSummary,
+): string {
   const line = `Story: ${storyLine.trim()}`;
   const below = context?.trim() ?? "";
-  return below === "" ? line : `${line}\n\n${below}`;
+  const parts = [
+    line,
+    ...(below === "" ? [] : [below]),
+    ...(summary === undefined ? [] : [summarySections(summary)]),
+  ];
+  return parts.join("\n\n");
 }

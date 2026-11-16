@@ -90,6 +90,8 @@ function runsOf(core: Core, story: StoryServices, partners: EnginePartners): Eng
     planningLane: (office) => story.lane.planning(office),
     // ... and checks its role proposals against the role files on the base (DIPO-474).
     planningRoleFiles: (office) => offices.roleFiles(office),
+    // ... and the ADR quotes of its summaries against the decision files there (DIPO-505).
+    planningDecisionFiles: (office) => offices.decisionFiles(office),
     // A planning session's first message holds the office's desk (DIPO-447), read through the
     // engine's own `office.desk`.
     planningDesk: (office) => {

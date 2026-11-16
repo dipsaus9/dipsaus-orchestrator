@@ -33,7 +33,7 @@ import { planningDrafts, planningFirstMessage } from "../../src/run/planning-ses
 import { DEFAULT_CONFIG } from "../gate/fixtures";
 import { BACKLOG_FIXTURE, inRemote, laneSetup, publish, subjects } from "../backlog/lane/helpers";
 import { draft, entriesAfter, keyOf, lastSeq, pass, task } from "../stories/helpers";
-import { blocksOf, commandContext, planningWorld, until } from "./planning-world";
+import { blocksOf, commandContext, NO_SUMMARY, planningWorld, until } from "./planning-world";
 
 const STORY_LINE =
   "As maintainer I want a story list exported as CSV so that I can sort it in a spreadsheet.";
@@ -49,6 +49,7 @@ const REFINE = {
   storyLine: STORY_LINE,
   context: "The export reads the base, as the queue does.",
   criteria: ["The export writes one CSV row per active story"],
+  summary: { ...NO_SUMMARY, notDoing: ["It does not export Done stories"] },
   references: ["packages/cli/src/export-command.ts"],
   testPlan: { entries: [{ kind: "automated", check: "(unit) one CSV row per active story" }] },
   why: "The draft is ready to refine.",
@@ -192,6 +193,8 @@ describe("a triage session (DIPO-454)", () => {
         expect(text).toContain("type: feature");
         expect(text).toContain("milestone: m-3");
         expect(text).toContain(`Story: ${STORY_LINE}`);
+        expect(text).toContain("## What it does not do\n- It does not export Done stories");
+        expect(text).toContain("## ADR lines that change\nNone.");
         expect(text).toContain("- [ ] #1 The export writes one CSV row per active story");
         expect(text).toContain('branch: "TASK-4/export-story-list-as-csv"');
         expect(text).toContain("unknowns: []");

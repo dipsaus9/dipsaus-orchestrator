@@ -8,7 +8,11 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { PLANNING_PROPOSAL_CAPS, PlanningView } from "@dipsaus-orchestrator/contract";
+import {
+  PLANNING_PROPOSAL_CAPS,
+  type PlanningAdrLine,
+  PlanningView,
+} from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { revisedDescription, storyDescription } from "../../src/backlog/lane";
@@ -23,19 +27,25 @@ import {
   storyFieldsOf,
 } from "../../src/run/planning-proposals";
 import type { PlanningSessionsDeps } from "../../src/run/planning-session";
+import { summarySections } from "../../src/story-store/planning";
 import { openTestState } from "../commands/helpers";
 import {
   blocksOf,
+  ADR_FILE,
+  ADR_QUOTE,
+  DECISION_FILES,
   commandContext,
+  NO_SUMMARY,
   planningWorld,
   type PlanningWorld,
   ROSTER_FILES,
   STORY_PROPOSAL,
+  SUMMARY,
   until,
 } from "./planning-world";
 
 const readRostered = (text: string) =>
-  readProposals(text, { files: ROSTER_FILES, openStories: () => [] });
+  readProposals(text, { files: ROSTER_FILES, openStories: () => [] }, undefined, DECISION_FILES);
 
 const withWorld = (fn: (w: PlanningWorld) => Promise<void>) =>
   withTempDir(async (dir) => {
@@ -98,7 +108,7 @@ describe("reading proposal blocks (DIPO-450)", () => {
         {
           kind: "split",
           id: "TASK-2",
-          edit: { dependencies: [] },
+          edit: { dependencies: [], summary: NO_SUMMARY },
           story: bareStory,
           why: "Split.",
         },
@@ -107,7 +117,7 @@ describe("reading proposal blocks (DIPO-450)", () => {
         {
           kind: "split",
           id: "TASK-2",
-          edit: { dependencies: [] },
+          edit: { dependencies: [], summary: NO_SUMMARY },
           story: { ...story, role: "x" },
           why: "Split.",
         },
@@ -130,7 +140,7 @@ describe("reading proposal blocks (DIPO-450)", () => {
       [
         blocksOf({ ...STORY_PROPOSAL, storyLine: "Export as CSV" }),
         "```dipo-proposal\n{ not json\n```",
-        blocksOf({ kind: "edit", id: "TASK-2", why: "Nothing changes." }),
+        blocksOf({ kind: "edit", id: "TASK-2", summary: NO_SUMMARY, why: "Nothing changes." }),
       ].join("\n"),
     );
     expect(reads.map((read) => read.ok)).toEqual([false, false, false]);
@@ -144,12 +154,25 @@ describe("reading proposal blocks (DIPO-450)", () => {
     const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
     const reads = readRostered(
       blocksOf(
-        { kind: "edit", id: "TASK-2", dependencies: ["TASK-1"], why: "Order." },
-        { kind: "edit", id: "TASK-2", dependencies: [], why: "Clear." },
-        { kind: "split", id: "TASK-2", edit: { dependencies: ["TASK-1"] }, story, why: "Split." },
         {
           kind: "edit",
           id: "TASK-2",
+          summary: NO_SUMMARY,
+          dependencies: ["TASK-1"],
+          why: "Order.",
+        },
+        { kind: "edit", id: "TASK-2", summary: NO_SUMMARY, dependencies: [], why: "Clear." },
+        {
+          kind: "split",
+          id: "TASK-2",
+          edit: { dependencies: ["TASK-1"], summary: NO_SUMMARY },
+          story,
+          why: "Split.",
+        },
+        {
+          kind: "edit",
+          id: "TASK-2",
+          summary: NO_SUMMARY,
           dependencies: Array.from(
             { length: PLANNING_PROPOSAL_CAPS.dependencies + 1 },
             (_, i) => `TASK-${i + 1}`,
@@ -184,7 +207,7 @@ describe("a proposal as planning-lane targets (DIPO-450)", () => {
       milestone: "m-3",
       tier: "M",
       role: "developer",
-      description: `Story: ${STORY_PROPOSAL.storyLine}\n\nThe export reads the base, as the queue does.`,
+      description: `Story: ${STORY_PROPOSAL.storyLine}\n\nThe export reads the base, as the queue does.\n\n${summarySections(SUMMARY)}`,
       criteria: [...STORY_PROPOSAL.criteria],
       references: [...STORY_PROPOSAL.references],
       dependencies: [],
@@ -201,7 +224,11 @@ describe("a proposal as planning-lane targets (DIPO-450)", () => {
 
   it("revises only the fields an edit gives, from Refined, Ready or Parked", () => {
     expect(
-      reviseTargetOf("run_1", 2, { title: "New title", criteria: ["Exactly this one"] }),
+      reviseTargetOf("run_1", 2, {
+        title: "New title",
+        criteria: ["Exactly this one"],
+        summary: NO_SUMMARY,
+      }),
     ).toEqual({
       run: "run_1",
       proposal: 2,
@@ -213,11 +240,16 @@ describe("a proposal as planning-lane targets (DIPO-450)", () => {
 
   it("carries an edit's dependencies, upper-cased, into the revise target", () => {
     expect(
-      reviseTargetOf("run_1", 2, { dependencies: ["task-1", "TASK-1", "TASK-3"] }),
+      reviseTargetOf("run_1", 2, {
+        dependencies: ["task-1", "TASK-1", "TASK-3"],
+        summary: NO_SUMMARY,
+      }),
     ).toMatchObject({
       dependencies: ["TASK-1", "TASK-3"],
     });
-    expect(reviseTargetOf("run_1", 2, { dependencies: [] })).toMatchObject({ dependencies: [] });
+    expect(reviseTargetOf("run_1", 2, { dependencies: [], summary: NO_SUMMARY })).toMatchObject({
+      dependencies: [],
+    });
   });
 
   it("replaces the Story line or the context of a description and keeps the field block", () => {
@@ -297,7 +329,13 @@ describe("proposals in a planning session (DIPO-450)", () => {
       const kind = await w.sessions
         .edit(ctx, {
           proposal: 1,
-          edited: { kind: "edit", id: "TASK-2", why: "w", title: "Other title" },
+          edited: {
+            kind: "edit",
+            id: "TASK-2",
+            why: "w",
+            title: "Other title",
+            summary: NO_SUMMARY,
+          },
         })
         .catch((error: unknown) => error);
       expect((kind as CommandError).error.code).toBe("planning.kindChanged");
@@ -361,18 +399,25 @@ describe("no planning path sets Ready without the maintainer's confirm (DIPO-495
     const reads = readProposals(
       blocksOf(
         { ...STORY_PROPOSAL, status: "Ready" },
-        { kind: "edit", id: "TASK-2", title: "Renamed", status: "Ready", why: "Ready it." },
+        {
+          kind: "edit",
+          id: "TASK-2",
+          summary: NO_SUMMARY,
+          title: "Renamed",
+          status: "Ready",
+          why: "Ready it.",
+        },
         {
           kind: "split",
           id: "TASK-2",
-          edit: { title: "Narrowed", status: "Ready" },
+          edit: { title: "Narrowed", status: "Ready", summary: NO_SUMMARY },
           story,
           why: "Two parts.",
         },
         {
           kind: "split",
           id: "TASK-2",
-          edit: { title: "Narrowed" },
+          edit: { title: "Narrowed", summary: NO_SUMMARY },
           story: { ...story, status: "Ready" },
           why: "Two parts.",
         },
@@ -443,5 +488,90 @@ describe("no planning path sets Ready without the maintainer's confirm (DIPO-495
       } finally {
         t.state.close();
       }
+    }));
+});
+
+describe("a proposal's summary (DIPO-505)", () => {
+  const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
+  const { summary: _summary, ...bareStory } = story;
+  const { summary: _own, ...bare } = STORY_PROPOSAL;
+  const problemsOf = (value: unknown): string[] => {
+    const read = readRostered(blocksOf(value))[0];
+    return read?.ok === false ? [...read.problems] : [];
+  };
+  const withLine = (line: Partial<PlanningAdrLine>) => ({
+    ...STORY_PROPOSAL,
+    summary: {
+      ...NO_SUMMARY,
+      adrLines: [{ ...(SUMMARY.adrLines[0] as PlanningAdrLine), ...line }],
+    },
+  });
+
+  it("refuses a story, split, refine and edit without a summary, and takes empty lists", () => {
+    const edit = { kind: "edit", id: "TASK-2", title: "Renamed", why: "w" };
+    const split = { kind: "split", id: "TASK-2", why: "w" };
+    for (const value of [
+      bare,
+      { ...bare, kind: "refine", draft: "DRAFT-1" },
+      edit,
+      { ...split, edit: { title: "Narrowed", summary: NO_SUMMARY }, story: bareStory },
+      { ...split, edit: { title: "Narrowed" }, story },
+    ]) {
+      expect(problemsOf(value).join(" ")).toContain("summary");
+    }
+    for (const value of [
+      { ...STORY_PROPOSAL, summary: NO_SUMMARY },
+      { ...STORY_PROPOSAL, kind: "refine", draft: "DRAFT-1", summary: NO_SUMMARY },
+      { ...edit, summary: NO_SUMMARY },
+      {
+        ...split,
+        edit: { title: "Narrowed", summary: NO_SUMMARY },
+        story: { ...story, summary: NO_SUMMARY },
+      },
+    ]) {
+      expect(problemsOf(value)).toEqual([]);
+    }
+  });
+
+  it("takes a quote within one line of its decision file and a new line without one", () => {
+    expect(problemsOf(STORY_PROPOSAL)).toEqual([]);
+    expect(problemsOf(withLine({ quote: "one line of why" }))).toEqual([]);
+    expect(problemsOf(withLine({ quote: null }))).toEqual([]);
+  });
+
+  it("refuses a quote changed by one character, naming the file and the section", () => {
+    const problems = problemsOf(withLine({ quote: `${ADR_QUOTE}!` }));
+    expect(problems).toEqual([
+      expect.stringContaining(`${ADR_FILE}, section 2: the quote is not word for word`),
+    ]);
+    // A quote that spans two lines is no quote of one line.
+    expect(problemsOf(withLine({ quote: "# 0022\n\n- A new" }))).not.toEqual([]);
+  });
+
+  it("refuses a file outside docs/decisions/, and a decision file the base lacks", () => {
+    for (const file of ["README.md", "docs/decisions/../vision.md", "docs/decisions/x/y.md"]) {
+      expect(problemsOf(withLine({ file, quote: null })).join(" ")).toContain(
+        `${file}, section 2: the file must be a .md file directly under docs/decisions/`,
+      );
+    }
+    expect(problemsOf(withLine({ file: "docs/decisions/0099-none.md" })).join(" ")).toContain(
+      "the file is not on the base",
+    );
+  });
+
+  it("refuses the maintainer's edit of a proposal with a quote not in its file", () =>
+    withWorld(async (w) => {
+      w.answerText = (n) => (n === 1 ? blocksOf(STORY_PROPOSAL) : "Noted.");
+      await w.sessions.start(commandContext(w), { kind: "plan", goal: "Export" });
+      await until(() => viewOf(w)?.state === "waiting");
+      const ctx = commandContext(w);
+      const edited = withLine({ quote: `${ADR_QUOTE}!` });
+      const refused = (await w.sessions
+        .edit(ctx, { proposal: 1, edited })
+        .catch((error: unknown) => error)) as CommandError;
+      expect(refused.error.code).toBe("planning.invalid");
+      expect(refused.error.message).toContain(`${ADR_FILE}, section 2: the quote is not word`);
+      const good = withLine({ quote: "one line of why" });
+      expect((await w.sessions.edit(ctx, { proposal: 1, edited: good })).changed).toBe(true);
     }));
 });

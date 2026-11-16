@@ -8,13 +8,37 @@
 // checks the result as it checks the session's (`planning.edit`), so the form checks only its own
 // syntax.
 
-import type { PlanningProposal, PlanningTestPlan } from "@dipsaus-orchestrator/contract";
+import type {
+  PlanningAdrLine,
+  PlanningProposal,
+  PlanningRisk,
+  PlanningSummary,
+  PlanningTestPlan,
+} from "@dipsaus-orchestrator/contract";
 
 const LIST_FIELDS: ReadonlySet<string> = new Set(["criteria", "references", "dependencies"]);
 const NOT_APPLICABLE = "not applicable: ";
 const EXPECT = " => ";
+const SUMMARY_FIELDS: ReadonlySet<string> = new Set(["notDoing", "adrLines", "risks"]);
+const ADR_SEPARATOR = " | ";
+const NEW_LINE = "(new line)";
 
 type Fields = Readonly<Record<string, unknown>>;
+
+/** The lines of a summary: its three lists, each `name:` and `- item` lines (DIPO-505). */
+function summaryLines(summary: PlanningSummary, prefix: string): string[] {
+  return [
+    `${prefix}notDoing:`,
+    ...summary.notDoing.map((item) => `- ${item}`),
+    `${prefix}adrLines:`,
+    ...summary.adrLines.map(
+      (line) =>
+        `- ${[line.file, line.section, line.quote ?? NEW_LINE, line.becomes].join(ADR_SEPARATOR)}`,
+    ),
+    `${prefix}risks:`,
+    ...summary.risks.map((risk) => `- ${risk.kind}: ${risk.text}`),
+  ];
+}
 
 /** The lines of one object's fields, each name with `prefix`. */
 function fieldLines(fields: Fields, prefix: string): string[] {
@@ -22,6 +46,10 @@ function fieldLines(fields: Fields, prefix: string): string[] {
   for (const [name, value] of Object.entries(fields)) {
     if (value === undefined) continue;
     const key = `${prefix}${name}`;
+    if (name === "summary") {
+      lines.push(...summaryLines(value as PlanningSummary, prefix));
+      continue;
+    }
     if (name === "testPlan") {
       const plan = value as PlanningTestPlan;
       if ("notApplicable" in plan) {
@@ -140,8 +168,50 @@ function readFields(text: string): Map<string, ReadField> | string {
   return fields;
 }
 
+/** The ADR line of a form item: `file | section | quote | becomes`, the quote `(new line)` for none. */
+function adrLineOf(item: string): PlanningAdrLine | string {
+  const parts = item.split(ADR_SEPARATOR);
+  const [file, section] = parts;
+  const becomes = parts.at(-1);
+  if (parts.length < 4 || file === undefined || section === undefined || becomes === undefined) {
+    return `adrLines: "${item}" is not "file | section | quote | becomes"`;
+  }
+  const quote = parts.slice(2, -1).join(ADR_SEPARATOR);
+  return {
+    file: file.trim(),
+    section: section.trim(),
+    quote: quote.trim() === NEW_LINE ? null : quote.trim(),
+    becomes: becomes.trim(),
+  };
+}
+
+/** The risk of a form item: `kind: text`. */
+function riskOf(item: string): PlanningRisk | string {
+  const match = /^([a-z-]+):\s*(.*)$/.exec(item);
+  return match === null
+    ? `risks: "${item}" is not "kind: text"`
+    : { kind: match[1] as PlanningRisk["kind"], text: (match[2] ?? "").trim() };
+}
+
+/** The items of a summary list read from the form, or the first problem. */
+function summaryListOf(name: string, field: ReadField): unknown[] | string {
+  const items = field.scalar === null ? field.items : [field.scalar];
+  if (name === "notDoing") return items;
+  const read: unknown[] = [];
+  for (const item of items) {
+    const one = name === "adrLines" ? adrLineOf(item) : riskOf(item);
+    if (typeof one === "string") return one;
+    read.push(one);
+  }
+  return read;
+}
+
 /** The value one read field gives its field `name`, or the problem with it. */
 function valueOf(name: string, field: ReadField): { readonly value: unknown } | string {
+  if (SUMMARY_FIELDS.has(name)) {
+    const list = summaryListOf(name, field);
+    return typeof list === "string" ? list : { value: list };
+  }
   if (name === "testPlan") {
     const plan = testPlanOf(field.scalar, field.items);
     return typeof plan === "string" ? plan : { value: plan };
@@ -196,6 +266,14 @@ export function readProposalForm(
     if (typeof value === "string") return { ok: false, error: value };
     const target = targetOf(result, original, key);
     if (target === null) return { ok: false, error: `${key} is not a field of this proposal` };
+    if (SUMMARY_FIELDS.has(name)) {
+      const summary = (target.summary ??= { notDoing: [], adrLines: [], risks: [] }) as Record<
+        string,
+        unknown
+      >;
+      summary[name] = value.value;
+      continue;
+    }
     const empty = value.value === "" || (Array.isArray(value.value) && value.value.length === 0);
     if (!empty) target[name] = value.value;
   }

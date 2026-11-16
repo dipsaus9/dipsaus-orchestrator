@@ -34,6 +34,7 @@ import {
   commandContext,
   laneGate,
   planningWorld,
+  NO_SUMMARY,
   STORY_PROPOSAL,
   until,
 } from "./planning-world";
@@ -93,6 +94,7 @@ const NEW_PART = {
     "As maintainer I want the stories exported as JSON lines so that a script can read them one by one.",
   criteria: ["Each line holds one story as a JSON object"],
   references: ["packages/cli/src/export-command.ts"],
+  summary: NO_SUMMARY,
   testPlan: { notApplicable: "Covered by the JSON export's own tests" },
 } as const;
 
@@ -101,7 +103,7 @@ const PROPOSALS = [
   {
     kind: "split",
     id: "TASK-4",
-    edit: { criteria: [VAGUE_CRITERION] },
+    edit: { criteria: [VAGUE_CRITERION], summary: NO_SUMMARY },
     story: NEW_PART,
     why: "The export grew two outputs.",
   },
@@ -109,16 +111,34 @@ const PROPOSALS = [
   {
     kind: "split",
     id: "TASK-5",
-    edit: { title: "Export the stories as TSV" },
+    edit: { title: "Export the stories as TSV", summary: NO_SUMMARY },
     story: { ...NEW_PART, title: "Export the stories as YAML", criteria: [VAGUE_CRITERION] },
     why: "The export grew two outputs.",
   },
   // 3. An edit of a Ready story that breaks a gated field.
-  { kind: "edit", id: "TASK-6", criteria: [VAGUE_CRITERION], why: "Say it shorter." },
+  {
+    kind: "edit",
+    id: "TASK-6",
+    summary: NO_SUMMARY,
+    criteria: [VAGUE_CRITERION],
+    why: "Say it shorter.",
+  },
   // 4. An edit of a Ready story that keeps it passing.
-  { kind: "edit", id: "TASK-7", context: "The export reads the base.", why: "Say where it reads." },
+  {
+    kind: "edit",
+    id: "TASK-7",
+    summary: NO_SUMMARY,
+    context: "The export reads the base.",
+    why: "Say where it reads.",
+  },
   // 5. An edit of a Refined story: no Ready choice, though it would pass now.
-  { kind: "edit", id: "TASK-8", title: "Export the archive as CSV", why: "A clearer name." },
+  {
+    kind: "edit",
+    id: "TASK-8",
+    summary: NO_SUMMARY,
+    title: "Export the archive as CSV",
+    why: "A clearer name.",
+  },
   // 6. A refine of a draft that passes.
   {
     kind: "refine",
@@ -131,6 +151,7 @@ const PROPOSALS = [
     storyLine:
       "As maintainer I want a story list exported as CSV so that I can sort it in a spreadsheet.",
     criteria: ["The export writes one CSV row per active story"],
+    summary: NO_SUMMARY,
     references: ["packages/cli/src/export-command.ts"],
     testPlan: { entries: [{ kind: "automated", check: "(unit) one CSV row per active story" }] },
     why: "The draft is ready to refine.",

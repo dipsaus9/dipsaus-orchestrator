@@ -458,6 +458,12 @@ export const PLANNING_PROPOSAL_CAPS = {
   purpose: 300,
   instructions: 20_000,
   modelName: 100,
+  notDoing: 10,
+  statement: 300,
+  adrLines: 10,
+  section: 200,
+  quote: 500,
+  risks: 10,
 } as const;
 
 // The story types of 0012 F5.
@@ -553,6 +559,43 @@ export const PlanningTestPlan = z.union([
 ]);
 export type PlanningTestPlan = z.infer<typeof PlanningTestPlan>;
 
+// The summary of a story or an edit proposal (DIPO-505): what it leaves out, the decision lines it
+// changes and its risks. Each list may be empty, so the planner says none on purpose. The engine
+// checks each quote against its decision file at the base (it is `null` for a new line).
+export const RISK_KINDS = ["guard-loosened", "spend", "tier", "other"] as const;
+
+export const PlanningAdrLine = z.strictObject({
+  file: z.string().max(proposalCaps.path).describe("the decision file, under docs/decisions/"),
+  section: OneLine(1, proposalCaps.section).describe("the heading or number of its section"),
+  quote: OneLine(1, proposalCaps.quote)
+    .nullable()
+    .describe("the current text, word for word within one line of the file; null for a new line"),
+  becomes: OneLine(1, proposalCaps.statement).describe("what the line becomes"),
+});
+export type PlanningAdrLine = z.infer<typeof PlanningAdrLine>;
+
+export const PlanningRisk = z.strictObject({
+  kind: z.enum(RISK_KINDS).describe("what the risk is about"),
+  text: OneLine(1, proposalCaps.statement).describe("one line"),
+});
+export type PlanningRisk = z.infer<typeof PlanningRisk>;
+
+export const PlanningSummary = z.strictObject({
+  notDoing: z
+    .array(OneLine(1, proposalCaps.statement))
+    .max(proposalCaps.notDoing)
+    .describe("one line each: what the story does not do; empty for none"),
+  adrLines: z
+    .array(PlanningAdrLine)
+    .max(proposalCaps.adrLines)
+    .describe("every decision line the story changes; empty for none"),
+  risks: z
+    .array(PlanningRisk)
+    .max(proposalCaps.risks)
+    .describe("the risks and choices; empty for none"),
+});
+export type PlanningSummary = z.infer<typeof PlanningSummary>;
+
 const storyShape = {
   title: OneLine(1, proposalCaps.title)
     .regex(/^[\p{L}\p{N}]/u, "must start with a letter or a digit")
@@ -584,6 +627,9 @@ const storyShape = {
     .optional()
     .describe("stories that must be Done first"),
   testPlan: PlanningTestPlan.optional().describe("every story but a spike has one; a spike none"),
+  summary: PlanningSummary.describe(
+    "what the story leaves out, the decision lines it changes, its risks",
+  ),
 };
 
 type StoryShape = z.infer<z.ZodObject<typeof storyShape>>;
@@ -634,12 +680,13 @@ const editShape = {
   role: storyShape.role
     .optional()
     .describe("the role that runs the story from now on, one of the office's roster"),
+  summary: PlanningSummary.describe("the summary of this edit, shown on its card only"),
 };
 
 type EditShape = z.infer<z.ZodObject<typeof editShape>>;
 
 function editChecks(edit: EditShape, ctx: z.RefinementCtx): void {
-  if (Object.values(edit).every((value) => value === undefined)) {
+  if (Object.entries(edit).every(([key, value]) => key === "summary" || value === undefined)) {
     ctx.addIssue({ code: "custom", message: "an edit changes at least one field" });
   }
 }

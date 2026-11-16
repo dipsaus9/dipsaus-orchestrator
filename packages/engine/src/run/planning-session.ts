@@ -453,6 +453,10 @@ export interface PlanningSessionsDeps {
   readonly lane?: (office: OfficeId) => PlanningLane | undefined;
   /** The role files on the base of the office (0017), for the role proposals' checks (DIPO-474). */
   readonly roleFiles?: (office: OfficeId) => ReadonlyMap<string, string | undefined> | undefined;
+  /** The decision files on the base of the office, for the ADR quotes' check (DIPO-505). */
+  readonly decisionFiles?: (
+    office: OfficeId,
+  ) => ReadonlyMap<string, string | undefined> | undefined;
   readonly onChanged?: (office: OfficeId) => void;
   /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
   readonly onIdea?: (office: OfficeId) => void;
@@ -993,7 +997,12 @@ export class PlanningSessions {
         { proposal: item.n },
       );
     }
-    const checked = checkProposal(args.edited, this.#roleFacts(open), open.kind);
+    const checked = checkProposal(
+      args.edited,
+      this.#roleFacts(open),
+      open.kind,
+      this.#deps.decisionFiles?.(open.office),
+    );
     if (!checked.ok) {
       throw new CommandError(
         "planning.invalid",
@@ -1407,7 +1416,12 @@ export class PlanningSessions {
         open.refusals.push({ at, problems: read.problems });
       }
     }
-    for (const read of readProposals(text, this.#roleFacts(open), open.kind)) {
+    for (const read of readProposals(
+      text,
+      this.#roleFacts(open),
+      open.kind,
+      this.#deps.decisionFiles?.(open.office),
+    )) {
       if (read.ok) {
         open.proposals.push({
           n: open.proposals.length + 1,

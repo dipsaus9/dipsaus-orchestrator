@@ -10,6 +10,7 @@ import {
   type DeskItem,
   OfficeId,
   type PlanningProposal,
+  type PlanningSummary,
   RequestId,
   type RunId,
 } from "@dipsaus-orchestrator/contract";
@@ -196,6 +197,7 @@ export interface PlanningWorldOptions {
   readonly gate?: PlanningGate;
   /** The role files on the office's base (DIPO-474); none by default. */
   readonly roleFiles?: PlanningSessionsDeps["roleFiles"];
+  readonly decisionFiles?: PlanningSessionsDeps["decisionFiles"];
   /** The context size at which the session continues in a fresh model session (DIPO-448). */
   readonly contextTokens?: number;
   /** The office's `.dipo/planning.md` at the base commit (DIPO-455); none by default. */
@@ -354,6 +356,7 @@ export function planningWorld(
     ...(options.lane === undefined ? {} : { lane: options.lane }),
     ...(options.gate === undefined ? {} : { gate: options.gate }),
     roleFiles: options.roleFiles ?? (() => ROSTER_FILES),
+    decisionFiles: options.decisionFiles ?? (() => DECISION_FILES),
     onIdea: (id) => w.ideas.push(id),
     info: (message, fields) => w.infos.push({ message, fields }),
     baseCommit: async () => BASE_COMMIT,
@@ -412,6 +415,28 @@ export const ROSTER_FILES: ReadonlyMap<string, string | undefined> = new Map([
   ],
 ]);
 
+/** A summary with the three lists empty: the planner says none on purpose (DIPO-505). */
+export const NO_SUMMARY: PlanningSummary = { notDoing: [], adrLines: [], risks: [] };
+
+/** A summary whose one ADR line quotes a decision file the world holds on its base. */
+export const ADR_FILE = "docs/decisions/0022-planning-sessions.md";
+export const ADR_QUOTE = "A new story is filed to the story standard (0012)";
+export const DECISION_FILES: ReadonlyMap<string, string | undefined> = new Map([
+  [ADR_FILE, `# 0022\n\n- ${ADR_QUOTE}, with a proposed tier and one line of why.\n`],
+]);
+export const SUMMARY: PlanningSummary = {
+  notDoing: ["It does not change the box"],
+  adrLines: [
+    {
+      file: ADR_FILE,
+      section: "2",
+      quote: ADR_QUOTE,
+      becomes: "A new story is filed with its summary",
+    },
+  ],
+  risks: [{ kind: "spend", text: "One more model call per proposal" }],
+};
+
 /** A new story a planning session proposes (DIPO-450). */
 export const STORY_PROPOSAL = {
   kind: "story",
@@ -425,6 +450,7 @@ export const STORY_PROPOSAL = {
   context: "The export reads the base, as the queue does.",
   criteria: ["The export writes one CSV row per active story", "A Done story is left out of it"],
   references: ["packages/cli/src/export-command.ts", "docs/export.md"],
+  summary: SUMMARY,
   testPlan: {
     entries: [
       { kind: "automated", check: "(unit) one CSV row per active story" },
