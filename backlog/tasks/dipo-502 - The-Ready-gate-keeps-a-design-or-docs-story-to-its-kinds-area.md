@@ -1,10 +1,10 @@
 ---
 id: DIPO-502
 title: The Ready gate keeps a design or docs story to its kind's area
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 15:01'
+updated_date: '2026-11-16 15:05'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -60,12 +60,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A design story whose references are all under docs/design/<ID>/ passes R24.
-- [ ] #2 A design story with a reference outside docs/design/<ID>/ fails R24, and the failure names that reference and the area.
-- [ ] #3 A docs story whose references are Markdown files under docs/ outside docs/decisions/ and docs/design/, or Markdown files at the repository root, passes R24.
-- [ ] #4 A docs story with a reference under docs/decisions/, under docs/design/, to a file that is not Markdown, or to a Markdown file in a folder outside docs/, fails R24 for that reference.
-- [ ] #5 A story with a code role, or without a role label, passes R24 whatever its references are.
-- [ ] #6 Decision 0012 describes the design and docs areas in the R24 row and in section 4.
+- [x] #1 A design story whose references are all under docs/design/<ID>/ passes R24.
+- [x] #2 A design story with a reference outside docs/design/<ID>/ fails R24, and the failure names that reference and the area.
+- [x] #3 A docs story whose references are Markdown files under docs/ outside docs/decisions/ and docs/design/, or Markdown files at the repository root, passes R24.
+- [x] #4 A docs story with a reference under docs/decisions/, under docs/design/, to a file that is not Markdown, or to a Markdown file in a folder outside docs/, fails R24 for that reference.
+- [x] #5 A story with a code role, or without a role label, passes R24 whatever its references are.
+- [x] #6 Decision 0012 describes the design and docs areas in the R24 row and in section 4.
 <!-- AC:END -->
 
 ## Implementation Notes
