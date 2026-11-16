@@ -4,7 +4,7 @@ title: The Ready gate keeps a design or docs story to its kind's area
 status: Refined
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-15 10:42'
+updated_date: '2026-11-16 13:07'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -27,13 +27,13 @@ ordinal: 473000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Story: As maintainer I want the Ready gate to refuse a design or docs story whose references reach outside the files its role may write so that a story that its run would park for leaving its area never gets Ready.
 
-R24 is a placeholder: it fails every story whose role label names a non-code role (packages/engine/src/gate/rules.ts:550-561). DIPO-500 gives each roster role a kind (code, design or docs). The maintainer decided (planning 2026-11-13) which paths each kind may write:
+R24 is a placeholder: it fails every story whose role label names a non-code role (packages/engine/src/gate/rules.ts:556-567). DIPO-500 gave each roster role a kind (code, design or docs): a role file without kind is a code role (packages/engine/src/roles/parse.ts:24), and the gate's roster carries it as GateRole.kind (packages/engine/src/gate/types.ts:96-100, filled in packages/engine/src/roles/base.ts:21). The maintainer decided (planning 2026-11-13) which paths each kind may write:
 - design: only under docs/design/<ID>/, the story's own folder (0012 section 4).
 - docs: Markdown files under docs/ outside docs/decisions/ and docs/design/, and Markdown files at the repository root, such as README.md.
 - code: any path, as today.
 
 Scope:
-- A new module, packages/engine/src/roles/area.ts, answers whether a path is in a kind's area for a story id. A folder reference (ending in /) is in the docs area when it is under docs/ and outside docs/decisions/ and docs/design/, and in the design area when it is docs/design/<ID>/ or a folder under it. The later part-scan story uses the same module, so the gate and the run agree.
+- A new module, packages/engine/src/roles/area.ts, answers whether a path is in a kind's area for a story id. A folder reference (ending in /) is in the docs area when it is under docs/ and outside docs/decisions/ and docs/design/, and in the design area when it is docs/design/<ID>/ or a folder under it. The later part-scan story (DIPO-503) uses the same module, so the gate and the run agree.
 - R24: a story whose role label names a design or docs role fails for each reference outside its kind's area. Each failure names the reference and the kind's area. A code role or a story without a role label passes R24.
 - Inputs are unchanged: a design story may read inputs anywhere, and R25 still checks design inputs.
 
