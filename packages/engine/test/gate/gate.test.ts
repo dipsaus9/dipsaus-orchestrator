@@ -1462,7 +1462,7 @@ function r32Warnings(gateInput: GateInput): readonly string[] {
   return warnings(evaluateGate(gateInput, "ready")).filter((line) => line.includes(" R32: "));
 }
 
-describe("R24 design and docs areas (0012 section 4)", () => {
+describe("R24 design and docs areas (0012)", () => {
   const ROLES: readonly GateRole[] = [
     { name: "developer", code: true, kind: "code" },
     { name: "designer", code: false, kind: "design" },

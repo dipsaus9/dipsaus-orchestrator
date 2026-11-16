@@ -1,4 +1,4 @@
-// The files each role kind may write (0012 section 4, R24): a design role writes only under its
+// The files each role kind may write (0012, R24): a design role writes only under its
 // story's design folder, a docs role writes Markdown outside the decisions and designs, a code
 // role writes any path. The gate and the run's scan of the story's part use this one module, so
 // they agree on what is in an area.

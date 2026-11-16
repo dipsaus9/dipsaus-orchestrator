@@ -555,7 +555,7 @@ export const r23: RuleCheck = (context) => {
 };
 
 /**
- * R24: a story whose role is a design or docs role (0012 section 4) keeps every reference in that
+ * R24: a story whose role is a design or docs role (0012) keeps every reference in that
  * kind's area (`gate/area`). A code role, or a story without a role label, passes.
  */
 export const r24: RuleCheck = (context) => {

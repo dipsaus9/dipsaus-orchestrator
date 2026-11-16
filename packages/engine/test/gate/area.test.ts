@@ -1,4 +1,4 @@
-// The files each role kind may write (0012 section 4): one check per area and path shape.
+// The files each role kind may write (0012): one check per area and path shape.
 
 import { describe, expect, it } from "bun:test";
 
