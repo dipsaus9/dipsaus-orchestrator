@@ -1,10 +1,10 @@
 ---
 id: DIPO-501
 title: Role proposals can set a role's kind
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 14:37'
+updated_date: '2026-11-16 15:00'
 labels:
   - 'tier:S'
   - 'role:developer'
