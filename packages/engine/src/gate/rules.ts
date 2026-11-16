@@ -10,6 +10,7 @@ import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
 import { PROTECTED_TEXT, protectedKind } from "../story-store/protected";
 import type { StoryLabels } from "../story-store/fields/labels";
+import { areaText, inArea } from "./area";
 import { inStoryFolder } from "../story-store/paths";
 import { characters, clean, looksLikePath, runCores, wordMatch } from "./text";
 import type {
@@ -554,16 +555,28 @@ export const r23: RuleCheck = (context) => {
 };
 
 /**
- * R24: a design story (a non-code roster role) writes only under `docs/design/<ID>/`. No non-code
- * role exists before M4, so until then every story with a non-code role fails.
+ * R24: a story whose role is a design or docs role (0012 section 4) keeps every reference in that
+ * kind's area (`gate/area`). A code role, or a story without a role label, passes.
  */
 export const r24: RuleCheck = (context) => {
-  const nonCode = context.labels.roles.some((name) =>
-    context.roster.some((role) => role.name === name && !role.code),
+  const kinds = new Set(
+    context.labels.roles.flatMap((name) =>
+      context.roster
+        .filter((role) => role.name === name && role.kind !== "code")
+        .map((role) => role.kind),
+    ),
   );
-  return nonCode
-    ? fail(context, "R24", `design story scope must be docs/design/${context.story.id}/ only`)
-    : [];
+  return [...kinds].flatMap((kind) =>
+    context.story.references
+      .filter((path) => !inArea(kind, path, context.story.id))
+      .flatMap((path) =>
+        fail(
+          context,
+          "R24",
+          `reference ${path} is outside the ${kind} area ${areaText(kind, context.story.id)}`,
+        ),
+      ),
+  );
 };
 
 /** R25: every input under `docs/design/<X>/` has `<X>` as a dependency. */
