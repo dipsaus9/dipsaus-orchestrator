@@ -1,10 +1,10 @@
 ---
 id: DIPO-505
 title: Planning proposals carry a summary the maintainer validates on the card
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-13 13:31'
-updated_date: '2026-11-16 15:00'
+updated_date: '2026-11-16 16:59'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -69,6 +69,10 @@ test_plan:
       check: "The focused card renders the Story line, the not-doing lines, each ADR line with quote and new text, and each risk with its kind; an unfocused card renders the head, Story line and count line"
     - kind: "automated"
       check: "The proposal form round-trips a summary unchanged"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "time cap reached: 119 of 90 minutes since the worker started"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -85,3 +89,16 @@ test_plan:
 - [ ] #9 The edit form opens and sends the summary unchanged when the maintainer does not touch it.
 - [ ] #10 Decision 0022 line 24 and a new Summary line, and 0012 F3, describe the summary as the context of this story says.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-16 16:59 UTC: budget-exceeded
+- Detail: time cap reached: 119 of 90 minutes since the worker started
+- Run: run_01M7JDX81QJGBAPD44E96XSWQ3
+- Criteria met: 0 of 10 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 299,502 of 800,000 tokens; 54 of 200 turns; 119 of 90 minutes
+- Last good commit: bc6d95822e2545b0459855a18f27c612e6125fcd
+<!-- SECTION:NOTES:END -->
