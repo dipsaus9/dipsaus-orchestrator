@@ -1,10 +1,10 @@
 ---
 id: DIPO-501
 title: Role proposals can set a role's kind
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 15:00'
+updated_date: '2026-11-16 15:03'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -58,10 +58,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A role proposal with kind design files a role file that loads as a design role.
-- [ ] #2 A role proposal without a kind files a role file without a kind key, which loads as a code role.
-- [ ] #3 A role-edit proposal that gives only a kind changes the kind key and leaves the purpose, model, effort and instructions as they were.
-- [ ] #4 A role or role-edit proposal with a kind other than code, design or docs is refused, and the problem names the three values.
-- [ ] #5 The planning view shows the kind of a role proposal.
-- [ ] #6 Decision 0022 says a role or role-edit proposal may set the kind.
+- [x] #1 A role proposal with kind design files a role file that loads as a design role.
+- [x] #2 A role proposal without a kind files a role file without a kind key, which loads as a code role.
+- [x] #3 A role-edit proposal that gives only a kind changes the kind key and leaves the purpose, model, effort and instructions as they were.
+- [x] #4 A role or role-edit proposal with a kind other than code, design or docs is refused, and the problem names the three values.
+- [x] #5 The planning view shows the kind of a role proposal.
+- [x] #6 Decision 0022 says a role or role-edit proposal may set the kind.
 <!-- AC:END -->
