@@ -1,10 +1,10 @@
 ---
 id: DIPO-502
 title: The Ready gate keeps a design or docs story to its kind's area
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 14:52'
+updated_date: '2026-11-16 14:59'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -52,6 +52,10 @@ test_plan:
       check: "R24 passes a docs story with README.md and docs/guide/ and fails one with docs/decisions/0001-x.md, naming that reference"
     - kind: "automated"
       check: "R24 passes a code-role story and a story without a role label whatever their references"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section reference and fix the citation test failure once you confirm. Shard 2's DIPO-401 failure also needs a look: is it known-flaky?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -64,3 +68,16 @@ test_plan:
 - [ ] #5 A story with a code role, or without a role label, passes R24 whatever its references are.
 - [ ] #6 Decision 0012 describes the design and docs areas in the R24 row and in section 4.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-16 14:59 UTC: ambiguous-spec
+- Detail: Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section referenc…
+- Run: run_01M7JDFCHARV1YBW2KZAAAMZH4
+- Criteria met: 0 of 6 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 111,682 of 300,000 tokens; 21 of 90 turns; 7 of 45 minutes
+- Last good commit: ce963b8a4d4b046007f202dc0315cc305d8887f4
+<!-- SECTION:NOTES:END -->
