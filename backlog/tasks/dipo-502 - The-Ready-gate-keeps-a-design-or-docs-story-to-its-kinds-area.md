@@ -1,10 +1,10 @@
 ---
 id: DIPO-502
 title: The Ready gate keeps a design or docs story to its kind's area
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 13:07'
+updated_date: '2026-11-16 14:36'
 labels:
   - 'tier:S'
   - 'role:developer'
