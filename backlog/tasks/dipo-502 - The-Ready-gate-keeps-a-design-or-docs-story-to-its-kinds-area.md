@@ -1,10 +1,10 @@
 ---
 id: DIPO-502
 title: The Ready gate keeps a design or docs story to its kind's area
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 14:59'
+updated_date: '2026-11-16 15:01'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -41,7 +41,10 @@ Amend 0012: the R24 row and section 4 describe the design and docs areas.
 
 ```dipo
 branch: "DIPO-502/ready-gate-keeps-design-docs-story-its"
-unknowns: []
+unknowns:
+  - q: "Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section reference and fix the citation test failure once you confirm. Shard 2's DIPO-401 failure also needs a look: is it known-flaky?"
+    status: "resolved"
+    answer: "Cite the ADR by number only (CLAUDE.md: never by section): drop 'section 4' from comments and test titles and fix the citation test. For the DIPO-401 failure in shard 2: run it once more; if it passes it is flaky and you go on, if it fails again check whether your change causes it and fix it, and park only if it is unrelated to this story."
 test_plan:
   entries:
     - kind: "automated"
@@ -52,10 +55,6 @@ test_plan:
       check: "R24 passes a docs story with README.md and docs/guide/ and fails one with docs/decisions/0001-x.md, naming that reference"
     - kind: "automated"
       check: "R24 passes a code-role story and a story without a role label whatever their references"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section reference and fix the citation test failure once you confirm. Shard 2's DIPO-401 failure also needs a look: is it known-flaky?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -80,4 +79,6 @@ Parked 2026-11-16 14:59 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 111,682 of 300,000 tokens; 21 of 90 turns; 7 of 45 minutes
 - Last good commit: ce963b8a4d4b046007f202dc0315cc305d8887f4
+
+Resumed 2026-11-16 15:01 UTC; grants: none; note: Cite the ADR by number only (CLAUDE.md: never by section): drop 'section 4' from comments and test titles and fix the citation test. For the DIPO-401 failure in shard 2: run it once more; if it passe…
 <!-- SECTION:NOTES:END -->
