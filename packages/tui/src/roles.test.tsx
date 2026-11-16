@@ -201,6 +201,7 @@ describe("the Roles room's chat (DIPO-475)", () => {
                   name: "tester",
                   purpose: "Writes the tests",
                   instructions: "Test each criterion.",
+                  roleKind: "design",
                   why: "Stories need a tester.",
                 },
                 state: "open",
@@ -217,7 +218,7 @@ describe("the Roles room's chat (DIPO-475)", () => {
     await ui.waitFor("dipsaus-orchestrator");
     session.roles = ROLES;
     await ui.press("6");
-    const frame = await ui.waitFor("add role tester");
+    const frame = await ui.waitFor("add role tester · design");
     expect(frame).toContain("Builds a story");
     expect(frame).toContain("Writes the tests");
     expect(frame).toContain("Planning · roles");

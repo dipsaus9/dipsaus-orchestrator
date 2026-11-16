@@ -1,6 +1,8 @@
 // Role files written by code (DIPO-474, 0017): a new file from a role's fields, and an edit that
 // rewrites only the fields it names and keeps every other line of the file. Pure.
 
+import type { RoleKind } from "@dipsaus-orchestrator/contract";
+
 import { ROLE_FILE_VERSION, ROLES_DIR } from "./parse";
 
 /** The repo-relative path of the role file of `name`. */
@@ -14,6 +16,7 @@ export interface RoleFields {
   readonly model?: string | undefined;
   readonly effort?: string | undefined;
   readonly instructions: string;
+  readonly kind?: RoleKind | undefined;
 }
 
 /** The fields an edit changes: each given replaces the file's. */
@@ -22,6 +25,7 @@ export interface RoleChanges {
   readonly model?: string | undefined;
   readonly effort?: string | undefined;
   readonly instructions?: string | undefined;
+  readonly kind?: RoleKind | undefined;
 }
 
 // A JSON string is a YAML double-quoted scalar, so any one-line text is written safely.
@@ -35,6 +39,7 @@ export function renderRoleFile(fields: RoleFields): string {
     `purpose: ${scalar(fields.purpose)}`,
     ...(fields.model === undefined ? [] : [`model: ${scalar(fields.model)}`]),
     ...(fields.effort === undefined ? [] : [`effort: ${scalar(fields.effort)}`]),
+    ...(fields.kind === undefined ? [] : [`kind: ${fields.kind}`]),
     "---",
     "",
     fields.instructions.trim(),
@@ -55,10 +60,11 @@ export function editRoleFile(text: string, changes: RoleChanges): string | null 
   if (split === null) return null;
   const [, open = "", front = "", close = "", newline = "", body = ""] = split;
   let lines = front.split(/\r?\n/);
-  for (const key of ["purpose", "model", "effort"] as const) {
+  for (const key of ["purpose", "model", "effort", "kind"] as const) {
     const value = changes[key];
     if (value === undefined) continue;
-    const line = `${key}: ${scalar(value)}`;
+    // A kind is one of three plain words, so it needs no quotes.
+    const line = `${key}: ${key === "kind" ? value : scalar(value)}`;
     const at = lines.findIndex((candidate) => candidate.startsWith(`${key}:`));
     if (at < 0) {
       lines.push(line);

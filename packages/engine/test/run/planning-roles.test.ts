@@ -89,6 +89,18 @@ describe("checking role proposals", () => {
     expect(problems.join()).toContain(".dipo/roles/broken.md: key `purpose`");
   });
 
+  it("refuses a role or role-edit kind other than code, design or docs, naming the three (DIPO-501)", () => {
+    for (const value of [
+      { ...ROLE, roleKind: "writer" },
+      { kind: "role-edit", name: "writer", roleKind: "writer", why: "Odd." },
+    ]) {
+      const problems = problemsOf(value).join();
+      expect(problems).toContain("code");
+      expect(problems).toContain("design");
+      expect(problems).toContain("docs");
+    }
+  });
+
   it("refuses a role-remove while a Ready story has the role's label, naming the story", () => {
     const problems = problemsOf(
       { kind: "role-remove", name: "writer", why: "Not used." },
@@ -126,6 +138,39 @@ describe("role files and targets", () => {
       "---\nversion: 1\n# keep this comment\npurpose: Old\nmodel: m1\n---\n\nOther.\n",
     );
     expect(editRoleFile(original, { effort: "high" })).toContain('model: m1\neffort: "high"\n---');
+  });
+
+  it("a role proposal with kind design writes a file that loads as a design role (DIPO-501)", () => {
+    const target = { ...roleAddTargetOf("run", 1, { ...ROLE, roleKind: "design" }) };
+    const parsed = parseRoleFile(".dipo/roles/tester.md", renderRoleFile(target));
+    expect(parsed).toMatchObject({ ok: true, role: { name: "tester", kind: "design" } });
+  });
+
+  it("a role proposal without a kind writes a file with no kind key, a code role (DIPO-501)", () => {
+    const text = renderRoleFile(roleAddTargetOf("run", 1, ROLE));
+    expect(text).not.toContain("kind:");
+    expect(parseRoleFile(".dipo/roles/tester.md", text)).toMatchObject({
+      ok: true,
+      role: { kind: "code" },
+    });
+  });
+
+  it("a role-edit with only a kind rewrites the kind key and keeps every other line (DIPO-501)", () => {
+    const original =
+      "---\nversion: 1\n# keep this comment\npurpose: Old\nmodel: m1\n---\n\nBody.\n";
+    expect(editRoleFile(original, { kind: "docs" })).toBe(
+      "---\nversion: 1\n# keep this comment\npurpose: Old\nmodel: m1\nkind: docs\n---\n\nBody.\n",
+    );
+    const withKind = "---\nversion: 1\npurpose: Old\nkind: code\n---\n\nBody.\n";
+    expect(editRoleFile(withKind, { kind: "design" })).toBe(
+      "---\nversion: 1\npurpose: Old\nkind: design\n---\n\nBody.\n",
+    );
+  });
+
+  it("a role-edit target carries only the kind it names (DIPO-501)", () => {
+    expect(
+      roleEditTargetOf("run", 3, { kind: "role-edit", name: "writer", roleKind: "docs", why: "x" }),
+    ).toEqual({ run: "run", proposal: 3, name: "writer", kind: "docs" });
   });
 
   it("a role-edit target names only the changed fields", () => {

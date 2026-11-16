@@ -68,9 +68,9 @@ export const roleAddKind: LaneOpKind = {
   async apply(ctx, raw) {
     const parsed = RoleAddTarget.safeParse(raw);
     if (!parsed.success) return invalid("role to add", parsed.error);
-    const { name, purpose, model, effort, instructions } = parsed.data;
+    const { name, purpose, model, effort, instructions, kind } = parsed.data;
     const path = roleFilePath(name);
-    const text = renderRoleFile({ purpose, model, effort, instructions });
+    const text = renderRoleFile({ purpose, model, effort, instructions, kind });
     const loaded = parseRoleFile(path, text);
     if (!loaded.ok) return { applies: false, reason: loaded.message };
     const file = join(ctx.cwd, path);
