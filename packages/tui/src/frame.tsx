@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 
 import { Colored } from "./colour";
 import { footerLine, HINT_GAP, type Hint } from "./footer";
+import { tickerLines } from "./format";
 import type { Display } from "./options";
 
 export const MIN_COLUMNS = 60;
@@ -20,9 +21,9 @@ export function tooSmall(columns: number, rows: number): boolean {
   return columns < MIN_COLUMNS || rows < MIN_ROWS;
 }
 
-/** The rows the Frame takes around the body: header, the two rules and the keys, rooms and ticker. */
-export function frameRows(rooms: boolean, ticker: boolean): number {
-  return 4 + (rooms ? 1 : 0) + (ticker ? 1 : 0);
+/** The rows the Frame takes around the body: header, the two rules and the keys, rooms and the ticker's rows. */
+export function frameRows(rooms: boolean, tickerRows: number): number {
+  return 4 + (rooms ? 1 : 0) + tickerRows;
 }
 
 export interface FrameProps {
@@ -108,17 +109,18 @@ export function Frame(props: FrameProps) {
   if (tooSmall(columns, rows)) return <Text wrap="truncate-end">{WIDEN_MESSAGE}</Text>;
   if (props.bare === true) return <Box flexDirection="column">{props.children}</Box>;
   const width = columns - 1;
+  const ticker = props.ticker === null ? [] : tickerLines(props.ticker, width);
   return (
     <Box flexDirection="column">
       {props.header}
       {props.rooms ?? null}
       <Rule display={props.display} columns={width} />
       {props.children}
-      {props.ticker === null ? null : (
-        <Colored display={props.display} role="dim" wrap="truncate-end">
-          {props.ticker}
+      {ticker.map((line, i) => (
+        <Colored key={i} display={props.display} role="dim" wrap="truncate-end">
+          {line}
         </Colored>
-      )}
+      ))}
       <Rule display={props.display} columns={width} />
       <FooterLine display={props.display} hints={props.keys} columns={width} />
     </Box>

@@ -260,6 +260,26 @@ async function openDesk(
 const deskReads = (session: { reads: readonly { name: string }[] }) =>
   session.reads.filter((read) => read.name === "office.desk").length;
 
+/** The ticker's rows under the refused approve: from its first row to the rule under it (DIPO-510). */
+function tickerRows(frame: string): string[] {
+  const all = lines(frame);
+  const first = all.findIndex((line) => line.startsWith("approve DIPO-12: gate.refused"));
+  const rule = all.indexOf("─".repeat(79), first);
+  return all.slice(first, rule);
+}
+
+/** A refused approve of DIPO-12 at 80 columns whose error message is `message` (DIPO-510). */
+async function refuseApprove(message: string) {
+  const view = await openDesk({ columns: 80, rows: 34 });
+  view.session.commandReply = (name) =>
+    name === "gate.approve"
+      ? { ok: false, error: { code: "gate.refused", message, retryable: false } }
+      : undefined;
+  await selectRow(view.ui, "DIPO-12");
+  await view.ui.press("y");
+  return view;
+}
+
 /** The commands sent after the overview opened, without their options. */
 function sent(session: {
   commands: readonly { name: string; args: unknown; options?: unknown }[];
@@ -1224,6 +1244,33 @@ describe("answers, pending rows, closed prompts, read-your-writes and retry", ()
     );
     expect(ids[1]).toBe(ids[0]);
     await ui.waitFor("approve DIPO-12: done");
+  });
+
+  it("shows a long refusal's code and its whole message in the ticker, on as many rows as it needs (DIPO-510)", async () => {
+    const message = "the gate is closed because a rule says so and it needs a human to look at it";
+    const { ui } = await refuseApprove(message);
+    await ui.waitFor("approve DIPO-12: gate.refused");
+    const rows = tickerRows(ui.frame());
+    expect(rows).toHaveLength(2);
+    expect(rows.join(" ").replace(/\s+/g, " ")).toBe(`approve DIPO-12: gate.refused: ${message}`);
+  });
+
+  it("wraps a 400-character refusal to three rows, the third ends in an ellipsis (DIPO-510)", async () => {
+    const message = "the gate is closed because a rule says so. ".repeat(9).trim();
+    const { ui } = await refuseApprove(message);
+    await ui.waitFor("approve DIPO-12: gate.refused");
+    const rows = tickerRows(ui.frame());
+    expect(rows).toHaveLength(3);
+    expect(rows[0]?.endsWith("…")).toBe(false);
+    expect(rows[1]?.endsWith("…")).toBe(false);
+    expect(rows[2]?.endsWith("…")).toBe(true);
+    expect(lines(ui.frame()).length).toBeLessThanOrEqual(34);
+  });
+
+  it("keeps a short ticker message on one row (DIPO-510)", async () => {
+    const { ui } = await refuseApprove("no");
+    await ui.waitFor("approve DIPO-12: gate.refused");
+    expect(tickerRows(ui.frame())).toEqual(["approve DIPO-12: gate.refused: no"]);
   });
 });
 

@@ -12,6 +12,7 @@ import type { useActions } from "./actions";
 import { Shaded } from "./colour";
 import { footerKeys, type Hint } from "./footer";
 import { Frame, frameRows } from "./frame";
+import { tickerLines } from "./format";
 import { type Home, HomeMode } from "./home";
 import { inSwitcherMode, type Mode } from "./mode";
 import { ModeScreen, promptHeight } from "./modes";
@@ -185,7 +186,7 @@ export function Screen(props: ScreenProps) {
   const height = bare
     ? rows - 1
     : rows -
-      frameRows(room !== null, ticker !== null) -
+      frameRows(room !== null, ticker === null ? 0 : tickerLines(ticker, columns - 1).length) -
       panel.length -
       promptHeight(mode, columns) -
       (offline && screen === null ? OFFLINE_LINES : 0);
