@@ -463,6 +463,7 @@ export function runRoleOf(labelled: readonly string[], roles: readonly Role[]): 
     instructions: role.instructions,
     ...(role.model === undefined ? {} : { model: role.model }),
     ...(role.effort === undefined ? {} : { effort: role.effort }),
+    kind: role.kind,
   };
 }
 
@@ -1314,6 +1315,7 @@ export class WorkRun {
           instructions: role.instructions,
           model: role.model ?? null,
           effort: role.effort ?? null,
+          kind: role.kind ?? null,
         },
         model: caps.model,
         startSha: outcome.claim.startSha,

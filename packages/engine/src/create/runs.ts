@@ -25,6 +25,7 @@ import {
   type CommandName,
   type IdSource,
   type OfficeId,
+  type RoleKind,
   RunId,
   type Spawn,
   type StoryKey,
@@ -295,6 +296,14 @@ export interface RunMergePorts {
 }
 
 /** Records a part dipo committed on a box run's branch as a `part` step of the run (DIPO-466). */
+/** A run's role kind for its `PartRun` (DIPO-503); nothing for a code run, or one with no kind. */
+function roleKindOf(run: { readonly roleFile?: { readonly kind?: RoleKind | null } | null }): {
+  readonly roleKind?: RoleKind;
+} {
+  const kind = run.roleFile?.kind;
+  return kind === undefined || kind === null || kind === "code" ? {} : { roleKind: kind };
+}
+
 function partStepRecorder(
   options: RunsOptions,
 ): (run: PartRun, part: { readonly commit: string }) => void {
@@ -743,6 +752,7 @@ function runPathsOf(options: RunsOptions, tmpRoot: string): RunPaths {
         branch: run.branch,
         startSha: run.startSha,
         box: boxName(runId),
+        ...roleKindOf(run),
         ...(paths === null ? {} : { runDir: paths.runDir }),
       };
     },
@@ -1389,6 +1399,7 @@ function mergePortsOf(
           branch: run.branch,
           startSha: run.startSha ?? "",
           box: boxName(run.runId),
+          ...roleKindOf(run),
         },
         merged,
       );

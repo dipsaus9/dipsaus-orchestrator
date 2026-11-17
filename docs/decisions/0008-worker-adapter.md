@@ -115,6 +115,7 @@ Inside the box there are no per-call checks, no permission prompts, no hooks and
 1. On W1, and once more on done, dipo streams the changes since the last delivered part out of the box as one `tar`, leaving the box's `.git` out, into a fresh folder of its own. It never uses `container cp`, which keeps symlinks as links.
 2. dipo scans the part:
    - **Protected files:** the story's task file, CI workflows, dipo's configuration, and the configuration of tools dipo runs on checkouts (`backlog.config.yml`, `.backlog/`, `bunfig.toml`, `.mcp.json`).
+   - **Area:** for a design or docs run (the kind of its role, 0012), every added, changed or deleted path must be in its kind's area (`docs/design/<ID>/` for design; Markdown outside the decisions and designs for docs). A code run has no area check.
    - **Secrets:** values from the files in `box.files`, and token formats.
 
    A hit refuses the part and parks the story `scope-violation`. Such a park is not resumable: the box can no longer be trusted, so the way on is `dipo discard` and a new run.

@@ -42,6 +42,7 @@ import type {
   OfficeId,
   Progress,
   RoleId,
+  RoleKind,
   RunId,
   WorkerLaunchPreview,
   WorkRef,
@@ -232,6 +233,8 @@ export interface RunRole {
   readonly instructions: string;
   readonly model?: string;
   readonly effort?: string;
+  /** The role file's kind (DIPO-503); absent: a code role. */
+  readonly kind?: RoleKind;
 }
 
 /**

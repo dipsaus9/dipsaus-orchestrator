@@ -96,7 +96,8 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
+import { areaText, inArea } from "../gate/area";
+import type { Clock, OfficeId, RoleKind } from "@dipsaus-orchestrator/contract";
 
 import {
   isSecretPartPath,
@@ -218,6 +219,7 @@ export const PART_NOTICES = {
 export const PART_HITS = {
   protectedFile: "protected-file",
   secret: "secret",
+  outsideArea: "outside-area",
 } as const;
 
 // ---- the message ---------------------------------------------------------------------------------
@@ -629,6 +631,14 @@ export function protectedDetail(kinds: readonly ProtectedKind[]): string {
   return `The part the worker delivered changes protected files: ${kinds.map((kind) => PROTECTED_TEXT[kind]).join("; ")}. dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.`;
 }
 
+/**
+ * Pure: the fixed park detail of an outside-area hit (DIPO-503, 0008); it names the run's kind and
+ * its area, never a path.
+ */
+export function outsideAreaDetail(kind: RoleKind, story: string): string {
+  return `The part the worker delivered changes files outside the ${kind} area (${areaText(kind, story)}). dipo committed and pushed nothing, and the change stays in the box. A ${kind} run writes only there.`;
+}
+
 /** Pure: the fixed park detail of a secret hit; it never quotes what matched, nor a path. */
 export function secretDetail(kinds: readonly string[], files: number): string {
   return `The part the worker delivered holds what looks like a secret: ${kinds.join("; ")}, in ${files} ${files === 1 ? "file" : "files"}. dipo committed and pushed nothing, and the files stay in the box.`;
@@ -974,6 +984,8 @@ export interface PartRun {
    * `BoxPartsDeps.listedFiles`.
    */
   readonly runDir?: string;
+  /** The kind of the run's role (DIPO-503); absent: a code run, whose parts have no area check. */
+  readonly roleKind?: RoleKind;
 }
 
 /** What the box's `/work` holds besides the start commit (`BoxParts.changedSinceStart`). */
@@ -1744,6 +1756,21 @@ export class BoxParts {
           hit: PART_HITS.protectedFile,
           detail: protectedDetail(guarded.kinds),
         };
+      }
+      // A design or docs run writes only in its kind's area (0008, DIPO-503).
+      const kind = run.roleKind ?? "code";
+      if (kind !== "code") {
+        const outside = changes
+          .map((change) => change.path)
+          .filter((path) => !inArea(kind, path, run.story));
+        if (outside.length > 0) {
+          this.#hitRecord(run, PART_HITS.outsideArea, outside);
+          return {
+            kind: "hit",
+            hit: PART_HITS.outsideArea,
+            detail: outsideAreaDetail(kind, run.story),
+          };
+        }
       }
       if (changes.length === 0) return { kind: "empty" };
       // The scan runs outside the git queue; only the delivered content it needs is read in it.

@@ -16,6 +16,7 @@ import {
   mkdirSync,
   lstatSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -27,7 +28,7 @@ import { basename, dirname, join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import type { OfficeId, Signal } from "@dipsaus-orchestrator/contract";
+import type { OfficeId, RoleKind, Signal } from "@dipsaus-orchestrator/contract";
 import {
   ManualClock,
   type TempRepoWithRemote,
@@ -41,6 +42,7 @@ import {
   type PartPark,
   type PartRun,
   partStageRoot,
+  outsideAreaDetail,
   protectedDetail,
   refusedDetail,
 } from "../../src/box/parts";
@@ -214,6 +216,8 @@ interface WorldOptions {
   readonly deps?: Partial<BoxPartsDeps>;
   /** Every git call dipo makes on the Mac, recorded (DIPO-346). */
   readonly gitCalls?: GitCall[];
+  /** The kind of the run's role (`PartRun.roleKind`); none: a code run. */
+  readonly roleKind?: RoleKind;
 }
 
 async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Promise<World> {
@@ -272,6 +276,7 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
     startSha,
     box: "dipo-run_1",
     runDir,
+    ...(options.roleKind === undefined ? {} : { roleKind: options.roleKind }),
   };
   const w = {
     repo,
@@ -749,4 +754,102 @@ describe("the story folders, on real git", () => {
       },
       { start: { "backlog.config.yml": "backlog_directory: ../outside\n" } },
     ));
+});
+
+async function nothingMoved(w: World): Promise<void> {
+  expect(await tip(w)).toBe(w.claimTip);
+  expect(await tip(w, "remote")).toBe(w.claimTip);
+}
+
+describe("the area of a design or docs run (DIPO-503, 0008)", () => {
+  it("commits a design run's part in its story's design folder, and parks one outside it", () =>
+    inParts(
+      async (w) => {
+        write(w.work, { "docs/design/DIPO-1/a.md": "# A\n" });
+        await w.parts.onPart(part("Design A"));
+        expect(w.parks).toEqual([]);
+        expect(await tip(w)).not.toBe(w.claimTip);
+        const first = await tip(w);
+        write(w.work, { "packages/a.ts": "export const a = 1;\n" });
+        await w.parts.onPart(part("Code"));
+        expect(w.parks.map((p) => p.reason)).toEqual(["scope-violation"]);
+        expect(await tip(w)).toBe(first);
+        expect(await tip(w, "remote")).toBe(first);
+      },
+      { roleKind: "design" },
+    ));
+
+  it("parks a design run's deletion outside its area", () =>
+    inParts(
+      async (w) => {
+        rmSync(join(w.work, "src/gone.ts"));
+        await w.parts.onPart(part("Delete"));
+        expect(w.parks.map((p) => p.reason)).toEqual(["scope-violation"]);
+        await nothingMoved(w);
+      },
+      { roleKind: "design" },
+    ));
+
+  it("parks a docs run outside its area and commits one inside it", () =>
+    inParts(
+      async (w) => {
+        write(w.work, { "docs/decisions/0001-x.md": "# X\n" });
+        await w.parts.onPart(part("Decide"));
+        expect(w.parks.map((p) => p.reason)).toEqual(["scope-violation"]);
+        await nothingMoved(w);
+        rmSync(join(w.work, "docs/decisions"), { recursive: true });
+        write(w.work, { "README.md": "# Changed\n" });
+        await w.parts.onPart(part("Readme"));
+        expect(w.parks).toHaveLength(1);
+        expect(await tip(w)).not.toBe(w.claimTip);
+      },
+      { roleKind: "docs" },
+    ));
+
+  it("names the kind and the area in the park detail, and the path only in the record", () =>
+    inParts(
+      async (w) => {
+        write(w.work, { "packages/secret-name.ts": "export const a = 1;\n" });
+        await w.parts.onPart(part("Code"));
+        expect(w.parks).toHaveLength(1);
+        const detail = w.parks[0]?.detail ?? "";
+        expect(detail).toBe(outsideAreaDetail("design", "DIPO-1"));
+        expect(detail).toContain("design");
+        expect(detail).toContain("docs/design/DIPO-1/");
+        expect(detail).not.toContain("secret-name");
+        const record = readFileSync(join(w.runDir, "box-parts.ndjson"), "utf8");
+        expect(record).toContain("outside-area");
+        expect(record).toContain("packages/secret-name.ts");
+      },
+      { roleKind: "design" },
+    ));
+
+  it("checks the last part at done too: it parks and does not finish", () =>
+    inParts(
+      async (w) => {
+        write(w.work, { "packages/a.ts": "export const a = 1;\n" });
+        let finished = false;
+        const done = await w.parts.finishLast("run_1", "Finish", async () => {
+          finished = true;
+        });
+        expect(done.outcome.kind).toBe("hit");
+        expect(done.finished).toBeNull();
+        expect(finished).toBe(false);
+        await nothingMoved(w);
+      },
+      { roleKind: "design" },
+    ));
+
+  for (const kind of [undefined, "code"] as const) {
+    it(`commits a part anywhere for a run whose kind is ${kind ?? "not stored"}`, () =>
+      inParts(
+        async (w) => {
+          write(w.work, { "packages/a.ts": "export const a = 1;\n" });
+          await w.parts.onPart(part("Code"));
+          expect(w.parks).toEqual([]);
+          expect(await tip(w)).not.toBe(w.claimTip);
+        },
+        kind === undefined ? {} : { roleKind: kind },
+      ));
+  }
 });

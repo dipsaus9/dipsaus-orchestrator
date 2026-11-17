@@ -15,7 +15,7 @@
 // `parked_ms`. A run ends done, parked or dropped (0020, `lifecycle.ts`); at In Review it stays
 // open. Each end writes its `run_outcomes` row, provisional until Done writes the final one.
 
-import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
+import type { RoleKind, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { parseSafeChainRecord, type SafeChainRecord } from "../box/safe-chain";
 import { appendEntries } from "../changelog/log";
@@ -39,6 +39,8 @@ export interface RunRoleFile {
   readonly instructions: string;
   readonly model: string | null;
   readonly effort: string | null;
+  /** The role's kind (DIPO-503); absent or null: a code run. */
+  readonly kind?: RoleKind | null;
 }
 
 /** What a run starts with (0007). Story fields are null for a session run. */
@@ -135,6 +137,7 @@ interface RunRow {
   role_instructions: string | null;
   role_model: string | null;
   role_effort: string | null;
+  role_kind: string | null;
   gate_changes: string | null;
   safe_chain: string | null;
   ended_at: number | null;
@@ -146,7 +149,7 @@ interface RunRow {
 
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, ci_cap,
   conflict_cap, review_max_turns, review_max_minutes, review_max_tokens, config_hash, override_keys,
-  run_profile_id, started_at, scope, role_instructions, role_model, role_effort, gate_changes,
+  run_profile_id, started_at, scope, role_instructions, role_model, role_effort, role_kind, gate_changes,
   ended_at, end_kind, parked_ms, waiting,
   waiting_since, safe_chain`;
 
@@ -190,7 +193,12 @@ function toRecord(row: RunRow): StoredRun {
     roleFile:
       row.role_instructions === null
         ? null
-        : { instructions: row.role_instructions, model: row.role_model, effort: row.role_effort },
+        : {
+            instructions: row.role_instructions,
+            model: row.role_model,
+            effort: row.role_effort,
+            kind: row.role_kind === null ? null : (row.role_kind as RoleKind),
+          },
     gateChanges: jsonList(row.gate_changes),
     safeChain: row.safe_chain === null ? null : parseSafeChainRecord(row.safe_chain),
     endedAt: row.ended_at,
@@ -210,7 +218,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
        $branch, $budget_unit, $budget_limit, $loop_cap, $max_turns,
        $max_minutes, $review_round_cap, $ci_cap, $conflict_cap, $review_max_turns,
        $review_max_minutes, $review_max_tokens, $config_hash, $override_keys, $run_profile_id,
-       $started_at, $scope, $role_instructions, $role_model, $role_effort, $ended_at, $end_kind, $parked_ms, $waiting, $waiting_since)`,
+       $started_at, $scope, $role_instructions, $role_model, $role_effort, $role_kind, $ended_at, $end_kind, $parked_ms, $waiting, $waiting_since)`,
     {
       ended_at: state.endedAt,
       end_kind: state.ending,
@@ -245,6 +253,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
       role_instructions: run.roleFile?.instructions ?? null,
       role_model: run.roleFile?.model ?? null,
       role_effort: run.roleFile?.effort ?? null,
+      role_kind: run.roleFile?.kind ?? null,
     },
   );
 }
