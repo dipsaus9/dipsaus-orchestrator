@@ -11,7 +11,7 @@ A worker gets a short prompt that code builds from structured data. It does not 
 | Layer | Content | Delivered as | Lives in |
 |---|---|---|---|
 | L0 | Claude Code's default system prompt and tools | Default, with `--exclude-dynamic-system-prompt-sections` | Claude Code |
-| L1 | The worker contract: what dipo does, what the worker sends back through the door (0008), and "facts are pre-fetched, do not re-fetch" | `--append-system-prompt-file`, first part | `engine/src/prompts/contract/<kind>.md` (`box`, `review`) |
+| L1 | The worker contract: what dipo does, what the worker sends back through the door (0008), and "facts are pre-fetched, do not re-fetch". A story run adds the section of its role's kind (`code`, `design`, `docs`: what to deliver, and whether dipo runs the verify at done), from `contract/kind/<kind>.md`, after the shared contract; a run with no stored kind gets `code` | `--append-system-prompt-file`, first part | `engine/src/prompts/contract/<kind>.md` (`box`, `review`) |
 | L2 | Role instructions | The same file, after L1 | A story run: the instructions of the role file its label names (`.dipo/roles/<name>.md`, 0017), as the run stored them at its start; a run started before runs stored them uses the bundled developer instructions. The reviewer, planner, auditor and scanner: engine code |
 | L3 | Project rules | Claude Code's own `CLAUDE.md` and `AGENTS.md` loading | The repository |
 | L4 | The task message: story data, context, handoff, feedback | First user message | `engine/src/prompts/task/` |
@@ -19,7 +19,8 @@ A worker gets a short prompt that code builds from structured data. It does not 
 
 - **Templates.** Templates are logic-free Markdown with named slots. Code decides whether a section appears, fills it, applies budgets and orders it.
 - **Ownership.** L1 and the section templates are engine code; an office cannot override them, because they carry the boundary between code and AI. An office tunes roles, budgets and the context provider.
-- **Golden files.** The rendered L1+L2 and a sample L4 per kind are golden files in tests.
+- **Golden files.** The rendered L1+L2 (one per role kind of a story run) and a sample L4 per kind are golden files in tests.
+- **The area section.** The task message of a design or docs run has an `area` section after `scope` that names, in paths, where the run may write for its story (the one area module the Ready gate and the part check use, 0012). A code run has none. Every later session of a run uses the run's stored kind.
 - **The contract is one short page.** It says what to deliver (code and tests that meet the criteria and the test plan) and how to talk to dipo (a part, done, a question, blocked, a proposal). It explains nothing of dipo's setup: where the setup would surprise a worker, the setup is fixed instead of explained.
 - **Fixed headings.** Sections have fixed headings in XML-like tags (`<story>`, `<criteria>`), so the contract can name them.
 
@@ -131,6 +132,7 @@ Maintainer text is always wrapped in a template and never starts a message, so i
 
 ## Replaced
 
+- One L1 contract that asked every story run for code and tests (2026-10-24). Replaced by the shared contract plus the run kind's section (2026-11-17).
 - Native `--resume`, chosen when context use was under 60% and a re-read cost at most three times a handoff (2026-10-10). Replaced by a handoff in the kept box for every later session (0008, 2026-10-22).
 - Nudges through `PostToolUse` and `SessionStart` hooks: out-of-scope writes, a stale context pack, input changes, 80% of budget (2026-10-10). Removed (2026-10-24): the developer has no hooks, and the budget line plus L1's wrap-up rule cover the budget.
 - The scope contract "you may write only these paths", the no-git and no-`cd` rules, scope requests and lockfile pairing (2026-10-10, 2026-10-16). Replaced by references as a forecast and parts (0008, 2026-10-21).

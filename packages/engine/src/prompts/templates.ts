@@ -3,6 +3,9 @@
 // template never holds a conditional or a loop; `templateProblems` is the check the tests run
 // over every template file.
 
+import codeKind from "./contract/kind/code.md" with { type: "text" };
+import designKind from "./contract/kind/design.md" with { type: "text" };
+import docsKind from "./contract/kind/docs.md" with { type: "text" };
 import auditBoxContract from "./contract/audit-box.md" with { type: "text" };
 import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
 import planningBoxContract from "./contract/planning-box.md" with { type: "text" };
@@ -16,6 +19,7 @@ import developerRole from "./roles/developer.md" with { type: "text" };
 import plannerRole from "./roles/planner.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
 import scannerRole from "./roles/scanner.md" with { type: "text" };
+import area from "./task/area.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
 import auditIdea from "./task/audit-idea.md" with { type: "text" };
 import audit from "./task/audit.md" with { type: "text" };
@@ -65,6 +69,9 @@ export const CONTRACT_TEMPLATES = {
 } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
+/** The `What to deliver` section of the `implement-box` contract by the run's role kind (DIPO-504). */
+export const KIND_SECTIONS = { code: codeKind, design: designKind, docs: docsKind } as const;
+
 /**
  * The L2 roles that stay engine code (0001): `reviewer`, used only by the `review-box` kind and
  * never named by a story (0002). A story runs as the role file its label names (DIPO-477).
@@ -98,6 +105,8 @@ export const TASK_TEMPLATES = {
   story,
   criteria,
   scope,
+  // The area a design or docs run may write for its story (DIPO-504).
+  area,
   // The box worker's scope section: References are a forecast (0008, DIPO-272).
   scopeBox,
   testPlan,
@@ -190,6 +199,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "story",
   "criteria",
   "scope",
+  "area",
   "test_plan",
   "answers",
   "instructions",

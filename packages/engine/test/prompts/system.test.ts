@@ -5,10 +5,12 @@ import { describe, expect, it } from "bun:test";
 import {
   CONTRACT_TEMPLATES,
   DEVELOPER_SEED,
+  KIND_SECTIONS,
   measurePart,
   renderSystemFile,
 } from "../../src/prompts";
 import { normaliseNewlines } from "../../src/prompts/templates";
+import type { RoleKind } from "@dipsaus-orchestrator/contract";
 import { expectGolden } from "./helpers";
 
 /** The one number the contract may hold: the wrap-up rule (DIPO-256) says "about 80% of any cap". */
@@ -55,7 +57,6 @@ describe("box worker system file", () => {
     expect(contract.length).toBeLessThanOrEqual(ONE_PAGE_CHARACTERS);
     expect(contract.split("\n").length).toBeLessThanOrEqual(ONE_PAGE_LINES);
     expect(contract.split("\n").filter((line) => line.startsWith("## "))).toEqual([
-      "## What to deliver",
       "## Messages to dipo",
       "## The task message",
       "## Precedence",
@@ -207,11 +208,48 @@ describe("a part after each criterion (DIPO-466)", () => {
   it("asks for a part after each criterion met with its tests and says a part is cheap", () => {
     const text = renderSystemFile("implement-box", DEVELOPER_SEED);
     expect(text).toContain(
-      '- Part: run `dipo-part "message"` after each criterion you meet with its tests, with one short imperative line that says what it does.',
+      '- Part: run `dipo-part "message"` after each criterion you meet, with one short imperative line that says what it does.',
     );
     expect(text).toContain(
       "A part is cheap: dipo checks the files, commits them on the story branch, and you go on;",
     );
     expect(text).toContain("work not in a part stays in the box when a cap stops you.");
+  });
+});
+
+// DIPO-504 (0014): one shared contract, then the section of the run's role kind, then the role.
+const kindContract = normaliseNewlines(CONTRACT_TEMPLATES["implement-box"]).trim();
+
+describe("the kind section of a story run's system file (DIPO-504)", () => {
+  const roleText = "# Role: writer\n\nWrite well.";
+  const render = (kind: RoleKind | null): string =>
+    renderSystemFile("implement-box", roleText, kind);
+
+  it("puts the code section between the contract and the role, and no kind is code", async () => {
+    const text = render("code");
+    expect(text).toBe(`${kindContract}\n\n${KIND_SECTIONS.code.trim()}\n\n${roleText}\n`);
+    expect(render(null)).toBe(text);
+    await expectGolden("system-implement-box-code.md", render("code"));
+  });
+
+  it("matches a golden file per kind, byte-identical, with no id, date, path or count", async () => {
+    await expectGolden("system-implement-box-design.md", render("design"));
+    await expectGolden("system-implement-box-docs.md", render("docs"));
+    for (const kind of ["code", "design", "docs"] as const) {
+      const text = render(kind);
+      expect(render(kind)).toBe(text);
+      expect(text.replaceAll(WRAP_UP_PERCENT, "")).not.toMatch(/[0-9]/);
+      expect(text.split(/\s+/).filter((token) => /[/\\]/.test(token))).toEqual([]);
+    }
+  });
+
+  it("asks a design or docs run for its documents and not for code, tests or a verify at done", () => {
+    for (const kind of ["design", "docs"] as const) {
+      const section = KIND_SECTIONS[kind];
+      expect(section).toContain("does not run the verify at done");
+      expect(section).toContain("<area>");
+      expect(section).not.toMatch(/\bcode\b|\btests?\b/i);
+      expect(render(kind)).not.toContain("When you report done, dipo runs the verify");
+    }
   });
 });

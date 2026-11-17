@@ -306,6 +306,14 @@ export function sessionRoleText(run: Pick<StoredRun, "roleFile">): string {
   return run.roleFile?.instructions ?? DEVELOPER_SEED;
 }
 
+/**
+ * The system file of a run's session: the box contract with the section of the run's stored role
+ * kind, a code section for a run without one (DIPO-504), then the stored role text.
+ */
+export function sessionSystemFile(run: Pick<StoredRun, "roleFile">): string {
+  return renderSystemFile("implement-box", sessionRoleText(run), run.roleFile?.kind ?? null);
+}
+
 function previousAgent(office: OfficeHandle, runId: string, agent: string): PreviousAgent {
   const cursor = office.get<{ parse_state: string }>(
     `select parse_state from ingest_cursors
@@ -381,7 +389,7 @@ export class RunResumer implements NextSession {
     // Every developer session reads the box contract (DIPO-272, DIPO-342); with box workers every
     // developer session is a box worker's, a run from before them included, whose box is made below.
     const box = deps.boxes !== undefined || existsSync(join(paths.runDir, BOX_RUN_FILE));
-    const systemFile = renderSystemFile("implement-box", sessionRoleText(run));
+    const systemFile = sessionSystemFile(run);
 
     // The handoff message: the new session's task message.
     let handoff: HandoffMessage;
@@ -722,7 +730,7 @@ export class RunResumer implements NextSession {
       baseSha,
       config,
       handoff,
-      role: { instructions: sessionRoleText(run) },
+      role: { instructions: sessionRoleText(run), kind: run.roleFile?.kind ?? null },
       ...(box ? { box: true } : {}),
     });
     return { text: prompts.taskMessage };
