@@ -1,10 +1,10 @@
 ---
 id: DIPO-509
 title: Wrap long open and shell lines in the test overlay
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:51'
+updated_date: '2026-11-17 14:56'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -56,9 +56,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An open line whose URL is longer than the overlay's inner width shows every character of the URL over two or more rows.
-- [ ] #2 A shell line whose command is longer than the overlay's inner width shows every character of the command over two or more rows.
-- [ ] #3 The o opens and c copies hints still show for a wrapped open or shell line.
-- [ ] #4 An open or shell line that fits renders as one row, as before.
-- [ ] #5 c copies the whole command of a wrapped shell line.
+- [x] #1 An open line whose URL is longer than the overlay's inner width shows every character of the URL over two or more rows.
+- [x] #2 A shell line whose command is longer than the overlay's inner width shows every character of the command over two or more rows.
+- [x] #3 The o opens and c copies hints still show for a wrapped open or shell line.
+- [x] #4 An open or shell line that fits renders as one row, as before.
+- [x] #5 c copies the whole command of a wrapped shell line.
 <!-- AC:END -->
