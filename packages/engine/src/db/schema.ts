@@ -16,6 +16,7 @@ import { proxyRefusals } from "./migrations/0011-proxy-refusals";
 import { planningMessages } from "./migrations/0012-planning-messages";
 import { mirrorGateHash } from "./migrations/0013-mirror-gate-hash";
 import { runRoles } from "./migrations/0014-run-roles";
+import { runRoleKind } from "./migrations/0015-run-role-kind";
 
 /**
  * Software-wide tables (0007). Every other table is office-scoped and has `office_id` as the first
@@ -38,4 +39,5 @@ export const MIGRATIONS: readonly Migration[] = [
   planningMessages,
   mirrorGateHash,
   runRoles,
+  runRoleKind,
 ];
