@@ -1,10 +1,10 @@
 ---
 id: DIPO-504
 title: The worker contract gets a section for the run's kind
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 13:29'
-updated_date: '2026-11-17 14:33'
+updated_date: '2026-11-17 14:49'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -27,6 +27,27 @@ references:
   - packages/engine/test/prompts/system.test.ts
   - packages/engine/test/prompts/golden
   - docs/decisions/0014-worker-prompt-assembly.md
+modified_files:
+  - docs/decisions/0014-worker-prompt-assembly.md
+  - packages/engine/src/prompts/assemble.ts
+  - packages/engine/src/prompts/contract.ts
+  - packages/engine/src/prompts/contract/implement-box.md
+  - packages/engine/src/prompts/contract/kind/code.md
+  - packages/engine/src/prompts/contract/kind/design.md
+  - packages/engine/src/prompts/contract/kind/docs.md
+  - packages/engine/src/prompts/index.ts
+  - packages/engine/src/prompts/system.ts
+  - packages/engine/src/prompts/task/area.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/run/prompts.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/test/prompts/golden/system-implement-box-code.md
+  - packages/engine/test/prompts/golden/system-implement-box-design.md
+  - packages/engine/test/prompts/golden/system-implement-box-developer.md
+  - packages/engine/test/prompts/golden/system-implement-box-docs.md
+  - packages/engine/test/prompts/system.test.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/session-system-file.test.ts
 type: feature
 ordinal: 475000
 ---
@@ -72,3 +93,18 @@ test_plan:
 - [x] #6 A run without a stored kind gets the code section in its first session and every later one.
 - [x] #7 Decision 0014 says L1 is the shared contract plus the run kind's section, and describes the area section.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 14:49 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 108,867 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
