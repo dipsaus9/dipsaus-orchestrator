@@ -4,9 +4,33 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { type PlanningProposal, PlanningProposal as Schema } from "@dipsaus-orchestrator/contract";
+import {
+  type PlanningProposal,
+  PlanningProposal as Schema,
+  type PlanningSummary,
+} from "@dipsaus-orchestrator/contract";
 
 import { proposalForm, readProposalForm } from "./proposal-form";
+
+const SUMMARY: PlanningSummary = {
+  notDoing: ["It does not export Done stories"],
+  adrLines: [
+    {
+      file: "docs/decisions/0012-story-standard.md",
+      section: "1. Story fields",
+      quote: "Short name | with a bar",
+      becomes: "Short name, at most 80 characters",
+    },
+    {
+      file: "docs/decisions/0022-planning-sessions.md",
+      section: "1. The session",
+      quote: null,
+      becomes: "A new Summary line",
+    },
+  ],
+  risks: [{ kind: "spend", text: "Each session reads one more file" }],
+};
+const NO_SUMMARY: PlanningSummary = { notDoing: [], adrLines: [], risks: [] };
 
 const STORY: PlanningProposal = {
   kind: "story",
@@ -27,13 +51,14 @@ const STORY: PlanningProposal = {
       { kind: "manual", check: "Export the scratch stories", expect: "One row per story opens" },
     ],
   },
+  summary: SUMMARY,
   why: "The maintainer shares the backlog by hand.",
 };
 
 const SPLIT: PlanningProposal = {
   kind: "split",
   id: "DIPO-30",
-  edit: { criteria: ["Only the JSON export stays here"] },
+  edit: { criteria: ["Only the JSON export stays here"], summary: NO_SUMMARY },
   story: {
     title: "Export the stories as JSON lines",
     type: "spike",
@@ -43,6 +68,7 @@ const SPLIT: PlanningProposal = {
     storyLine: "We need to decide the JSON lines format so that scripts read one story per line.",
     criteria: ["docs/decisions/0030-json-lines.md records the format"],
     references: ["docs/decisions/0030-json-lines.md"],
+    summary: NO_SUMMARY,
   },
   why: "It grew two outputs.",
 };
@@ -52,6 +78,7 @@ const EDIT: PlanningProposal = {
   id: "DIPO-31",
   title: "Rename the export setting everywhere",
   references: ["packages/cli/src/export-command.ts", "docs/export.md"],
+  summary: NO_SUMMARY,
   why: "Two names confuse.",
 };
 
@@ -79,6 +106,21 @@ describe("the proposal form (DIPO-450)", () => {
       expect(read).toEqual({ ok: true, proposal });
       expect(Schema.safeParse(read.ok ? read.proposal : null).success).toBe(true);
     }
+  });
+
+  it("opens and sends the summary unchanged, and takes an edit of it (DIPO-505)", () => {
+    const form = proposalForm(STORY);
+    expect(form).toContain("adrLines:\n- docs/decisions/0012-story-standard.md | 1. Story fields");
+    expect(form).toContain("| (new line) | A new Summary line");
+    expect(readProposalForm(STORY, form)).toEqual({ ok: true, proposal: STORY });
+    const edited = form.replace("- spend: Each", "- tier: Each");
+    const read = readProposalForm(STORY, edited);
+    expect(read.ok && (read.proposal as { summary: PlanningSummary }).summary.risks).toEqual([
+      { kind: "tier", text: "Each session reads one more file" },
+    ]);
+    expect(
+      readProposalForm(STORY, form.replace(/- docs\/decisions\/0012.*\n/, "- x\n")),
+    ).toMatchObject({ ok: false });
   });
 
   it("writes one field per line, lists as items and the context indented", () => {

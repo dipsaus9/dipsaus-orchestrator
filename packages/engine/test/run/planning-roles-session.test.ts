@@ -18,6 +18,7 @@ import {
   planningWorld,
   type PlanningWorld,
   ROSTER_FILES,
+  DECISION_FILES,
   STORY_PROPOSAL,
   until,
 } from "./planning-world";
@@ -223,7 +224,7 @@ describe("the kind of a session and its proposals", () => {
   });
 
   it("reads blocks of an answer against the session's kind", () => {
-    const reads = readProposals(blocksOf(role, STORY_PROPOSAL), facts, "plan");
+    const reads = readProposals(blocksOf(role, STORY_PROPOSAL), facts, "plan", DECISION_FILES);
     expect(reads.map((read) => read.ok)).toEqual([false, true]);
   });
 });

@@ -39,6 +39,7 @@ import {
   PLANNING_KINDS,
   type PlanningProposalView,
   type PlanningQuestionBlock,
+  type PlanningSummary,
   type PlanningView,
   type RunId,
 } from "@dipsaus-orchestrator/contract";
@@ -749,6 +750,70 @@ function firstLine(proposal: PlanningProposalView["proposal"]): string {
   return line.replace(/\s+/g, " ");
 }
 
+/**
+ * The summaries a proposal carries, each with the part it belongs to (DIPO-505); a proposal from an
+ * engine before the summary has none.
+ */
+function summariesOf(
+  proposal: PlanningProposalView["proposal"],
+): { readonly label: string; readonly summary: PlanningSummary }[] {
+  switch (proposal.kind) {
+    case "story":
+    case "refine":
+    case "edit":
+      return proposal.summary === undefined ? [] : [{ label: "", summary: proposal.summary }];
+    case "split":
+      return [
+        { label: "new story ", summary: proposal.story.summary },
+        { label: "edit ", summary: proposal.edit.summary },
+      ].filter((part) => part.summary !== undefined);
+    default:
+      return [];
+  }
+}
+
+/** A card's count line: `2 not doing, 3 ADR lines, 1 risk`. */
+function summaryCounts(proposal: PlanningProposalView["proposal"]): string | null {
+  const all = summariesOf(proposal).map(({ summary }) => summary);
+  if (all.length === 0) return null;
+  const sum = (pick: (summary: PlanningSummary) => number) =>
+    all.reduce((total, summary) => total + pick(summary), 0);
+  const adr = sum((summary) => summary.adrLines.length);
+  const risks = sum((summary) => summary.risks.length);
+  return [
+    `${sum((summary) => summary.notDoing.length)} not doing`,
+    `${adr} ADR ${adr === 1 ? "line" : "lines"}`,
+    `${risks} ${risks === 1 ? "risk" : "risks"}`,
+  ].join(", ");
+}
+
+/** The rows of a focused card's summary: what it does not do, each ADR line, the risks. */
+function summaryRows(
+  proposal: PlanningProposalView["proposal"],
+  width: number,
+  ellipsis: string,
+): Row[] {
+  const rows: Row[] = [];
+  const add = (text: string, role: Role = "fg") =>
+    rows.push({ text: truncate(text, width, ellipsis), role });
+  for (const { label, summary } of summariesOf(proposal)) {
+    add(`    ${label}does not do:`, "dim");
+    if (summary.notDoing.length === 0) add("      none");
+    for (const item of summary.notDoing) add(`      - ${item}`);
+    add(`    ${label}ADR lines that change:`, "dim");
+    if (summary.adrLines.length === 0) add("      none");
+    for (const line of summary.adrLines) {
+      add(`      - ${line.file}, section ${line.section}`);
+      add(`        was: ${line.quote ?? "(new line)"}`, "dim");
+      add(`        becomes: ${line.becomes}`);
+    }
+    add(`    ${label}risks:`, "dim");
+    if (summary.risks.length === 0) add("      none");
+    for (const risk of summary.risks) add(`      - ${risk.kind}: ${risk.text}`);
+  }
+  return rows;
+}
+
 /** One row of the view: its text, and the role it is painted in. */
 export interface Row {
   readonly text: string;
@@ -827,6 +892,10 @@ export function proposalBlocks(
         },
         { text: truncate(`    ${firstLine(item.proposal)}`, width, ellipsis), role: "dim" },
       ];
+      const counts = summaryCounts(item.proposal);
+      if (isFocused) rows.push(...summaryRows(item.proposal, width, ellipsis));
+      else if (counts !== null)
+        rows.push({ text: truncate(`    ${counts}`, width, ellipsis), role: "dim" });
       if (item.state === "failed") {
         rows.push({
           text: truncate(`    failed: ${item.detail ?? "not filed"}`, width, ellipsis),

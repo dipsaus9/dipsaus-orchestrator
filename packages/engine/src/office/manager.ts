@@ -46,6 +46,7 @@ import type { GateRole } from "../gate/types";
 import type { Logger } from "../log/logger";
 import type { MountReader } from "../platform/sqlite";
 import type { RolesView } from "../roles/view";
+import { type BaseDecisions, readBaseDecisions } from "../roles/decisions";
 import { type BaseRoles, readBaseRoles, rosterOf } from "../roles/base";
 import type { SoftwareStream } from "../software-stream";
 import { checkoutFiles } from "../story-store/folder";
@@ -128,6 +129,8 @@ class OfficeInstance {
   fromCheckout = false;
   /** The role files last read from the base (DIPO-471); empty until the base has a commit. */
   roles: BaseRoles = { roles: [], problems: [], files: new Map() };
+  /** The decision files last read from the base (DIPO-505); empty until the base has a commit. */
+  decisions: BaseDecisions = { commit: "", files: new Map() };
 
   constructor(
     readonly officeId: OfficeId,
@@ -540,6 +543,8 @@ export class OfficeManager implements OfficeDirectory {
    * of the roster; nothing else changes. No base yet keeps the roster as it is.
    */
   async #readRoles(instance: OfficeInstance, git: OfficeGit): Promise<void> {
+    const decisions = await readBaseDecisions(git, instance.decisions.commit).catch(() => null);
+    if (decisions !== null) instance.decisions = decisions;
     const read = await readBaseRoles(git);
     if (read === null) return;
     const before = instance.roles.files;
@@ -564,6 +569,11 @@ export class OfficeManager implements OfficeDirectory {
   /** The text of every role file on the base of `office`, by path; undefined when it is not loaded (DIPO-474). */
   roleFiles(office: OfficeId): ReadonlyMap<string, string | undefined> | undefined {
     return this.#instances.get(office)?.roles.files;
+  }
+
+  /** The text of every decision file on the base of `office`, by path; undefined when it is not loaded (DIPO-505). */
+  decisionFiles(office: OfficeId): ReadonlyMap<string, string | undefined> | undefined {
+    return this.#instances.get(office)?.decisions.files;
   }
 
   /** The roles and the refused role files of `office` for `office.roles` (DIPO-473). */

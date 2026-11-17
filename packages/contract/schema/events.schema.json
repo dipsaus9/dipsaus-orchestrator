@@ -3807,6 +3807,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -3825,6 +3913,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -3905,6 +3994,94 @@
                             "type": "string",
                             "pattern": "^[a-z][a-z0-9-]*$"
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "the summary of this edit, shown on its card only"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -3913,7 +4090,7 @@
                             "description": "one line of why"
                           }
                         },
-                        "required": ["kind", "id", "why"],
+                        "required": ["kind", "id", "summary", "why"],
                         "additionalProperties": false
                       },
                       {
@@ -3994,8 +4171,97 @@
                                 "description": "the role that runs the story from now on, one of the office's roster",
                                 "type": "string",
                                 "pattern": "^[a-z][a-z0-9-]*$"
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "the summary of this edit, shown on its card only"
                               }
                             },
+                            "required": ["summary"],
                             "additionalProperties": false,
                             "description": "the changes to the task that is split"
                           },
@@ -4145,6 +4411,94 @@
                                     "additionalProperties": false
                                   }
                                 ]
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "what the story leaves out, the decision lines it changes, its risks"
                               }
                             },
                             "required": [
@@ -4155,7 +4509,8 @@
                               "role",
                               "storyLine",
                               "criteria",
-                              "references"
+                              "references",
+                              "summary"
                             ],
                             "additionalProperties": false,
                             "description": "the new story split off it"
@@ -4327,6 +4682,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -4346,6 +4789,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -5050,6 +5494,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -5068,6 +5600,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -5148,6 +5681,94 @@
                             "type": "string",
                             "pattern": "^[a-z][a-z0-9-]*$"
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "the summary of this edit, shown on its card only"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -5156,7 +5777,7 @@
                             "description": "one line of why"
                           }
                         },
-                        "required": ["kind", "id", "why"],
+                        "required": ["kind", "id", "summary", "why"],
                         "additionalProperties": false
                       },
                       {
@@ -5237,8 +5858,97 @@
                                 "description": "the role that runs the story from now on, one of the office's roster",
                                 "type": "string",
                                 "pattern": "^[a-z][a-z0-9-]*$"
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "the summary of this edit, shown on its card only"
                               }
                             },
+                            "required": ["summary"],
                             "additionalProperties": false,
                             "description": "the changes to the task that is split"
                           },
@@ -5388,6 +6098,94 @@
                                     "additionalProperties": false
                                   }
                                 ]
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "what the story leaves out, the decision lines it changes, its risks"
                               }
                             },
                             "required": [
@@ -5398,7 +6196,8 @@
                               "role",
                               "storyLine",
                               "criteria",
-                              "references"
+                              "references",
+                              "summary"
                             ],
                             "additionalProperties": false,
                             "description": "the new story split off it"
@@ -5570,6 +6369,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -5589,6 +6476,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -6280,6 +7168,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -6298,6 +7274,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -6378,6 +7355,94 @@
                             "type": "string",
                             "pattern": "^[a-z][a-z0-9-]*$"
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "the summary of this edit, shown on its card only"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -6386,7 +7451,7 @@
                             "description": "one line of why"
                           }
                         },
-                        "required": ["kind", "id", "why"],
+                        "required": ["kind", "id", "summary", "why"],
                         "additionalProperties": false
                       },
                       {
@@ -6467,8 +7532,97 @@
                                 "description": "the role that runs the story from now on, one of the office's roster",
                                 "type": "string",
                                 "pattern": "^[a-z][a-z0-9-]*$"
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "the summary of this edit, shown on its card only"
                               }
                             },
+                            "required": ["summary"],
                             "additionalProperties": false,
                             "description": "the changes to the task that is split"
                           },
@@ -6618,6 +7772,94 @@
                                     "additionalProperties": false
                                   }
                                 ]
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "what the story leaves out, the decision lines it changes, its risks"
                               }
                             },
                             "required": [
@@ -6628,7 +7870,8 @@
                               "role",
                               "storyLine",
                               "criteria",
-                              "references"
+                              "references",
+                              "summary"
                             ],
                             "additionalProperties": false,
                             "description": "the new story split off it"
@@ -6800,6 +8043,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -6819,6 +8150,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -7532,6 +8864,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -7550,6 +8970,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -7630,6 +9051,94 @@
                             "type": "string",
                             "pattern": "^[a-z][a-z0-9-]*$"
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "the summary of this edit, shown on its card only"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -7638,7 +9147,7 @@
                             "description": "one line of why"
                           }
                         },
-                        "required": ["kind", "id", "why"],
+                        "required": ["kind", "id", "summary", "why"],
                         "additionalProperties": false
                       },
                       {
@@ -7719,8 +9228,97 @@
                                 "description": "the role that runs the story from now on, one of the office's roster",
                                 "type": "string",
                                 "pattern": "^[a-z][a-z0-9-]*$"
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "the summary of this edit, shown on its card only"
                               }
                             },
+                            "required": ["summary"],
                             "additionalProperties": false,
                             "description": "the changes to the task that is split"
                           },
@@ -7870,6 +9468,94 @@
                                     "additionalProperties": false
                                   }
                                 ]
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "what the story leaves out, the decision lines it changes, its risks"
                               }
                             },
                             "required": [
@@ -7880,7 +9566,8 @@
                               "role",
                               "storyLine",
                               "criteria",
-                              "references"
+                              "references",
+                              "summary"
                             ],
                             "additionalProperties": false,
                             "description": "the new story split off it"
@@ -8052,6 +9739,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -8071,6 +9846,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -8780,6 +10556,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -8798,6 +10662,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false
@@ -8878,6 +10743,94 @@
                             "type": "string",
                             "pattern": "^[a-z][a-z0-9-]*$"
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "the summary of this edit, shown on its card only"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -8886,7 +10839,7 @@
                             "description": "one line of why"
                           }
                         },
-                        "required": ["kind", "id", "why"],
+                        "required": ["kind", "id", "summary", "why"],
                         "additionalProperties": false
                       },
                       {
@@ -8967,8 +10920,97 @@
                                 "description": "the role that runs the story from now on, one of the office's roster",
                                 "type": "string",
                                 "pattern": "^[a-z][a-z0-9-]*$"
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "the summary of this edit, shown on its card only"
                               }
                             },
+                            "required": ["summary"],
                             "additionalProperties": false,
                             "description": "the changes to the task that is split"
                           },
@@ -9118,6 +11160,94 @@
                                     "additionalProperties": false
                                   }
                                 ]
+                              },
+                              "summary": {
+                                "type": "object",
+                                "properties": {
+                                  "notDoing": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$"
+                                    },
+                                    "description": "one line each: what the story does not do; empty for none"
+                                  },
+                                  "adrLines": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "file": {
+                                          "type": "string",
+                                          "maxLength": 200,
+                                          "description": "the decision file, under docs/decisions/"
+                                        },
+                                        "section": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "the heading or number of its section"
+                                        },
+                                        "quote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 500,
+                                              "pattern": "^[^\\r\\n]*$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "the current text, word for word within one line of the file; null for a new line"
+                                        },
+                                        "becomes": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the line becomes"
+                                        }
+                                      },
+                                      "required": ["file", "section", "quote", "becomes"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "every decision line the story changes; empty for none"
+                                  },
+                                  "risks": {
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guard-loosened", "spend", "tier", "other"],
+                                          "description": "what the risk is about"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "one line"
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    },
+                                    "description": "the risks and choices; empty for none"
+                                  }
+                                },
+                                "required": ["notDoing", "adrLines", "risks"],
+                                "additionalProperties": false,
+                                "description": "what the story leaves out, the decision lines it changes, its risks"
                               }
                             },
                             "required": [
@@ -9128,7 +11258,8 @@
                               "role",
                               "storyLine",
                               "criteria",
-                              "references"
+                              "references",
+                              "summary"
                             ],
                             "additionalProperties": false,
                             "description": "the new story split off it"
@@ -9300,6 +11431,94 @@
                               }
                             ]
                           },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "notDoing": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\r\\n]*$"
+                                },
+                                "description": "one line each: what the story does not do; empty for none"
+                              },
+                              "adrLines": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "type": "string",
+                                      "maxLength": 200,
+                                      "description": "the decision file, under docs/decisions/"
+                                    },
+                                    "section": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "the heading or number of its section"
+                                    },
+                                    "quote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "the current text, word for word within one line of the file; null for a new line"
+                                    },
+                                    "becomes": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "what the line becomes"
+                                    }
+                                  },
+                                  "required": ["file", "section", "quote", "becomes"],
+                                  "additionalProperties": false
+                                },
+                                "description": "every decision line the story changes; empty for none"
+                              },
+                              "risks": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": ["guard-loosened", "spend", "tier", "other"],
+                                      "description": "what the risk is about"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^[^\\r\\n]*$",
+                                      "description": "one line"
+                                    }
+                                  },
+                                  "required": ["kind", "text"],
+                                  "additionalProperties": false
+                                },
+                                "description": "the risks and choices; empty for none"
+                              }
+                            },
+                            "required": ["notDoing", "adrLines", "risks"],
+                            "additionalProperties": false,
+                            "description": "what the story leaves out, the decision lines it changes, its risks"
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -9319,6 +11538,7 @@
                           "storyLine",
                           "criteria",
                           "references",
+                          "summary",
                           "why"
                         ],
                         "additionalProperties": false

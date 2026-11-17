@@ -16,6 +16,7 @@ import {
   PlanningProposal,
   type PlanningEditFields,
   type PlanningStoryFields,
+  type PlanningSummary,
 } from "@dipsaus-orchestrator/contract";
 
 import { cleanDoorStrings, doorKeysClean } from "../box/door";
@@ -160,11 +161,51 @@ function kindProblems(proposal: PlanningProposal, sessionKind: string | undefine
   return [];
 }
 
+/** The text of the decision files on the base, by path (DIPO-505). */
+export type DecisionFiles = ReadonlyMap<string, string | undefined>;
+
+const DECISION_PATH = /^docs\/decisions\/[^/]+\.md$/;
+
+/**
+ * The problems of a summary's ADR lines (DIPO-505): the file is a decision file, and a quote is word
+ * for word within one line of it at the base's tip. Each problem names the file and the section.
+ */
+function summaryProblems(
+  summary: PlanningSummary,
+  decisions: DecisionFiles | undefined,
+  where: string,
+): string[] {
+  const problems: string[] = [];
+  for (const [index, line] of summary.adrLines.entries()) {
+    const at = `${where}.adrLines.${index}`;
+    const named = `${line.file}, section ${line.section}`;
+    if (!DECISION_PATH.test(line.file)) {
+      problems.push(`${at}: ${named}: the file must be a .md file directly under docs/decisions/`);
+      continue;
+    }
+    if (line.quote === null) continue;
+    if (decisions === undefined) {
+      problems.push(`${at}: the decision files are not loaded yet; try again soon`);
+      continue;
+    }
+    const text = decisions.get(line.file);
+    if (text === undefined) {
+      problems.push(`${at}: ${named}: the file is not on the base`);
+    } else if (!text.split(/\r?\n/).some((row) => row.includes(line.quote as string))) {
+      problems.push(
+        `${at}: ${named}: the quote is not word for word within one line of the file at the base`,
+      );
+    }
+  }
+  return problems;
+}
+
 /** The engine's checks beyond the schema: the Story lines (0012 R05) and the roles (DIPO-474). */
 export function proposalProblems(
   proposal: PlanningProposal,
   roles?: RoleFacts,
   sessionKind?: string,
+  decisions?: DecisionFiles,
 ): string[] {
   const refused = kindProblems(proposal, sessionKind);
   if (refused.length > 0) return refused;
@@ -177,11 +218,13 @@ export function proposalProblems(
       return [
         ...lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine"),
         ...rosterProblems(proposal.role, roles, "role"),
+        ...summaryProblems(proposal.summary, decisions, "summary"),
       ];
     case "edit":
       return [
         ...lineProblems(proposal.storyLine, isSpikeLine(proposal.storyLine), "storyLine"),
         ...(proposal.role === undefined ? [] : rosterProblems(proposal.role, roles, "role")),
+        ...summaryProblems(proposal.summary, decisions, "summary"),
       ];
     case "split":
       return [
@@ -199,11 +242,14 @@ export function proposalProblems(
         ...(proposal.edit.role === undefined
           ? []
           : rosterProblems(proposal.edit.role, roles, "edit.role")),
+        ...summaryProblems(proposal.story.summary, decisions, "story.summary"),
+        ...summaryProblems(proposal.edit.summary, decisions, "edit.summary"),
       ];
     case "refine":
       return [
         ...lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine"),
         ...rosterProblems(proposal.role, roles, "role"),
+        ...summaryProblems(proposal.summary, decisions, "summary"),
       ];
     case "drop":
       return [];
@@ -220,6 +266,7 @@ export function checkProposal(
   value: unknown,
   roles?: RoleFacts,
   sessionKind?: string,
+  decisions?: DecisionFiles,
 ): ProposalRead {
   if (!doorKeysClean(value)) {
     return { ok: false, problems: ["a key holds characters dipo does not accept"] };
@@ -233,7 +280,7 @@ export function checkProposal(
       ),
     };
   }
-  const problems = proposalProblems(parsed.data, roles, sessionKind);
+  const problems = proposalProblems(parsed.data, roles, sessionKind, decisions);
   return problems.length > 0 ? { ok: false, problems } : { ok: true, proposal: parsed.data };
 }
 
@@ -242,6 +289,7 @@ export function readProposals(
   text: string,
   roles?: RoleFacts,
   sessionKind?: string,
+  decisions?: DecisionFiles,
 ): ProposalRead[] {
   return proposalBlocks(text).map((block): ProposalRead => {
     if (block === null) return { ok: false, problems: ["the block is not closed with ```"] };
@@ -258,7 +306,7 @@ export function readProposals(
       const why = error instanceof Error ? error.message : String(error);
       return { ok: false, problems: [`the block is not one JSON object: ${cleanText(why)}`] };
     }
-    return checkProposal(value, roles, sessionKind);
+    return checkProposal(value, roles, sessionKind, decisions);
   });
 }
 
@@ -299,7 +347,7 @@ export function fileTargetOf(
     milestone: story.milestone.trim(),
     tier: story.tier,
     role: story.role,
-    description: storyDescription(story.storyLine, story.context),
+    description: storyDescription(story.storyLine, story.context, story.summary),
     criteria: story.criteria.map((text) => text.trim()),
     references: [...new Set(story.references)],
     dependencies: [...new Set((story.dependencies ?? []).map((id) => id.toUpperCase()))],

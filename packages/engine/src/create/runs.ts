@@ -139,6 +139,7 @@ export interface RunsOptions {
   /** The office's planning lane, which files a planning session's confirmed proposals (DIPO-450). */
   readonly planningLane?: RunPorts["planningLane"];
   readonly planningRoleFiles?: RunPorts["planningRoleFiles"];
+  readonly planningDecisionFiles?: RunPorts["planningDecisionFiles"];
   /** Reads a process's start time: whether a worker host still runs (DIPO-57). */
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
@@ -1076,6 +1077,9 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     ...(options.planningRoleFiles === undefined
       ? {}
       : { planningRoleFiles: options.planningRoleFiles }),
+    ...(options.planningDecisionFiles === undefined
+      ? {}
+      : { planningDecisionFiles: options.planningDecisionFiles }),
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),

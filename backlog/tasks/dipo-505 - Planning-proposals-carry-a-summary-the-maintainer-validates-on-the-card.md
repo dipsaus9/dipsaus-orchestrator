@@ -1,10 +1,10 @@
 ---
 id: DIPO-505
 title: Planning proposals carry a summary the maintainer validates on the card
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 13:31'
-updated_date: '2026-11-16 14:37'
+updated_date: '2026-11-17 09:15'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -27,6 +27,36 @@ references:
   - packages/tui/src/proposal-form.test.ts
   - docs/decisions/0022-planning-sessions.md
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0012-story-standard.md
+  - docs/decisions/0022-planning-sessions.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/roles/decisions.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/run/planning-confirm-ready.test.ts
+  - packages/engine/test/run/planning-dependencies.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-proposals.test.ts
+  - packages/engine/test/run/planning-role-change.test.ts
+  - packages/engine/test/run/planning-roles-session.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/proposal-form.test.ts
+  - packages/tui/src/proposal-form.ts
 type: feature
 ordinal: 476000
 ---
@@ -74,14 +104,46 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story, split, refine or edit proposal without a summary is refused, and one whose three lists are empty passes.
-- [ ] #2 A summary quote that is not word for word within one line of its decision file at the base's tip is refused, and the problem names the file and the section.
-- [ ] #3 An adrLines entry whose file is not under docs/decisions/ is refused.
-- [ ] #4 The maintainer's edit of a proposal gets the same quote check.
-- [ ] #5 A filed story, the new story of a split and a refined draft hold the three summary sections below their context.
-- [ ] #6 A confirmed edit does not write its summary into the story.
-- [ ] #7 The focused card shows the Story line, what it does not do, each ADR line with its quote and what it becomes, and the risks with their kinds.
-- [ ] #8 Every other card shows its head, its Story line and one count line of the three parts.
-- [ ] #9 The edit form opens and sends the summary unchanged when the maintainer does not touch it.
-- [ ] #10 Decision 0022 line 24 and a new Summary line, and 0012 F3, describe the summary as the context of this story says.
+- [x] #1 A story, split, refine or edit proposal without a summary is refused, and one whose three lists are empty passes.
+- [x] #2 A summary quote that is not word for word within one line of its decision file at the base's tip is refused, and the problem names the file and the section.
+- [x] #3 An adrLines entry whose file is not under docs/decisions/ is refused.
+- [x] #4 The maintainer's edit of a proposal gets the same quote check.
+- [x] #5 A filed story, the new story of a split and a refined draft hold the three summary sections below their context.
+- [x] #6 A confirmed edit does not write its summary into the story.
+- [x] #7 The focused card shows the Story line, what it does not do, each ADR line with its quote and what it becomes, and the risks with their kinds.
+- [x] #8 Every other card shows its head, its Story line and one count line of the three parts.
+- [x] #9 The edit form opens and sends the summary unchanged when the maintainer does not touch it.
+- [x] #10 Decision 0022 line 24 and a new Summary line, and 0012 F3, describe the summary as the context of this story says.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-16 16:59 UTC: budget-exceeded
+- Detail: time cap reached: 119 of 90 minutes since the worker started
+- Run: run_01M7JDX81QJGBAPD44E96XSWQ3
+- Criteria met: 0 of 10 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 299,502 of 800,000 tokens; 54 of 200 turns; 119 of 90 minutes
+- Last good commit: bc6d95822e2545b0459855a18f27c612e6125fcd
+
+Resumed 2026-11-17 08:57 UTC; grants: budget +800,000 tokens, +200 turns, +90 minutes; note: Continue
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 09:15 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 539,867 of 1,600,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-16 16:59 UTC budget-exceeded: time cap reached: 119 of 90 minutes since the worker started
+- Grants: 1
+  - 2026-11-17 08:57 UTC budget +800,000 tokens, +200 turns, +90 minutes
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

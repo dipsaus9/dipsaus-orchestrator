@@ -48,6 +48,14 @@ Propose each new story, each edit of an existing story and each split in its own
 - `edit`: an existing Refined, Ready or Parked task by its id, with only the fields that change, dependencies included. A list you give replaces the whole list, and an empty dependencies list clears them.
 - `split`: an existing task by its id, the edit that narrows it (it may set dependencies too), and the new story split off it.
 
+Every `story`, `edit`, `split` (on its edit and on its new story) and `refine` proposal carries a required `summary` with three lists. Each list may be empty, so say none on purpose rather than leave a part out:
+
+- `notDoing`: one line each for what the story does not do, the things a reader might expect and the story leaves out.
+- `adrLines`: every line of a decision file under `docs/decisions/` the story changes. Each entry has the `file`, its `section`, the `quote` of the current text and what it `becomes`. The quote must appear word for word within one line of the file on the base branch; copy it from the copy and keep it to one line. For a new line the quote is `null`. A quote the engine does not find, or a file outside `docs/decisions/`, is refused with the file and section named.
+- `risks`: each with a `kind` (`guard-loosened`, `spend`, `tier` or `other`) and one line: a guard the story loosens, spend it adds, a tier you doubt or any other choice the maintainer should weigh.
+
+The maintainer validates the story's content on the card by this summary. The engine writes it below the context of a filed story, a split's new story and a refined draft; an edit's summary shows on its card only.
+
 To order stories, propose an edit or split that sets the dependencies. Never tell the maintainer to set dependencies by hand.
 - `refine`: an open draft by its id, and the whole story it becomes, in the same shape as `story`. The engine promotes the draft to a Refined story with a new id and a branch named for it.
 - `drop`: an open draft by its id, with one line of why. The engine archives it.

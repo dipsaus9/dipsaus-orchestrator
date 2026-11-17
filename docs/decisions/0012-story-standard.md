@@ -12,7 +12,7 @@ A story has a fixed set of fields, stored natively in Backlog.md where possible 
 |---|---|---|---|---|
 | F1 | Id | `DIPO-n`, stable from Refined on; a draft has `DRAFT-n` | Yes | Native id |
 | F2 | Title | Short name | Yes | Native title |
-| F3 | Story | Who wants what, and why, in plain words | Yes | One `Story:` line in the description; technical context goes below it |
+| F3 | Story | Who wants what, and why, in plain words | Yes | One `Story:` line in the description; technical context goes below it, then, for a story a planning session files, the three summary sections `What it does not do`, `ADR lines that change` and `Risks and choices` (0022) |
 | F4 | Acceptance criteria | Done-when statements, one checkable fact each | At least one | Native criteria |
 | F5 | Type | `feature`, `bug`, `enhancement`, `task`, `chore`, `docs`, `spike` | Yes | Native type |
 | F6 | Milestone | The milestone it belongs to (milestones replace epics) | Yes | Native milestone |

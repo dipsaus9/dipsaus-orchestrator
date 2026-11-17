@@ -43,9 +43,44 @@ function planningView(extra: Partial<PlanningView> = {}): PlanningView {
   } as PlanningView;
 }
 
+/** The card of a proposal from an engine before the summary: the mock shows none (DIPO-505). */
+function withoutSummary<T extends { proposal: object }>(card: T): T {
+  const { summary: _summary, ...rest } = card.proposal as { summary?: unknown };
+  return { ...card, proposal: rest };
+}
+
+/** An open story proposal with a summary of every part (DIPO-505). */
+function withSummary(n: number, title: string) {
+  const card = proposal(n, title, "M");
+  return {
+    ...card,
+    proposal: {
+      ...card.proposal,
+      summary: {
+        notDoing: ["It does not export Done stories", "It does not write XML"],
+        adrLines: [
+          {
+            file: "docs/decisions/0012-story-standard.md",
+            section: "1. Story fields",
+            quote: "Short name",
+            becomes: "Short name, at most 80 characters",
+          },
+          {
+            file: "docs/decisions/0022-planning-sessions.md",
+            section: "1. The session",
+            quote: null,
+            becomes: "A new Summary line",
+          },
+        ],
+        risks: [{ kind: "spend", text: "Each session reads one more file" }],
+      },
+    },
+  };
+}
+
 /** A filed story proposal of the planning view (DIPO-451). */
 const filed = (n: number, title: string, story: string) => ({
-  ...proposal(n, title, "M"),
+  ...withoutSummary(proposal(n, title, "M")),
   state: "filed",
   stories: [story],
 });
@@ -65,6 +100,7 @@ const proposal = (n: number, title: string, tier: "S" | "M") => ({
     criteria: ["The export writes one CSV row per active story"],
     references: ["packages/cli/src/export-command.ts"],
     testPlan: { entries: [{ kind: "automated", check: "(unit) one CSV row per story" }] },
+    summary: { notDoing: [], adrLines: [], risks: [] },
     why: `Why ${title}: the maintainer asked for it.`,
   },
   state: "open",
@@ -329,6 +365,36 @@ describe("the planning view", () => {
     });
     await ui.waitFor("proposal 2 edited");
     expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+  });
+
+  it("shows the summary in full on the focused card and as one count line on the others (DIPO-505)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            proposals: [withSummary(1, "Export as CSV"), withSummary(2, "Export as XML")],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui } = await open({ columns: 140, rows: 50, snapshots });
+    await ui.press("5");
+    const unfocused = await ui.waitFor("Export as XML · M");
+    expect(unfocused).toContain("2 not doing, 2 ADR lines, 1 risk");
+    expect(unfocused).not.toContain("It does not export Done stories");
+    await ui.press("up");
+    const frame = await ui.waitFor("▌ ◆ Export as XML · M");
+    expect(frame).toContain("As maintainer I want to export the stories as a CSV file");
+    expect(frame).toContain("- It does not export Done stories");
+    expect(frame).toContain("- docs/decisions/0012-story-standard.md, section 1. Story fields");
+    expect(frame).toContain("was: Short name");
+    expect(frame).toContain("becomes: Short name, at most 80 characters");
+    expect(frame).toContain("was: (new line)");
+    expect(frame).toContain("- spend: Each session reads one more file");
+    // The other card shows its count line only.
+    expect(frame.match(/2 not doing, 2 ADR lines, 1 risk/g)?.length).toBe(1);
   });
 
   it("shows a confirmed proposal as one line and a declined one not at all, and focus moves only over cards (DIPO-487)", async () => {
@@ -799,14 +865,18 @@ describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
             proposals: [
               filed(1, "Copy referenced skills into the box", "DIPO-488"),
               {
-                ...proposal(2, "Refuse a story whose skill is missing", "S"),
+                ...withoutSummary(proposal(2, "Refuse a story whose skill is missing", "S")),
                 proposal: {
-                  ...proposal(2, "Refuse a story whose skill is missing", "S").proposal,
+                  ...withoutSummary(proposal(2, "Refuse a story whose skill is missing", "S"))
+                    .proposal,
                   storyLine:
                     "As maintainer I want the Ready gate to fail when a skill the story names is not in the repository so that a worker never starts without it.",
                 },
               },
-              { ...proposal(3, "Show the skill list in the story card", "S"), state: "filing" },
+              {
+                ...withoutSummary(proposal(3, "Show the skill list in the story card", "S")),
+                state: "filing",
+              },
             ],
           } as Partial<PlanningView>),
         },

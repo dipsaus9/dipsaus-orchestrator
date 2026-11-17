@@ -28,12 +28,14 @@ import {
   commandContext,
   planningWorld,
   ROSTER_FILES,
+  DECISION_FILES,
+  NO_SUMMARY,
   STORY_PROPOSAL,
   until,
 } from "./planning-world";
 
 const edit = (id: string, fields: Record<string, unknown>) =>
-  ({ kind: "edit", id, ...fields, why: "Another role fits." }) as const;
+  ({ kind: "edit", id, summary: NO_SUMMARY, ...fields, why: "Another role fits." }) as const;
 
 let current: ReadonlyMap<string, string | undefined>;
 const ROSTER = new Map([
@@ -90,11 +92,21 @@ const { kind: _kind, why: _why, ...NEW_STORY } = STORY_PROPOSAL;
 
 describe("a planning edit that changes the role (DIPO-478)", () => {
   it("accepts an edit and a split edit with only a role, and refuses an edit with no field", () => {
-    expect(checkProposal(edit("TASK-2", { role: "writer" }), roles).ok).toBe(true);
+    expect(
+      checkProposal(edit("TASK-2", { role: "writer" }), roles, undefined, DECISION_FILES).ok,
+    ).toBe(true);
     expect(
       checkProposal(
-        { kind: "split", id: "TASK-2", edit: { role: "writer" }, story: NEW_STORY, why: "w" },
+        {
+          kind: "split",
+          id: "TASK-2",
+          edit: { role: "writer", summary: NO_SUMMARY },
+          story: NEW_STORY,
+          why: "w",
+        },
         roles,
+        undefined,
+        DECISION_FILES,
       ).ok,
     ).toBe(true);
     expect(checkProposal(edit("TASK-2", {}), roles).ok).toBe(false);
@@ -105,7 +117,13 @@ describe("a planning edit that changes the role (DIPO-478)", () => {
       async (repo) => {
         const { s, w, ctx } = await setup(repo, [
           edit("TASK-2", { role: "writer" }),
-          { kind: "split", id: "TASK-2", edit: { role: "writer" }, story: NEW_STORY, why: "w" },
+          {
+            kind: "split",
+            id: "TASK-2",
+            edit: { role: "writer", summary: NO_SUMMARY },
+            story: NEW_STORY,
+            why: "w",
+          },
         ]);
         // The roster loses the role between the proposal and the confirm.
         current = ROSTER_FILES;

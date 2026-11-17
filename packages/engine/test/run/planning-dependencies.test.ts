@@ -22,10 +22,17 @@ import {
 import { CommandError } from "../../src/commands/errors";
 import { BACKLOG_FIXTURE, laneSetup, publish, taskFile } from "../backlog/lane/helpers";
 import { pass, task } from "../stories/helpers";
-import { blocksOf, commandContext, planningWorld, STORY_PROPOSAL, until } from "./planning-world";
+import {
+  blocksOf,
+  commandContext,
+  NO_SUMMARY,
+  planningWorld,
+  STORY_PROPOSAL,
+  until,
+} from "./planning-world";
 
 const edit = (id: string, fields: Record<string, unknown>) =>
-  ({ kind: "edit", id, ...fields, why: "Order the stories." }) as const;
+  ({ kind: "edit", id, summary: NO_SUMMARY, ...fields, why: "Order the stories." }) as const;
 
 /** TASK-3 depends on TASK-1 and TASK-2 in the repository before it is published. */
 function dependTask3(repo: TempRepoWithRemote): void {
@@ -81,7 +88,7 @@ describe("a planning edit that sets dependencies (DIPO-493)", () => {
           {
             kind: "split",
             id: "TASK-2",
-            edit: { dependencies: ["TASK-9"] },
+            edit: { dependencies: ["TASK-9"], summary: NO_SUMMARY },
             story: NEW_STORY,
             why: "w",
           },

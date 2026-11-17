@@ -52,7 +52,11 @@ import {
   commandContext,
   laneGate,
   planningWorld,
+  ADR_FILE,
+  ADR_QUOTE,
+  NO_SUMMARY,
   STORY_PROPOSAL,
+  SUMMARY,
   until,
 } from "./planning-world";
 
@@ -64,6 +68,7 @@ const EDIT = {
     "As maintainer I want the export setting to have one name in every file so that I never guess which name applies.",
   context: "The setting is read in two places today.",
   criteria: ["The setting is called exportFormat in the CLI", "The old name is read once more"],
+  summary: { ...NO_SUMMARY, notDoing: ["It leaves the old name readable in the docs"] },
   references: ["packages/cli/src/export-command.ts"],
   why: "Two names confuse the maintainer.",
 } as const;
@@ -71,7 +76,7 @@ const EDIT = {
 const SPLIT = {
   kind: "split",
   id: "TASK-3",
-  edit: { criteria: ["JSON export writes one object per story"] },
+  edit: { criteria: ["JSON export writes one object per story"], summary: NO_SUMMARY },
   story: {
     title: "Export the stories as JSON lines",
     type: "feature",
@@ -83,6 +88,7 @@ const SPLIT = {
     criteria: ["Each line holds one story as a JSON object"],
     references: ["packages/cli/src/export-command.ts"],
     dependencies: ["TASK-3"],
+    summary: { ...SUMMARY, risks: [{ kind: "tier", text: "A second output may need tier M" }] },
     testPlan: { notApplicable: "Covered by the JSON export's own tests" },
   },
   why: "The JSON export grew two outputs.",
@@ -169,6 +175,14 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         expect(text).toContain("- TASK-1");
         expect(text).toContain(`Story: ${STORY_PROPOSAL.storyLine}`);
         expect(text).toContain("The export reads the base, as the queue does.");
+        expect(text).toContain(
+          "The export reads the base, as the queue does.\n\n## What it does not do\n- It does not change the box",
+        );
+        expect(text).toContain("## ADR lines that change");
+        expect(text).toContain(
+          `- ${ADR_FILE}, 2: "${ADR_QUOTE}" becomes: A new story is filed with its summary`,
+        );
+        expect(text).toContain("## Risks and choices\n- spend: One more model call per proposal");
         expect(text).toContain("- [ ] #1 The export writes one CSV row per active story");
         expect(text).toContain("- [ ] #2 A Done story is left out of it");
         expect(text).toContain("packages/cli/src/export-command.ts");
@@ -198,6 +212,8 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         expect(renamed).toContain("title: Rename the export setting everywhere");
         expect(renamed).toContain(`Story: ${EDIT.storyLine}`);
         expect(renamed).toContain("The setting is read in two places today.");
+        expect(renamed).not.toContain("What it does not do");
+        expect(renamed).not.toContain("leaves the old name readable");
         expect(renamed).not.toContain(
           "so that I never guess which name applies.\n\n```dipo\nunknowns",
         );
@@ -215,6 +231,9 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
         expect(fileOf(worktree, "TASK-5")).toContain("title: Export the stories as JSON lines");
         expect(fileOf(worktree, "TASK-5")).toContain("tier:S");
         expect(fileOf(worktree, "TASK-5")).toContain("role:developer");
+        expect(fileOf(worktree, "TASK-5")).toContain(
+          "## Risks and choices\n- tier: A second output may need tier M",
+        );
         expect(fileOf(worktree, "TASK-3")).toContain(
           "- [ ] #1 JSON export writes one object per story",
         );
