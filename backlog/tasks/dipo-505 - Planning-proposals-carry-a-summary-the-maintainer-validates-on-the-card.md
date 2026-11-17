@@ -1,10 +1,10 @@
 ---
 id: DIPO-505
 title: Planning proposals carry a summary the maintainer validates on the card
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 13:31'
-updated_date: '2026-11-17 08:57'
+updated_date: '2026-11-17 09:01'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -74,16 +74,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story, split, refine or edit proposal without a summary is refused, and one whose three lists are empty passes.
-- [ ] #2 A summary quote that is not word for word within one line of its decision file at the base's tip is refused, and the problem names the file and the section.
-- [ ] #3 An adrLines entry whose file is not under docs/decisions/ is refused.
-- [ ] #4 The maintainer's edit of a proposal gets the same quote check.
-- [ ] #5 A filed story, the new story of a split and a refined draft hold the three summary sections below their context.
-- [ ] #6 A confirmed edit does not write its summary into the story.
-- [ ] #7 The focused card shows the Story line, what it does not do, each ADR line with its quote and what it becomes, and the risks with their kinds.
-- [ ] #8 Every other card shows its head, its Story line and one count line of the three parts.
-- [ ] #9 The edit form opens and sends the summary unchanged when the maintainer does not touch it.
-- [ ] #10 Decision 0022 line 24 and a new Summary line, and 0012 F3, describe the summary as the context of this story says.
+- [x] #1 A story, split, refine or edit proposal without a summary is refused, and one whose three lists are empty passes.
+- [x] #2 A summary quote that is not word for word within one line of its decision file at the base's tip is refused, and the problem names the file and the section.
+- [x] #3 An adrLines entry whose file is not under docs/decisions/ is refused.
+- [x] #4 The maintainer's edit of a proposal gets the same quote check.
+- [x] #5 A filed story, the new story of a split and a refined draft hold the three summary sections below their context.
+- [x] #6 A confirmed edit does not write its summary into the story.
+- [x] #7 The focused card shows the Story line, what it does not do, each ADR line with its quote and what it becomes, and the risks with their kinds.
+- [x] #8 Every other card shows its head, its Story line and one count line of the three parts.
+- [x] #9 The edit form opens and sends the summary unchanged when the maintainer does not touch it.
+- [x] #10 Decision 0022 line 24 and a new Summary line, and 0012 F3, describe the summary as the context of this story says.
 <!-- AC:END -->
 
 ## Implementation Notes
