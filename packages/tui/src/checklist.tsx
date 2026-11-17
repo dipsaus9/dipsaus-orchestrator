@@ -13,7 +13,7 @@ import { Box } from "ink";
 import { wrapWords } from "./format";
 import type { Display } from "./options";
 import { boxGlyphs } from "./palette";
-import { type Seg, type SegLine, fitLine, SegRow, seg, spread } from "./segments";
+import { type Seg, type SegLine, fitLine, lineWidth, SegRow, seg, spread } from "./segments";
 
 /** The measure of the box's text; the box is this and four more columns wide. */
 export const TEST_INNER = 84;
@@ -54,6 +54,31 @@ interface ChecklistProps {
   readonly columns: number;
 }
 
+/**
+ * A labelled value (`open`, `shell`) over as many rows as it needs at the room right of its label,
+ * cut by characters so every character shows; the hint sits on the last row when it fits there,
+ * else on a row of its own.
+ */
+function valueRows(
+  label: string,
+  value: string,
+  paint: (text: string) => Seg,
+  hint: string,
+): SegLine[] {
+  const room = TEST_INNER - label.length;
+  const pieces: string[] = [];
+  for (let at = 0; at < value.length; at += room) pieces.push(value.slice(at, at + room));
+  if (pieces.length === 0) pieces.push("");
+  const rows: Seg[][] = pieces.map((text, i) => [
+    seg(i === 0 ? label : " ".repeat(label.length), "dim"),
+    paint(text),
+  ]);
+  const last = rows.at(-1) ?? [];
+  if (lineWidth(last) + hint.length <= TEST_INNER) last.push(seg(hint, "dim"));
+  else rows.push([seg(" ".repeat(label.length)), seg(hint.trimStart(), "dim")]);
+  return rows;
+}
+
 /** The lines inside the box, each `TEST_INNER` columns of text. */
 export function checklistLines(props: ChecklistProps): SegLine[] {
   const { test, ticked, step, display } = props;
@@ -83,14 +108,17 @@ export function checklistLines(props: ChecklistProps): SegLine[] {
     ),
   ];
   if (test.url !== undefined) {
-    lines.push([
-      seg("open   ", "dim"),
-      { ...seg(test.url, "acc"), underline: true },
-      seg("   o opens", "dim"),
-    ]);
+    lines.push(
+      ...valueRows(
+        "open   ",
+        test.url,
+        (text) => ({ ...seg(text, "acc"), underline: true }),
+        "   o opens",
+      ),
+    );
   }
   if (test.shell !== undefined) {
-    lines.push([seg("shell  ", "dim"), seg(test.shell), seg("          c copies", "dim")]);
+    lines.push(...valueRows("shell  ", test.shell, (text) => seg(text), "          c copies"));
   }
   lines.push(rule);
   if (test.steps.length === 0) lines.push([seg("no manual steps; y passes the test, n fails it")]);

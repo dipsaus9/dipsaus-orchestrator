@@ -242,4 +242,66 @@ describe("the test checklist", () => {
     );
     await ui.waitFor("It closed because a new head was pushed.");
   });
+
+  it("wraps a long URL and a long shell command so every character shows, keeping the hints", async () => {
+    const url = `http://localhost:3000/${"u".repeat(150 - "http://localhost:3000/".length)}`;
+    const shell = `dipo test shell ${"s".repeat(150 - "dipo test shell ".length)}`;
+    const view = await openTestWith({ url, shell });
+    await showChecklist(view);
+    const frame = await view.ui.waitFor("c copies");
+    // Each value is cut over two rows at the room right of its label (77 and 73 characters).
+    expect(frame).toContain(url.slice(0, 77));
+    expect(frame).toContain(url.slice(77));
+    expect(frame).toContain(shell.slice(0, 77));
+    expect(frame).toContain(shell.slice(77));
+    expect(frame).toContain("o opens");
+    expect(frame).toContain("c copies");
+  });
+
+  it("copies the whole shell command of a wrapped shell line", async () => {
+    const shell = `dipo test shell ${"s".repeat(150 - "dipo test shell ".length)}`;
+    const view = await openTestWith({ shell });
+    await showChecklist(view);
+    await view.ui.waitFor("c copies");
+    await view.ui.press("c");
+    await until(() => view.copied.length === 1, "the copy");
+    expect(view.copied).toEqual([shell]);
+  });
+
+  it("keeps a short URL and a short shell command on one row each", async () => {
+    const view = await openTestWith({
+      url: "http://localhost:3000",
+      shell: "dipo test shell DIPO-19",
+    });
+    await showChecklist(view);
+    const frame = await view.ui.waitFor("c copies");
+    const lines = frame.split("\n");
+    expect(lines.some((line) => line.includes("open   http://localhost:3000   o opens"))).toBe(
+      true,
+    );
+    expect(
+      lines.some((line) => line.includes("shell  dipo test shell DIPO-19          c copies")),
+    ).toBe(true);
+  });
 });
+
+/** The TUI with DIPO-19's test open, carrying `extra` on its `test.started`. */
+async function openTestWith(extra: Record<string, unknown>) {
+  const view = await mount({ columns: 120, rows: 30 });
+  mounted.push(view.ui);
+  await view.ui.waitFor("daemon live");
+  view.session.active(STREAM)?.options.onEvent(
+    event(20, "test.started", {
+      test: TEST_19,
+      story: "DIPO-19",
+      key: KEY_19,
+      checkout: "dipo-test-19",
+      head: "9f8e7d6c5b4a3210",
+      steps,
+      startedAt: "2026-10-14T10:03:00.000Z",
+      ...extra,
+    }),
+  );
+  await Bun.sleep(BATCH_MS + 50);
+  return view;
+}
