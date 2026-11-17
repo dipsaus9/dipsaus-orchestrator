@@ -1,10 +1,10 @@
 ---
 id: DIPO-509
 title: Wrap long open and shell lines in the test overlay
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:40'
+updated_date: '2026-11-17 14:51'
 labels:
   - 'tier:S'
   - 'role:developer'
