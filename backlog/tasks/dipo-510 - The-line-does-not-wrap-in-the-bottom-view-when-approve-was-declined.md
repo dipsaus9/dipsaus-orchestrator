@@ -1,10 +1,10 @@
 ---
 id: DIPO-510
 title: Wrap a long message in the ticker under the body
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 10:15'
-updated_date: '2026-11-17 14:40'
+updated_date: '2026-11-17 14:51'
 labels:
   - 'tier:S'
   - 'role:developer'
