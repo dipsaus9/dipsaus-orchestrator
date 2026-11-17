@@ -1,10 +1,10 @@
 ---
 id: DIPO-508
 title: 'Say Ideas rejected in the retro, not Ideas the audit rejected'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:40'
+updated_date: '2026-11-17 15:12'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -15,6 +15,11 @@ references:
   - packages/engine/test/records/retro.test.ts
   - packages/tui/src/retro.test.tsx
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0022-planning-sessions.md
+  - packages/engine/src/records/retro.ts
+  - packages/engine/test/records/retro.test.ts
+  - packages/tui/src/retro.test.tsx
 type: bug
 ---
 
@@ -52,8 +57,23 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The retro's heading line for rejected ideas reads Ideas rejected: N, where N counts every rejected idea, by code and by the audit.
-- [ ] #2 Each reason line under the heading still says which one, the code check or the audit, rejected it.
-- [ ] #3 No source or test file under packages holds the text Ideas the audit rejected.
-- [ ] #4 Decision 0022 section 4 says the retro shows the ideas rejected by code or by the audit, with their reasons.
+- [x] #1 The retro's heading line for rejected ideas reads Ideas rejected: N, where N counts every rejected idea, by code and by the audit.
+- [x] #2 Each reason line under the heading still says which one, the code check or the audit, rejected it.
+- [x] #3 No source or test file under packages holds the text Ideas the audit rejected.
+- [x] #4 Decision 0022 section 4 says the retro shows the ideas rejected by code or by the audit, with their reasons.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 15:12 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 20,516 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

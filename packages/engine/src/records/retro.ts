@@ -253,7 +253,7 @@ export function retroLines(parts: Omit<Retro, "lines" | "office">): string[] {
       : `Rework: ${rework} of ${merged} merged stories (${Math.round((rework / merged) * 100)}%) changed mostly files another story changed in the ${REWORK_DAYS} days before`,
   );
   const total = parts.rejected.reduce((sum, r) => sum + r.count, 0);
-  lines.push(`Ideas the audit rejected: ${total}`);
+  lines.push(`Ideas rejected: ${total}`);
   for (const r of parts.rejected) lines.push(`  ${r.count} x ${r.reason} (${r.by})`);
   lines.push(`Proposed stories you dismissed: ${parts.dismissed}`);
   return lines;
