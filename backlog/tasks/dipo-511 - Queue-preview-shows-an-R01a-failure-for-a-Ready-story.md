@@ -1,10 +1,10 @@
 ---
 id: DIPO-511
 title: Check a Ready story in pickup mode in the Queue preview
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-16 14:31'
-updated_date: '2026-11-17 14:40'
+updated_date: '2026-11-17 14:58'
 labels:
   - 'tier:S'
   - 'role:developer'
