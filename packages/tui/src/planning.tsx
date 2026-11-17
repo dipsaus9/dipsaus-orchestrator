@@ -728,7 +728,7 @@ function proposalHead(proposal: PlanningProposalView["proposal"]): {
     case "drop":
       return { title: `drop ${proposal.draft}` };
     case "role":
-      return { title: `add role ${proposal.name}` };
+      return { title: `add role ${proposal.name} · ${proposal.roleKind ?? "code"}` };
     case "role-edit":
       return { title: `edit role ${proposal.name}` };
     case "role-remove":

@@ -425,6 +425,7 @@ export function roleAddTargetOf(
     ...(role.model === undefined ? {} : { model: role.model.trim() }),
     ...(role.effort === undefined ? {} : { effort: role.effort.trim() }),
     instructions: role.instructions.trim(),
+    ...(role.roleKind === undefined ? {} : { kind: role.roleKind }),
   };
 }
 
@@ -442,5 +443,6 @@ export function roleEditTargetOf(
     ...(edit.model === undefined ? {} : { model: edit.model.trim() }),
     ...(edit.effort === undefined ? {} : { effort: edit.effort.trim() }),
     ...(edit.instructions === undefined ? {} : { instructions: edit.instructions.trim() }),
+    ...(edit.roleKind === undefined ? {} : { kind: edit.roleKind }),
   };
 }

@@ -1643,6 +1643,10 @@
                             "maxLength": 20000,
                             "description": "the role's instructions, Markdown"
                           },
+                          "roleKind": {
+                            "type": "string",
+                            "enum": ["code", "design", "docs"]
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -1693,6 +1697,10 @@
                             "minLength": 1,
                             "maxLength": 20000,
                             "description": "the role's instructions, Markdown"
+                          },
+                          "roleKind": {
+                            "type": "string",
+                            "enum": ["code", "design", "docs"]
                           },
                           "why": {
                             "type": "string",
@@ -3337,6 +3345,10 @@
                             "maxLength": 20000,
                             "description": "the role's instructions, Markdown"
                           },
+                          "roleKind": {
+                            "type": "string",
+                            "enum": ["code", "design", "docs"]
+                          },
                           "why": {
                             "type": "string",
                             "minLength": 1,
@@ -3387,6 +3399,10 @@
                             "minLength": 1,
                             "maxLength": 20000,
                             "description": "the role's instructions, Markdown"
+                          },
+                          "roleKind": {
+                            "type": "string",
+                            "enum": ["code", "design", "docs"]
                           },
                           "why": {
                             "type": "string",
@@ -5103,6 +5119,10 @@
                   "maxLength": 20000,
                   "description": "the role's instructions, Markdown"
                 },
+                "roleKind": {
+                  "type": "string",
+                  "enum": ["code", "design", "docs"]
+                },
                 "why": {
                   "type": "string",
                   "minLength": 1,
@@ -5153,6 +5173,10 @@
                   "minLength": 1,
                   "maxLength": 20000,
                   "description": "the role's instructions, Markdown"
+                },
+                "roleKind": {
+                  "type": "string",
+                  "enum": ["code", "design", "docs"]
                 },
                 "why": {
                   "type": "string",

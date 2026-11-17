@@ -1,10 +1,10 @@
 ---
 id: DIPO-502
 title: The Ready gate keeps a design or docs story to its kind's area
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 14:36'
+updated_date: '2026-11-17 08:55'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -18,6 +18,12 @@ references:
   - packages/engine/test/gate/gate.test.ts
   - packages/engine/test/gate/fixtures.ts
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0012-story-standard.md
+  - packages/engine/src/gate/area.ts
+  - packages/engine/src/gate/rules.ts
+  - packages/engine/test/gate/area.test.ts
+  - packages/engine/test/gate/gate.test.ts
 type: feature
 ordinal: 473000
 ---
@@ -41,7 +47,10 @@ Amend 0012: the R24 row and section 4 describe the design and docs areas.
 
 ```dipo
 branch: "DIPO-502/ready-gate-keeps-design-docs-story-its"
-unknowns: []
+unknowns:
+  - q: "Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section reference and fix the citation test failure once you confirm. Shard 2's DIPO-401 failure also needs a look: is it known-flaky?"
+    status: "resolved"
+    answer: "Cite the ADR by number only (CLAUDE.md: never by section): drop 'section 4' from comments and test titles and fix the citation test. For the DIPO-401 failure in shard 2: run it once more; if it passes it is flaky and you go on, if it fails again check whether your change causes it and fix it, and park only if it is unrelated to this story."
 test_plan:
   entries:
     - kind: "automated"
@@ -57,10 +66,41 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A design story whose references are all under docs/design/<ID>/ passes R24.
-- [ ] #2 A design story with a reference outside docs/design/<ID>/ fails R24, and the failure names that reference and the area.
-- [ ] #3 A docs story whose references are Markdown files under docs/ outside docs/decisions/ and docs/design/, or Markdown files at the repository root, passes R24.
-- [ ] #4 A docs story with a reference under docs/decisions/, under docs/design/, to a file that is not Markdown, or to a Markdown file in a folder outside docs/, fails R24 for that reference.
-- [ ] #5 A story with a code role, or without a role label, passes R24 whatever its references are.
-- [ ] #6 Decision 0012 describes the design and docs areas in the R24 row and in section 4.
+- [x] #1 A design story whose references are all under docs/design/<ID>/ passes R24.
+- [x] #2 A design story with a reference outside docs/design/<ID>/ fails R24, and the failure names that reference and the area.
+- [x] #3 A docs story whose references are Markdown files under docs/ outside docs/decisions/ and docs/design/, or Markdown files at the repository root, passes R24.
+- [x] #4 A docs story with a reference under docs/decisions/, under docs/design/, to a file that is not Markdown, or to a Markdown file in a folder outside docs/, fails R24 for that reference.
+- [x] #5 A story with a code role, or without a role label, passes R24 whatever its references are.
+- [x] #6 Decision 0012 describes the design and docs areas in the R24 row and in section 4.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-16 14:59 UTC: ambiguous-spec
+- Detail: Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section referenc…
+- Run: run_01M7JDFCHARV1YBW2KZAAAMZH4
+- Criteria met: 0 of 6 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 111,682 of 300,000 tokens; 21 of 90 turns; 7 of 45 minutes
+- Last good commit: ce963b8a4d4b046007f202dc0315cc305d8887f4
+
+Resumed 2026-11-16 15:01 UTC; grants: none; note: Cite the ADR by number only (CLAUDE.md: never by section): drop 'section 4' from comments and test titles and fix the citation test. For the DIPO-401 failure in shard 2: run it once more; if it passe…
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 08:55 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 154,398 of 300,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-16 14:59 UTC ambiguous-spec: Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section referenc…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

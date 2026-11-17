@@ -703,9 +703,14 @@ export const PlanningEditFields = z
   .superRefine((edit, ctx) => editChecks(edit, ctx));
 export type PlanningEditFields = z.infer<typeof PlanningEditFields>;
 
+// The kind of a role (DIPO-500, 0017): code, design or docs; a role file without one is a code role.
+export const RoleKind = z.enum(["code", "design", "docs"]);
+export type RoleKind = z.infer<typeof RoleKind>;
+
 // A role a planning session proposes to add, edit or remove (DIPO-474, 0022): the role file
 // `.dipo/roles/<name>.md` (0017). `purpose`, `model` and `effort` are one line; `instructions` is
-// the file's Markdown body. A role-edit names only the fields that change.
+// the file's Markdown body. A role-edit names only the fields that change. `roleKind` is the role's
+// kind, code, design or docs (DIPO-501); it is not `kind`, which names the proposal.
 const RoleName = z
   .string()
   .min(1)
@@ -728,6 +733,7 @@ export const PlanningProposal = z.discriminatedUnion("kind", [
     model: roleModel.optional(),
     effort: roleEffort.optional(),
     instructions: roleInstructions,
+    roleKind: RoleKind.optional(),
     why: Why,
   }),
   z
@@ -738,10 +744,11 @@ export const PlanningProposal = z.discriminatedUnion("kind", [
       model: roleModel.optional(),
       effort: roleEffort.optional(),
       instructions: roleInstructions.optional(),
+      roleKind: RoleKind.optional(),
       why: Why,
     })
-    .superRefine(({ purpose, model, effort, instructions }, ctx) => {
-      if ([purpose, model, effort, instructions].every((value) => value === undefined)) {
+    .superRefine(({ purpose, model, effort, instructions, roleKind }, ctx) => {
+      if ([purpose, model, effort, instructions, roleKind].every((value) => value === undefined)) {
         ctx.addIssue({ code: "custom", message: "a role edit changes at least one field" });
       }
     }),

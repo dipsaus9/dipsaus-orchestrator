@@ -101,7 +101,7 @@ Every other transition is refused. Three more rules:
 | R21 | A flagged story has at least one manual entry |
 | R22 | A spike names its ADR (`docs/decisions/NNNN-name.md`) in a criterion and in its references |
 | R23 | A spike has no test plan and no flag |
-| R24 | A design story (M4) writes only under `docs/design/<ID>/` |
+| R24 | A design story keeps every reference under `docs/design/<ID>/`; a docs story keeps every reference to Markdown under `docs/` outside `docs/decisions/` and `docs/design/`, or Markdown at the repository root; a code role or no role label passes |
 | R25 | An input under `docs/design/<X>/` has `<X>` as a dependency |
 | R26 | The story contract (title, Story line, criteria, references, test plan, resolved unknowns, extra instructions) is at most `prompt.contractMax` characters (0014) |
 | R30 | A story whose title or Story line names a security phrase (`story.securityPhrases`) has criteria for what the old barrier caught, the bypass forms to test and a fail-closed test against the real path (CLAUDE.md). Spikes are exempt |
@@ -116,7 +116,9 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 ## 4. Spikes and design stories
 
 - **A spike** (type `spike`) ends in an ADR in `docs/decisions/`, not in product code. It has the same fields and needs a tier. Its criteria name the ADR (R22) and usually include "the maintainer approved the decision", which only the maintainer ticks. It has no test plan and no flag (R23).
-- **A design story** (from M4) has a non-code role from the roster. It writes only under `docs/design/<ID>/` (R24). Stories that build on it list it as a dependency and its folder as an input (R25).
+- **A design story** has a design role from the roster. It writes only under `docs/design/<ID>/`, so every reference is under that folder (R24). Stories that build on it list it as a dependency and its folder as an input (R25).
+- **A docs story** has a docs role from the roster. It writes Markdown under `docs/` outside `docs/decisions/` and `docs/design/`, or Markdown at the repository root (R24).
+- **A code story** has a code role, or no role label, and may reference any path.
 
 ## Replaced
 
@@ -135,3 +137,4 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 - The In Review to In Progress row without the close-out head (2026-10-24), when a story closed out only after green checks on its reviewed head. Replaced by the row's note on red checks of a close-out head, since a story decided by rule now closes out before its checks run (0002, 2026-10-30).
 - Parked left only by a resume, a discard or a drop (2026-10-24), so a story whose PR merged while it was parked stayed Parked on the base. Replaced by the Parked to Done row for a story whose PR merged (2026-11-09).
 - The `Outcome:` line, the one result a story delivers (2026-10-10). Replaced by the `Story:` line (2026-11-03), so every story says whom it serves and why.
+- R24 as a placeholder that failed every story with a non-code role until M4 (2026-10-24). Replaced by the design and docs areas, which keep a story's references to what its role may write (2026-11-13).

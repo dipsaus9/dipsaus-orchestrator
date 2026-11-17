@@ -404,9 +404,9 @@ const CASES: readonly Case[] = [
     ],
   },
   {
-    name: "R24 non-code role",
+    name: "R24 design role with a reference outside its area",
     input: input(
-      { labels: ["tier:M", "role:designer"] },
+      { labels: ["tier:M", "role:designer"], references: ["packages/export/"] },
       {
         roster: [
           { name: "developer", code: true, kind: "code" },
@@ -414,7 +414,9 @@ const CASES: readonly Case[] = [
         ],
       },
     ),
-    expected: [`${prefix("R24")}design story scope must be docs/design/DIPO-7/ only`],
+    expected: [
+      `${prefix("R24")}reference packages/export/ is outside the design area docs/design/DIPO-7/`,
+    ],
   },
   {
     name: "R25 design input without its dependency",
@@ -1459,3 +1461,59 @@ describe("R32 story size above its tier's ceiling", () => {
 function r32Warnings(gateInput: GateInput): readonly string[] {
   return warnings(evaluateGate(gateInput, "ready")).filter((line) => line.includes(" R32: "));
 }
+
+describe("R24 design and docs areas (0012)", () => {
+  const ROLES: readonly GateRole[] = [
+    { name: "developer", code: true, kind: "code" },
+    { name: "designer", code: false, kind: "design" },
+    { name: "writer", code: false, kind: "docs" },
+  ];
+  const r24 = (role: string, paths: string[]) =>
+    evaluateGate(
+      input({ labels: ["tier:M", `role:${role}`], references: paths }, { roster: ROLES }),
+      "ready",
+    )
+      .failures.filter((failure) => failure.rule === "R24")
+      .map((failure) => failure.message);
+
+  it("passes a design story whose references are all under its design folder", () => {
+    expect(r24("designer", ["docs/design/DIPO-7/", "docs/design/DIPO-7/a.md"])).toEqual([]);
+  });
+
+  it("fails a design story for a reference outside its design folder, naming it and the area", () => {
+    expect(
+      r24("designer", ["docs/design/DIPO-7/", "packages/x.ts", "docs/design/DIPO-70/"]),
+    ).toEqual([
+      `${prefix("R24")}reference packages/x.ts is outside the design area docs/design/DIPO-7/`,
+      `${prefix("R24")}reference docs/design/DIPO-70/ is outside the design area docs/design/DIPO-7/`,
+    ]);
+  });
+
+  it("passes a docs story with Markdown under docs/ or at the root", () => {
+    expect(r24("writer", ["README.md", "docs/guide/", "docs/guide/x.md"])).toEqual([]);
+  });
+
+  it("fails a docs story for decisions, designs, non-Markdown and Markdown outside docs/", () => {
+    const bad = [
+      "docs/decisions/0001-x.md",
+      "docs/design/DIPO-7/a.md",
+      "docs/a.ts",
+      "packages/a.md",
+    ];
+    expect(r24("writer", bad)).toEqual(
+      bad.map(
+        (path) =>
+          `${prefix("R24")}reference ${path} is outside the docs area Markdown under docs/ outside docs/decisions/ and docs/design/, or Markdown at the repository root`,
+      ),
+    );
+  });
+
+  it("passes a code role and a story without a role label whatever their references", () => {
+    expect(r24("developer", ["packages/x.ts", "docs/decisions/0001-x.md"])).toEqual([]);
+    const unlabelled = evaluateGate(
+      input({ labels: ["tier:M"], references: ["packages/x.ts"] }, { roster: ROLES }),
+      "ready",
+    );
+    expect(unlabelled.failures.filter((failure) => failure.rule === "R24")).toEqual([]);
+  });
+});

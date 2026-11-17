@@ -11,7 +11,11 @@ import {
   type FieldBlockPark,
   type LaneFlush,
   type Lifecycle,
+<<<<<<< 2155358ddac513930c04e85f2b4db57ea77a0fb4
   type PlanningSummary,
+=======
+  RoleKind,
+>>>>>>> 74f755fd918fc6462c1730fb18744bc160ffb8b8
   type StoryKey,
   TestPlan,
 } from "@dipsaus-orchestrator/contract";
@@ -156,6 +160,7 @@ export const RoleAddTarget = z
     model: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
     instructions: z.string().min(1),
+    kind: RoleKind.optional(),
   })
   .strict();
 export type RoleAddTarget = z.infer<typeof RoleAddTarget>;
@@ -172,6 +177,7 @@ export const RoleEditTarget = z
     model: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
     instructions: z.string().min(1).optional(),
+    kind: RoleKind.optional(),
   })
   .strict();
 export type RoleEditTarget = z.infer<typeof RoleEditTarget>;
