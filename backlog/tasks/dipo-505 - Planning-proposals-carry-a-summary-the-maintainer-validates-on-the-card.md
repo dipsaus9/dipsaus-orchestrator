@@ -1,10 +1,10 @@
 ---
 id: DIPO-505
 title: Planning proposals carry a summary the maintainer validates on the card
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-11-13 13:31'
-updated_date: '2026-11-17 09:01'
+updated_date: '2026-11-17 09:03'
 labels:
   - 'tier:M'
   - 'role:developer'
