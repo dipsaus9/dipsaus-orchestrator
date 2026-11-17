@@ -1,10 +1,10 @@
 ---
 id: DIPO-505
 title: Planning proposals carry a summary the maintainer validates on the card
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 13:31'
-updated_date: '2026-11-17 09:06'
+updated_date: '2026-11-17 09:15'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -27,6 +27,36 @@ references:
   - packages/tui/src/proposal-form.test.ts
   - docs/decisions/0022-planning-sessions.md
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0012-story-standard.md
+  - docs/decisions/0022-planning-sessions.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/roles/decisions.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/run/planning-confirm-ready.test.ts
+  - packages/engine/test/run/planning-dependencies.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-proposals.test.ts
+  - packages/engine/test/run/planning-role-change.test.ts
+  - packages/engine/test/run/planning-roles-session.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/proposal-form.test.ts
+  - packages/tui/src/proposal-form.ts
 type: feature
 ordinal: 476000
 ---
@@ -100,3 +130,20 @@ Parked 2026-11-16 16:59 UTC: budget-exceeded
 
 Resumed 2026-11-17 08:57 UTC; grants: budget +800,000 tokens, +200 turns, +90 minutes; note: Continue
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 09:15 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 539,867 of 1,600,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-16 16:59 UTC budget-exceeded: time cap reached: 119 of 90 minutes since the worker started
+- Grants: 1
+  - 2026-11-17 08:57 UTC budget +800,000 tokens, +200 turns, +90 minutes
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
