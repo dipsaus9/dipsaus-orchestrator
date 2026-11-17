@@ -1,10 +1,10 @@
 ---
 id: DIPO-502
 title: The Ready gate keeps a design or docs story to its kind's area
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 15:05'
+updated_date: '2026-11-17 08:55'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -18,6 +18,12 @@ references:
   - packages/engine/test/gate/gate.test.ts
   - packages/engine/test/gate/fixtures.ts
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0012-story-standard.md
+  - packages/engine/src/gate/area.ts
+  - packages/engine/src/gate/rules.ts
+  - packages/engine/test/gate/area.test.ts
+  - packages/engine/test/gate/gate.test.ts
 type: feature
 ordinal: 473000
 ---
@@ -82,3 +88,19 @@ Parked 2026-11-16 14:59 UTC: ambiguous-spec
 
 Resumed 2026-11-16 15:01 UTC; grants: none; note: Cite the ADR by number only (CLAUDE.md: never by section): drop 'section 4' from comments and test titles and fix the citation test. For the DIPO-401 failure in shard 2: run it once more; if it passe…
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 08:55 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 154,398 of 300,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-16 14:59 UTC ambiguous-spec: Blocked on the ADR-citation rule: may code comments and test titles say 'section 4' of 0012 when they describe the R24 areas, or should they cite only the ADR number? I will drop the section referenc…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
