@@ -1,10 +1,10 @@
 ---
 id: DIPO-507
 title: Answering a parked story's question from the desk sends its question id
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 13:02'
-updated_date: '2026-11-17 09:15'
+updated_date: '2026-11-17 09:17'
 labels:
   - tech-debt
   - 'tier:S'
@@ -46,9 +46,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A PARKED or PARKED BY YOU desk item whose park carries at least one open question has its question field set to the id of the park's oldest open question.
-- [ ] #2 That question id is the same id as in the item's first work.answer action command line.
-- [ ] #3 A PARKED desk item whose park carries no open question has no question field.
+- [x] #1 A PARKED or PARKED BY YOU desk item whose park carries at least one open question has its question field set to the id of the park's oldest open question.
+- [x] #2 That question id is the same id as in the item's first work.answer action command line.
+- [x] #3 A PARKED desk item whose park carries no open question has no question field.
 - [ ] #4 Answering a parked question from the TUI desk with a or r sends work.answer with the question id and the typed text, and the engine accepts it.
-- [ ] #5 The QUESTION desk item and its work.answer action are unchanged.
+- [x] #5 The QUESTION desk item and its work.answer action are unchanged.
 <!-- AC:END -->
