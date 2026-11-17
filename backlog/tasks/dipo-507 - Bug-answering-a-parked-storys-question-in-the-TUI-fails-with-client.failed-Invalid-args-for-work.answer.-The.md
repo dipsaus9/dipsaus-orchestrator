@@ -1,10 +1,10 @@
 ---
 id: DIPO-507
 title: Answering a parked story's question from the desk sends its question id
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 13:02'
-updated_date: '2026-11-16 15:05'
+updated_date: '2026-11-17 10:54'
 labels:
   - tech-debt
   - 'tier:S'
@@ -14,6 +14,9 @@ dependencies: []
 references:
   - packages/engine/src/overview/desk.ts
   - packages/tui/src/home.tsx
+  - packages/engine/test/overview/desk.test.ts
+modified_files:
+  - packages/engine/src/overview/desk.ts
   - packages/engine/test/overview/desk.test.ts
 type: bug
 ---
@@ -46,9 +49,24 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A PARKED or PARKED BY YOU desk item whose park carries at least one open question has its question field set to the id of the park's oldest open question.
-- [ ] #2 That question id is the same id as in the item's first work.answer action command line.
-- [ ] #3 A PARKED desk item whose park carries no open question has no question field.
+- [x] #1 A PARKED or PARKED BY YOU desk item whose park carries at least one open question has its question field set to the id of the park's oldest open question.
+- [x] #2 That question id is the same id as in the item's first work.answer action command line.
+- [x] #3 A PARKED desk item whose park carries no open question has no question field.
 - [ ] #4 Answering a parked question from the TUI desk with a or r sends work.answer with the question id and the typed text, and the engine accepts it.
-- [ ] #5 The QUESTION desk item and its work.answer action are unchanged.
+- [x] #5 The QUESTION desk item and its work.answer action are unchanged.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 10:54 UTC
+- Criteria met: 4 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 36,990 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

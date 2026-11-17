@@ -937,6 +937,7 @@ describe("a worker question on the desk (DIPO-159, 0020)", () => {
         expect(items[0]).toMatchObject({
           kind: "PARKED",
           reason: "ambiguous-spec",
+          question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B",
           actions: [
             {
               command: "work.answer",
@@ -945,6 +946,77 @@ describe("a worker question on the desk (DIPO-159, 0020)", () => {
             { command: "work.resume", cli: 'dipo resume DIPO-2 --note "<answer>"' },
           ],
         });
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("sets a PARKED row's question to the oldest of its open questions (DIPO-507)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-2", { status: "Parked" })]);
+        const started = startRun(t, office, "DIPO-2", dir);
+        const at = t.clock.now();
+        const parkId = insertPark(office, "DIPO-2", {
+          reason: "ambiguous-spec",
+          detail: "Which port?",
+          at,
+          run: started.run,
+        });
+        office.immediate(() => {
+          insertWorkerQuestion(office, {
+            questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B",
+            runId: started.run,
+            agentId: started.agent,
+            text: "Which port?",
+            at,
+            parkId,
+          });
+          insertWorkerQuestion(office, {
+            questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
+            runId: started.run,
+            agentId: started.agent,
+            text: "Which host?",
+            at: at + 1,
+            parkId,
+          });
+        });
+        const items = desk(office, all, { ...DESK_SOURCES, stories: backlogLayout }, at);
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+          kind: "PARKED",
+          question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B",
+          actions: [
+            {
+              command: "work.answer",
+              cli: 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B --text "<answer>"',
+            },
+            {
+              command: "work.answer",
+              cli: 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A --text "<answer>"',
+            },
+            { command: "work.resume", cli: 'dipo resume DIPO-2 --note "<answer>"' },
+          ],
+        });
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("gives a PARKED row with no open question no question field (DIPO-507)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-2", { status: "Parked" })]);
+        const at = t.clock.now();
+        insertPark(office, "DIPO-2", { reason: "worker-failed", detail: "boom", at });
+        const items = desk(office, all, { ...DESK_SOURCES, stories: backlogLayout }, at);
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({ kind: "PARKED" });
+        expect(items[0]).not.toHaveProperty("question");
       } finally {
         t.state.close();
       }
