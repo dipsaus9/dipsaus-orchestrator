@@ -1,10 +1,10 @@
 ---
 id: DIPO-510
 title: Wrap a long message in the ticker under the body
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 10:15'
-updated_date: '2026-11-17 14:51'
+updated_date: '2026-11-17 14:56'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -57,9 +57,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A ticker message longer than the frame width wraps at word boundaries onto as many rows as it needs, up to three.
-- [ ] #2 A ticker message that needs more than three rows shows three rows, and the third ends with an ellipsis.
-- [ ] #3 The body's height shrinks by each extra ticker row, so the screen never takes more rows than the terminal has.
-- [ ] #4 A ticker message that fits the width shows as one row, as before.
-- [ ] #5 A refused approve whose error message is longer than the width shows its whole code and message in the ticker.
+- [x] #1 A ticker message longer than the frame width wraps at word boundaries onto as many rows as it needs, up to three.
+- [x] #2 A ticker message that needs more than three rows shows three rows, and the third ends with an ellipsis.
+- [x] #3 The body's height shrinks by each extra ticker row, so the screen never takes more rows than the terminal has.
+- [x] #4 A ticker message that fits the width shows as one row, as before.
+- [x] #5 A refused approve whose error message is longer than the width shows its whole code and message in the ticker.
 <!-- AC:END -->
