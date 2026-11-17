@@ -1,10 +1,10 @@
 ---
 id: DIPO-508
 title: 'Say Ideas rejected in the retro, not Ideas the audit rejected'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:51'
+updated_date: '2026-11-17 14:53'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -52,8 +52,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The retro's heading line for rejected ideas reads Ideas rejected: N, where N counts every rejected idea, by code and by the audit.
-- [ ] #2 Each reason line under the heading still says which one, the code check or the audit, rejected it.
-- [ ] #3 No source or test file under packages holds the text Ideas the audit rejected.
-- [ ] #4 Decision 0022 section 4 says the retro shows the ideas rejected by code or by the audit, with their reasons.
+- [x] #1 The retro's heading line for rejected ideas reads Ideas rejected: N, where N counts every rejected idea, by code and by the audit.
+- [x] #2 Each reason line under the heading still says which one, the code check or the audit, rejected it.
+- [x] #3 No source or test file under packages holds the text Ideas the audit rejected.
+- [x] #4 Decision 0022 section 4 says the retro shows the ideas rejected by code or by the audit, with their reasons.
 <!-- AC:END -->
