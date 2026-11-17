@@ -1,10 +1,10 @@
 ---
 id: DIPO-511
 title: Check a Ready story in pickup mode in the Queue preview
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-16 14:31'
-updated_date: '2026-11-17 14:58'
+updated_date: '2026-11-17 15:04'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -61,10 +61,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 story.gate on a Ready story that passes the pickup check returns passed, and the Queue preview shows no R01a failure for it.
-- [ ] #2 story.gate on a Ready story returns the rule count of the pickup mode.
-- [ ] #3 story.gate on a Ready story that fails a pickup rule returns that rule's failure, and the Queue preview shows it.
-- [ ] #4 story.gate on a Refined story evaluates in ready mode and returns the same result as before.
-- [ ] #5 story.gate stores no gate decision in either mode.
-- [ ] #6 Decision 0009 says the Queue checks a Ready story in pickup mode and any other story in ready mode.
+- [x] #1 story.gate on a Ready story that passes the pickup check returns passed, and the Queue preview shows no R01a failure for it.
+- [x] #2 story.gate on a Ready story returns the rule count of the pickup mode.
+- [x] #3 story.gate on a Ready story that fails a pickup rule returns that rule's failure, and the Queue preview shows it.
+- [x] #4 story.gate on a Refined story evaluates in ready mode and returns the same result as before.
+- [x] #5 story.gate stores no gate decision in either mode.
+- [x] #6 Decision 0009 says the Queue checks a Ready story in pickup mode and any other story in ready mode.
 <!-- AC:END -->
