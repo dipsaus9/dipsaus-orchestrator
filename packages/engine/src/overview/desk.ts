@@ -782,7 +782,9 @@ class DeskBuilder {
       const story = storyIdOf(this.#office, park.key) ?? StoryId.parse(park.story_id);
       const byYou = park.reason === "by-maintainer";
       const actions: DeskAction[] = [];
-      for (const question of openParkQuestions(this.#office, park.park_id)) {
+      const questions = openParkQuestions(this.#office, park.park_id);
+      const oldest = questions[0];
+      for (const question of questions) {
         actions.push(...this.#answerActions(question));
       }
       actions.push(...this.#resumeActions(story, park.reason));
@@ -815,6 +817,8 @@ class DeskBuilder {
           key: StoryKey.parse(park.key),
           ...(gate === null ? {} : { gate: GateId.parse(gate) }),
           ...prOf(record),
+          // The oldest open question, the one the first work.answer action answers (DIPO-507).
+          ...(oldest === undefined ? {} : { question: QuestionId.parse(oldest.questionId) }),
           reason: park.reason,
           detail: deskText(park.detail),
           fullDetail: deskFull(park.detail),
