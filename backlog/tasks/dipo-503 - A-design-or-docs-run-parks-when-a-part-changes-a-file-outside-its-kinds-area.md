@@ -1,10 +1,10 @@
 ---
 id: DIPO-503
 title: A design or docs run parks when a part changes a file outside its kind's area
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 13:08'
-updated_date: '2026-11-13 15:06'
+updated_date: '2026-11-17 09:15'
 labels:
   - 'tier:M'
   - 'role:developer'
