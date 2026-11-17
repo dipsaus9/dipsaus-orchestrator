@@ -54,11 +54,22 @@ describe("the Ready gate on the Backlog CLI", () => {
             ),
           ],
         });
-        // TASK-1 is Ready, not Refined: ready mode fails R01a.
+        // TASK-1 is Ready: the read checks it in pickup mode (DIPO-511), so R01a never fails it and
+        // the rule count is the pickup count. Its first failure is the type rule, as for any story.
         const ready = await read(s, { office: officeId, story: "TASK-1" });
         if (!ready.ok) throw new Error(`${ready.error.code}: ${ready.error.message}`);
-        expect((ready.result as { failures: { rule: string }[] }).failures[0]).toEqual(
-          failed("TASK-1", "R01a", "status is Ready; only Refined stories can be made Ready"),
+        const readyResult = ready.result as {
+          rules: number;
+          failures: { rule: string; message: string }[];
+        };
+        expect(readyResult.rules).toBe(ruleCount("pickup"));
+        expect(readyResult.failures.map((f) => f.rule)).not.toContain("R01a");
+        expect(readyResult.failures[0]).toEqual(
+          failed(
+            "TASK-1",
+            "R06",
+            "type is missing or not one of feature, bug, enhancement, task, chore, docs, spike",
+          ),
         );
         expect(countRows(office, "gates")).toBe(0);
         expect(countRows(office, "gate_decisions")).toBe(0);
@@ -79,7 +90,7 @@ describe("the Ready gate on the Backlog CLI", () => {
           ...deps,
           stories: backlogStoryStore({ spawn: systemSpawn, command: ["false"], env: repo.env }),
         });
-        const cliError = await broken.checkReady(officeId, story).catch((error: unknown) => error);
+        const cliError = await broken.checkStory(officeId, story).catch((error: unknown) => error);
         expect((cliError as CommandError).error).toMatchObject({
           code: "backlog.unreadable",
           details: { office: officeId, story: "TASK-1" },
@@ -90,7 +101,7 @@ describe("the Ready gate on the Backlog CLI", () => {
           stories: backlogStoryStore(CLI(repo)),
         });
         const configError = await unconfigured
-          .checkReady(officeId, story)
+          .checkStory(officeId, story)
           .catch((error: unknown) => error);
         expect((configError as CommandError).error.code).toBe("config.invalid");
         const detached = new GateStore({
@@ -99,7 +110,7 @@ describe("the Ready gate on the Backlog CLI", () => {
           stories: backlogStoryStore(CLI(repo)),
         });
         const gitError = await detached
-          .checkReady(officeId, story)
+          .checkStory(officeId, story)
           .catch((error: unknown) => error);
         expect((gitError as CommandError).error).toMatchObject({
           code: "office.refused",

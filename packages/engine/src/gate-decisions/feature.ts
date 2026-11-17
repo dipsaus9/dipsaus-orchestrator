@@ -6,7 +6,8 @@
 //   the pickup re-check inside `work.run` (DIPO-48) calls it in `pickup` mode.
 // - `recordLaneDecision` is the same evaluation and store, run by the planning lane on its `_backlog`
 //   worktree for a story the maintainer confirmed in a planning session (DIPO-495).
-// - The read `story.gate` evaluates in `ready` mode and stores nothing (M0 breakdown decision D3).
+// - The read `story.gate` evaluates a Ready story in `pickup` mode and any other story in `ready`
+//   mode (DIPO-511, 0012), and stores nothing (M0 breakdown decision D3).
 // - `checkGate` evaluates in any mode and stores nothing; `work.preview` (DIPO-74) uses it.
 //
 // The daemon registers the read after `EngineGit.feature`; the read needs the office's git.
@@ -126,11 +127,12 @@ export class GateStore {
   }
 
   /**
-   * Evaluates the gate of `story` (a Backlog.md id) on the office's `_base` in `ready` mode,
-   * without storing it. A pickup-mode evaluation only happens through `recordGateDecision`.
+   * Evaluates the gate of `story` (a Backlog.md id) on the office's `_base` without storing it: in
+   * `pickup` mode when the story is Ready, as the pickup check sees it (DIPO-511), and in `ready`
+   * mode otherwise. A pickup-mode decision is only stored through `recordGateDecision`.
    */
-  checkReady(office: OfficeId, story: StoryId): Promise<GateEvaluation> {
-    return this.#evaluate(office, story, "ready");
+  checkStory(office: OfficeId, story: StoryId): Promise<GateEvaluation> {
+    return this.#evaluate(office, story);
   }
 
   /**
@@ -150,7 +152,7 @@ export class GateStore {
   async #evaluate(
     office: OfficeId,
     story: StoryId,
-    mode: GateMode,
+    mode?: GateMode,
     at?: BaseCheckout,
     held?: GitSession,
   ): Promise<GateEvaluation> {
@@ -194,9 +196,11 @@ export class GateStore {
     } catch (error) {
       throw gateReadError(office, story, base.base, error);
     }
+    // Without a mode, a Ready story is checked as the pickup check sees it, any other in ready mode.
+    const resolved = mode ?? (input.story.status === "Ready" ? "pickup" : "ready");
     return {
       story,
-      result: evaluateGate({ ...input, roster: this.#deps.offices.roster(office) }, mode),
+      result: evaluateGate({ ...input, roster: this.#deps.offices.roster(office) }, resolved),
       contentHash: gateContentHash(input.story),
       touches: input.story.references,
     };
@@ -321,13 +325,13 @@ export class GateStore {
             if (ctx.office === undefined || identity === undefined) {
               throw new Error("story.gate runs with its office and its story resolved");
             }
-            const { result, touches } = await this.checkReady(ctx.office.officeId, identity.story);
+            const { result, touches } = await this.checkStory(ctx.office.officeId, identity.story);
             return {
               story: identity.story,
               key: identity.key,
               passed: result.passed,
               failures: result.failures.map(({ rule, message }) => ({ rule, message })),
-              rules: ruleCount("ready"),
+              rules: ruleCount(result.mode),
               ...(touches.length === 0 ? {} : { touches: [...touches] }),
               ...(result.warnings === undefined
                 ? {}

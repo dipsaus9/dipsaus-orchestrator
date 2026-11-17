@@ -1517,3 +1517,24 @@ describe("R24 design and docs areas (0012)", () => {
     expect(unlabelled.failures.filter((failure) => failure.rule === "R24")).toEqual([]);
   });
 });
+
+describe("a Ready story in pickup mode (DIPO-511)", () => {
+  const open = [{ id: "DIPO-3", status: "Ready" }];
+
+  it("passes a Ready story with an open dependency and no R01a failure", () => {
+    const result = evaluateGate(input({ status: "Ready", waitingOn: open }), "pickup");
+    expect(result.passed).toBe(true);
+    expect(result.failures).toEqual([]);
+    expect(result.waitingOn).toEqual(open);
+  });
+
+  it("still fails a Ready story in ready mode on R01a, as before", () => {
+    const result = evaluateGate(input({ status: "Ready" }), "ready");
+    expect(result.failures.map((failure) => failure.rule)).toEqual(["R01a"]);
+  });
+
+  it("fails a Refined story in pickup mode on R01b", () => {
+    const result = evaluateGate(input({ status: "Refined" }), "pickup");
+    expect(result.failures.map((failure) => failure.rule)).toEqual(["R01b"]);
+  });
+});
