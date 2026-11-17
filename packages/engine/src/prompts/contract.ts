@@ -4,7 +4,10 @@
 // `prompt.contractMax` assembly fails with `prompt.contractTooLarge`: the backstop for a story
 // that changed after its gate. Moving the story back to Refined is the caller's job (DIPO-48).
 
+import type { RoleKind } from "@dipsaus-orchestrator/contract";
+
 import { characters } from "../gate/text";
+import { areaText } from "../gate/area";
 import type { PromptStory } from "./story";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
 
@@ -41,6 +44,7 @@ export const SECTION_ORDER = [
   "story",
   "criteria",
   "scope",
+  "area",
   "test_plan",
   "answers",
   "instructions",
@@ -52,6 +56,7 @@ export const CONTRACT_SECTIONS = [
   "story",
   "criteria",
   "scope",
+  "area",
   "test_plan",
   "answers",
   "instructions",
@@ -132,7 +137,11 @@ function answersSection(story: PromptStory): Section | undefined {
 export function assembleContract(
   story: PromptStory,
   contractMax: number = CONTRACT_MAX_DEFAULT,
-  options: { readonly box?: boolean } = {},
+  options: {
+    readonly box?: boolean;
+    /** The run's role kind: a design or docs run gets an area section (DIPO-504). */
+    readonly area?: RoleKind;
+  } = {},
 ): readonly Section[] {
   const size = contractSize(story);
   if (size > contractMax) throw new ContractTooLargeError(size, contractMax);
@@ -160,6 +169,7 @@ export function assembleContract(
         paths: bullets(story.scope),
       }),
     },
+    areaSection(story, options.area),
     testPlanSection(story),
     answersSection(story),
     story.instructions === ""
@@ -170,4 +180,13 @@ export function assembleContract(
         },
   ];
   return sections.filter((section) => section !== undefined);
+}
+
+/** The area a design or docs run may write for its story; a code run has none (DIPO-504). */
+function areaSection(story: PromptStory, kind: RoleKind | undefined): Section | undefined {
+  if (kind === undefined || kind === "code") return undefined;
+  return {
+    name: "area",
+    text: renderTemplate(TASK_TEMPLATES.area, { area: areaText(kind, story.id) }),
+  };
 }

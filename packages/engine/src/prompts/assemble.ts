@@ -5,6 +5,8 @@
 // marker. The contract is never cut. Rendering is deterministic: the same story, pack, handoff
 // and feedback give the same bytes.
 
+import type { RoleKind } from "@dipsaus-orchestrator/contract";
+
 import type { OfficeConfig } from "../config/schema";
 import type { ContextItem, ContextPack, SizeClass } from "../context/types";
 import { formatCount } from "../context/truncate";
@@ -57,6 +59,8 @@ export interface TaskMessageInput {
   readonly budgets: TaskBudgets;
   /** `prompt.contractMax`; default 12,000. */
   readonly contractMax?: number;
+  /** The run's role kind; a design or docs run gets an area section (DIPO-504). */
+  readonly area?: RoleKind;
   /** The developer works in its own box: the scope section is a forecast (DIPO-272). */
   readonly box?: boolean;
 }
@@ -298,11 +302,10 @@ const joinSections = (sections: readonly Section[]): string =>
  */
 export function assembleTaskMessage(input: TaskMessageInput): TaskMessage {
   const { story, pack, budgets } = input;
-  const contract = assembleContract(
-    story,
-    input.contractMax ?? CONTRACT_MAX_DEFAULT,
-    input.box === true ? { box: true } : {},
-  );
+  const contract = assembleContract(story, input.contractMax ?? CONTRACT_MAX_DEFAULT, {
+    ...(input.box === true ? { box: true } : {}),
+    ...(input.area === undefined ? {} : { area: input.area }),
+  });
   const stale = new Set(pack.provenance.staleFiles);
   const feedback = input.feedback ?? [];
   const handoff =

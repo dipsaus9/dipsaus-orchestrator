@@ -91,6 +91,7 @@ describe("task message", () => {
       handoff: HANDOFF,
       feedback: [FEEDBACK],
       budgets: BUDGETS_M,
+      area: "design",
     });
     expect(names(message.text)).toEqual([...SECTION_ORDER]);
     expect(message.sections.map((section) => section.name)).toEqual([...SECTION_ORDER]);
@@ -300,5 +301,22 @@ describe("tags inside slot text", () => {
     expect(context.match(/<\/item>/g)).toHaveLength(3);
     expect(context.match(/<\/context>/g)).toHaveLength(1);
     expect(message.sections.filter((section) => section.name === "instructions")).toHaveLength(1);
+  });
+});
+
+// DIPO-504 (0014): a design or docs run's task message names where it may write.
+describe("the area section (DIPO-504)", () => {
+  const input = { story: fixtureStory({ id: "DIPO-9" }), pack: fixturePack(), budgets: BUDGETS_M };
+
+  it("names the design folder of the story for a design run and is absent for a code run", () => {
+    const design = assembleTaskMessage({ ...input, box: true, area: "design" }).text;
+    expect(design).toContain(
+      "<area>\nYou may write only here for this story: docs/design/DIPO-9/\n</area>",
+    );
+    expect(design.indexOf("<area>")).toBeGreaterThan(design.indexOf("<scope>"));
+    expect(design.indexOf("<area>")).toBeLessThan(design.indexOf("<test_plan>"));
+    expect(assembleTaskMessage({ ...input, box: true, area: "docs" }).text).toContain("<area>");
+    expect(assembleTaskMessage({ ...input, box: true, area: "code" }).text).not.toContain("<area>");
+    expect(assembleTaskMessage({ ...input, box: true }).text).not.toContain("<area>");
   });
 });

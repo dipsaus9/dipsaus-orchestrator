@@ -1,0 +1,3 @@
+## What to deliver
+
+Code and tests that meet every criterion and every automated entry of the test plan. In your own box you may change any file. Run the tests and the project's verify as you work; leave tests the project runs only in CI to CI, and do not set `DIPO_TEST_CI`. dipo handles git, the backlog, the pull request and the review, and you report to dipo instead: the box's git repository is your own. When you report done, dipo runs the verify in your box. Hand a part after each criterion you meet with its tests. A red verify, a failed check or a review finding comes back to you as feedback. Do not change the story's task file: dipo refuses a part that does.

@@ -6,7 +6,7 @@
 
 import { createHash } from "node:crypto";
 
-import type { FieldBlock } from "@dipsaus-orchestrator/contract";
+import type { FieldBlock, RoleKind } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeConfig } from "../config";
 import { createDefaultProvider } from "../context/default-provider";
@@ -40,7 +40,7 @@ export interface RunPromptsInput {
   /** The developer works in its own box (DIPO-271): the scope section is a forecast (DIPO-272). */
   readonly box?: boolean;
   /** The role the run runs as: its instructions are the system file's L2 (DIPO-477). */
-  readonly role: { readonly instructions: string };
+  readonly role: { readonly instructions: string; readonly kind?: RoleKind | null };
 }
 
 export interface RunPrompts {
@@ -88,10 +88,11 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     budgets: taskBudgetsFor(budgets, size),
     contractMax: config.prompt.contractMax,
     ...(input.box === true ? { box: true } : {}),
+    ...(input.role.kind == null ? {} : { area: input.role.kind }),
     ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
   });
   return {
-    systemFile: renderSystemFile("implement-box", input.role.instructions),
+    systemFile: renderSystemFile("implement-box", input.role.instructions, input.role.kind ?? null),
     taskMessage: task.text,
     sections: task.sections,
   };
