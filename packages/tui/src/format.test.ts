@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { elapsed, gateLine, shortRole, skipReason, truncate, widthOf } from "./format";
+import { elapsed, gateLine, shortRole, skipReason, tickerLines, truncate, widthOf } from "./format";
 
 describe("format", () => {
   it("picks the 0009 width breakpoints", () => {
@@ -45,5 +45,21 @@ describe("format", () => {
     ]);
     expect(truncate("Office forget flow", 10, "…")).toBe("Office fo…");
     expect(truncate("short", 10, "…")).toBe("short");
+  });
+});
+
+describe("tickerLines", () => {
+  it("wraps on words to as many rows as the message needs, up to three", () => {
+    expect(tickerLines("short message", 80)).toEqual(["short message"]);
+    expect(tickerLines("one two three four", 9)).toEqual(["one two", "three", "four"]);
+  });
+
+  it("ends the third row in an ellipsis when the message needs more rows", () => {
+    const text = "word ".repeat(80).trim();
+    const rows = tickerLines(text, 20);
+    expect(rows).toHaveLength(3);
+    expect(rows.slice(0, 2).every((row) => row.length <= 20 && !row.endsWith("…"))).toBe(true);
+    expect(rows[2]).toHaveLength(20);
+    expect(rows[2]?.endsWith("…")).toBe(true);
   });
 });

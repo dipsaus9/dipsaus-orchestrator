@@ -1,10 +1,10 @@
 ---
 id: DIPO-510
 title: Wrap a long message in the ticker under the body
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 10:15'
-updated_date: '2026-11-17 14:40'
+updated_date: '2026-11-17 14:57'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -16,6 +16,13 @@ references:
   - packages/tui/src/screen.tsx
   - packages/tui/src/format.ts
   - packages/tui/src/app.test.tsx
+modified_files:
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/format.test.ts
+  - packages/tui/src/format.ts
+  - packages/tui/src/frame.test.ts
+  - packages/tui/src/frame.tsx
+  - packages/tui/src/screen.tsx
 type: bug
 ---
 
@@ -57,9 +64,24 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A ticker message longer than the frame width wraps at word boundaries onto as many rows as it needs, up to three.
-- [ ] #2 A ticker message that needs more than three rows shows three rows, and the third ends with an ellipsis.
-- [ ] #3 The body's height shrinks by each extra ticker row, so the screen never takes more rows than the terminal has.
-- [ ] #4 A ticker message that fits the width shows as one row, as before.
-- [ ] #5 A refused approve whose error message is longer than the width shows its whole code and message in the ticker.
+- [x] #1 A ticker message longer than the frame width wraps at word boundaries onto as many rows as it needs, up to three.
+- [x] #2 A ticker message that needs more than three rows shows three rows, and the third ends with an ellipsis.
+- [x] #3 The body's height shrinks by each extra ticker row, so the screen never takes more rows than the terminal has.
+- [x] #4 A ticker message that fits the width shows as one row, as before.
+- [x] #5 A refused approve whose error message is longer than the width shows its whole code and message in the ticker.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 14:57 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 72,541 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

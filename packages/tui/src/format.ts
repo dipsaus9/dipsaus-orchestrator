@@ -114,6 +114,37 @@ export function wrapWords(text: string, width: number): string[] {
   return out;
 }
 
+/** The most rows the ticker under the body takes (DIPO-510). */
+export const TICKER_MAX_ROWS = 3;
+
+/**
+ * The ticker's message as its rows at `width`: cut on its spaces, never collapsing them (the run
+ * summary's `  ·  ` separators stay), at most `TICKER_MAX_ROWS` rows; when the message needs more,
+ * the last row ends in an ellipsis. A word longer than the width is broken across rows.
+ */
+export function tickerLines(text: string, width: number): string[] {
+  const size = Math.max(1, width);
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let rest = paragraph;
+    do {
+      if (rest.length <= size) {
+        lines.push(rest);
+        break;
+      }
+      const cut = rest.lastIndexOf(" ", size);
+      const at = cut <= 0 ? size : cut;
+      lines.push(rest.slice(0, at).trimEnd());
+      rest = rest.slice(at).trimStart();
+    } while (rest !== "");
+  }
+  if (lines.length <= TICKER_MAX_ROWS) return lines;
+  const kept = lines.slice(0, TICKER_MAX_ROWS);
+  const last = kept[TICKER_MAX_ROWS - 1] ?? "";
+  kept[TICKER_MAX_ROWS - 1] = `${last.slice(0, Math.max(0, size - 1))}…`;
+  return kept;
+}
+
 /** A count as the previews print caps: `2.0M`, `150k`, `400`. */
 export function compactCount(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
