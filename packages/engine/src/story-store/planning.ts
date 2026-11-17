@@ -11,6 +11,7 @@ import {
   type FieldBlockPark,
   type LaneFlush,
   type Lifecycle,
+  RoleKind,
   type StoryKey,
   TestPlan,
 } from "@dipsaus-orchestrator/contract";
@@ -155,6 +156,7 @@ export const RoleAddTarget = z
     model: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
     instructions: z.string().min(1),
+    kind: RoleKind.optional(),
   })
   .strict();
 export type RoleAddTarget = z.infer<typeof RoleAddTarget>;
@@ -171,6 +173,7 @@ export const RoleEditTarget = z
     model: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
     instructions: z.string().min(1).optional(),
+    kind: RoleKind.optional(),
   })
   .strict();
 export type RoleEditTarget = z.infer<typeof RoleEditTarget>;

@@ -1,10 +1,10 @@
 ---
 id: DIPO-501
 title: Role proposals can set a role's kind
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 12:58'
-updated_date: '2026-11-16 14:37'
+updated_date: '2026-11-17 08:56'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -19,6 +19,21 @@ references:
   - packages/engine/src/backlog/lane
   - packages/tui/src/planning.tsx
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0022-planning-sessions.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.ts
+  - packages/engine/src/backlog/lane/roles.ts
+  - packages/engine/src/roles/file.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/run/planning-roles.test.ts
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/roles.test.tsx
 type: feature
 ordinal: 472000
 ---
@@ -58,10 +73,25 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A role proposal with kind design files a role file that loads as a design role.
-- [ ] #2 A role proposal without a kind files a role file without a kind key, which loads as a code role.
-- [ ] #3 A role-edit proposal that gives only a kind changes the kind key and leaves the purpose, model, effort and instructions as they were.
-- [ ] #4 A role or role-edit proposal with a kind other than code, design or docs is refused, and the problem names the three values.
-- [ ] #5 The planning view shows the kind of a role proposal.
-- [ ] #6 Decision 0022 says a role or role-edit proposal may set the kind.
+- [x] #1 A role proposal with kind design files a role file that loads as a design role.
+- [x] #2 A role proposal without a kind files a role file without a kind key, which loads as a code role.
+- [x] #3 A role-edit proposal that gives only a kind changes the kind key and leaves the purpose, model, effort and instructions as they were.
+- [x] #4 A role or role-edit proposal with a kind other than code, design or docs is refused, and the problem names the three values.
+- [x] #5 The planning view shows the kind of a role proposal.
+- [x] #6 Decision 0022 says a role or role-edit proposal may set the kind.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 08:56 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 73,427 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
