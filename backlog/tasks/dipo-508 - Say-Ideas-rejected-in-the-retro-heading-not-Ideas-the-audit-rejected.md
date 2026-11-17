@@ -1,10 +1,10 @@
 ---
 id: DIPO-508
 title: 'Say Ideas rejected in the retro, not Ideas the audit rejected'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:40'
+updated_date: '2026-11-17 14:51'
 labels:
   - 'tier:S'
   - 'role:developer'
