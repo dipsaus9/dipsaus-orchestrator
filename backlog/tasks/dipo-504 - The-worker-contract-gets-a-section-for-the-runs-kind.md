@@ -1,10 +1,10 @@
 ---
 id: DIPO-504
 title: The worker contract gets a section for the run's kind
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 13:29'
-updated_date: '2026-11-17 14:31'
+updated_date: '2026-11-17 14:33'
 labels:
   - 'tier:M'
   - 'role:developer'
