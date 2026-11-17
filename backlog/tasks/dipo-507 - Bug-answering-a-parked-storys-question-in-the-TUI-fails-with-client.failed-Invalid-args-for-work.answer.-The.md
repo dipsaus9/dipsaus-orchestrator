@@ -1,10 +1,10 @@
 ---
 id: DIPO-507
 title: Answering a parked story's question from the desk sends its question id
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 13:02'
-updated_date: '2026-11-16 15:05'
+updated_date: '2026-11-17 09:15'
 labels:
   - tech-debt
   - 'tier:S'
