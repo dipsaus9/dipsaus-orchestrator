@@ -4,7 +4,7 @@ title: 'Say Ideas rejected in the retro, not Ideas the audit rejected'
 status: Done
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 15:05'
+updated_date: '2026-11-17 15:12'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -66,7 +66,7 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-11-17 15:05 UTC
+Closed 2026-11-17 15:12 UTC
 - Criteria met: 4 of 4 (as the worker reported them)
 - Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
 - Review rounds: 1, failed 0
