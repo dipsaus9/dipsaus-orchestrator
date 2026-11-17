@@ -1,10 +1,10 @@
 ---
 id: DIPO-504
 title: The worker contract gets a section for the run's kind
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 13:29'
-updated_date: '2026-11-17 14:10'
+updated_date: '2026-11-17 14:15'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -64,11 +64,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The system file of a code run holds the shared contract, the code section with what What to deliver says today, and then the role text.
-- [ ] #2 The system file of a design run holds the shared contract, the design section and then the role text, and says nothing about code, tests or a verify at done.
-- [ ] #3 The system file of a docs run holds the shared contract, the docs section and then the role text.
-- [ ] #4 For each kind the system file is byte-identical for the same role text and holds no id, date, path or count.
-- [ ] #5 The task message of a design or docs run has an area section that names the paths the run may write for its story; a code run's task message has none.
-- [ ] #6 A run without a stored kind gets the code section in its first session and every later one.
-- [ ] #7 Decision 0014 says L1 is the shared contract plus the run kind's section, and describes the area section.
+- [x] #1 The system file of a code run holds the shared contract, the code section with what What to deliver says today, and then the role text.
+- [x] #2 The system file of a design run holds the shared contract, the design section and then the role text, and says nothing about code, tests or a verify at done.
+- [x] #3 The system file of a docs run holds the shared contract, the docs section and then the role text.
+- [x] #4 For each kind the system file is byte-identical for the same role text and holds no id, date, path or count.
+- [x] #5 The task message of a design or docs run has an area section that names the paths the run may write for its story; a code run's task message has none.
+- [x] #6 A run without a stored kind gets the code section in its first session and every later one.
+- [x] #7 Decision 0014 says L1 is the shared contract plus the run kind's section, and describes the area section.
 <!-- AC:END -->
