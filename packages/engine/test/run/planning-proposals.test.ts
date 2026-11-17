@@ -491,22 +491,25 @@ describe("no planning path sets Ready without the maintainer's confirm (DIPO-495
     }));
 });
 
-describe("a proposal's summary (DIPO-505)", () => {
-  const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
-  const { summary: _summary, ...bareStory } = story;
-  const { summary: _own, ...bare } = STORY_PROPOSAL;
-  const problemsOf = (value: unknown): string[] => {
-    const read = readRostered(blocksOf(value))[0];
-    return read?.ok === false ? [...read.problems] : [];
-  };
-  const withLine = (line: Partial<PlanningAdrLine>) => ({
+function problemsOf(value: unknown): string[] {
+  const read = readRostered(blocksOf(value))[0];
+  return read?.ok === false ? [...read.problems] : [];
+}
+
+function withLine(line: Partial<PlanningAdrLine>) {
+  return {
     ...STORY_PROPOSAL,
     summary: {
       ...NO_SUMMARY,
       adrLines: [{ ...(SUMMARY.adrLines[0] as PlanningAdrLine), ...line }],
     },
-  });
+  };
+}
 
+describe("a proposal's summary (DIPO-505)", () => {
+  const { kind: _kind, why: _why, ...story } = STORY_PROPOSAL;
+  const { summary: _summary, ...bareStory } = story;
+  const { summary: _own, ...bare } = STORY_PROPOSAL;
   it("refuses a story, split, refine and edit without a summary, and takes empty lists", () => {
     const edit = { kind: "edit", id: "TASK-2", title: "Renamed", why: "w" };
     const split = { kind: "split", id: "TASK-2", why: "w" };

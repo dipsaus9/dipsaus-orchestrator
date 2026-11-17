@@ -4,7 +4,7 @@
 
 import { baseCommit, filesAt } from "../box/image";
 
-import type { OfficeGit } from "./office";
+import type { OfficeGit } from "../git/office";
 
 export const DECISIONS_DIR = "docs/decisions";
 

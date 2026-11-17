@@ -355,12 +355,14 @@ export type PlanningHold =
    */
   | "holdFailed";
 
+function list(items: readonly string[]): string {
+  return items.length === 0 ? "None." : items.map((item) => `- ${item}`).join("\n");
+}
+
 /**
  * Pure: the three sections of a planning summary (DIPO-505, 0012 F3), each with its list or `None.`.
  */
 export function summarySections(summary: PlanningSummary): string {
-  const list = (items: readonly string[]) =>
-    items.length === 0 ? "None." : items.map((item) => `- ${item}`).join("\n");
   return [
     "## What it does not do",
     list(summary.notDoing),

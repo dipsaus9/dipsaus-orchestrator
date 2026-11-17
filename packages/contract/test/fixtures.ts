@@ -88,6 +88,7 @@ export const planningStoryProposal = {
   criteria: ["dipo export writes one CSV row per story"],
   references: ["packages/cli/src/export-command.ts"],
   testPlan: { entries: [{ kind: "automated", check: "(unit) one CSV row per story" }] },
+  summary: { notDoing: ["It does not export Done stories"], adrLines: [], risks: [] },
   why: "The maintainer asked for it in this session.",
 };
 

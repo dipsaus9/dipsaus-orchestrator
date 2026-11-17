@@ -750,7 +750,10 @@ function firstLine(proposal: PlanningProposalView["proposal"]): string {
   return line.replace(/\s+/g, " ");
 }
 
-/** The summaries a proposal carries, each with the part it belongs to (DIPO-505). */
+/**
+ * The summaries a proposal carries, each with the part it belongs to (DIPO-505); a proposal from an
+ * engine before the summary has none.
+ */
 function summariesOf(
   proposal: PlanningProposalView["proposal"],
 ): { readonly label: string; readonly summary: PlanningSummary }[] {
@@ -758,12 +761,12 @@ function summariesOf(
     case "story":
     case "refine":
     case "edit":
-      return [{ label: "", summary: proposal.summary }];
+      return proposal.summary === undefined ? [] : [{ label: "", summary: proposal.summary }];
     case "split":
       return [
         { label: "new story ", summary: proposal.story.summary },
         { label: "edit ", summary: proposal.edit.summary },
-      ];
+      ].filter((part) => part.summary !== undefined);
     default:
       return [];
   }

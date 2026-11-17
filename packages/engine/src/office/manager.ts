@@ -46,7 +46,7 @@ import type { GateRole } from "../gate/types";
 import type { Logger } from "../log/logger";
 import type { MountReader } from "../platform/sqlite";
 import type { RolesView } from "../roles/view";
-import { type BaseDecisions, readBaseDecisions } from "../git/decisions";
+import { type BaseDecisions, readBaseDecisions } from "../roles/decisions";
 import { type BaseRoles, readBaseRoles, rosterOf } from "../roles/base";
 import type { SoftwareStream } from "../software-stream";
 import { checkoutFiles } from "../story-store/folder";
