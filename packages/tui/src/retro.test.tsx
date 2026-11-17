@@ -22,7 +22,7 @@ const LINES = [
   "  cost: not reported; Ready to merged: no data",
   "Where stories came from: planned 5, worker proposal 2, reviewer advisory 1, quick idea 0, session aside 0, unknown 12",
   "Rework: 2 of 9 merged stories (22%) changed mostly files another story changed in the 14 days before",
-  "Ideas the audit rejected: 3",
+  "Ideas rejected: 3",
   "  2 x it is the same as an idea held already (code)",
   "Proposed stories you dismissed: 2",
 ];

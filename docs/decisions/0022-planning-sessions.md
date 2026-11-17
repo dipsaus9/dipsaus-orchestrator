@@ -43,7 +43,7 @@ A triage session goes through the drafts with the maintainer, each listed with i
 
 ## 4. Retro
 
-A retro view in the TUI shows, per tier and type: why stories parked, fix rounds and loops, cost and time from Ready to merged, where stories came from, and the ideas the audit rejected, with their reasons. It also shows the share of rework: a merged story whose changed files were mostly changed by another story merged in the 14 days before it. dipo computes every number by code from its database (0007); a planning session may explain them, never compute them.
+A retro view in the TUI shows, per tier and type: why stories parked, fix rounds and loops, cost and time from Ready to merged, where stories came from, and the ideas rejected, by code or by the audit, with their reasons. It also shows the share of rework: a merged story whose changed files were mostly changed by another story merged in the 14 days before it. dipo computes every number by code from its database (0007); a planning session may explain them, never compute them.
 
 ## How this ADR relates to the others
 

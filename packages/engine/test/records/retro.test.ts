@@ -207,7 +207,7 @@ describe("retro", () => {
       expect(result.lines).toContain(
         "Rework: 1 of 2 merged stories (50%) changed mostly files another story changed in the 14 days before",
       );
-      expect(result.lines).toContain("Ideas the audit rejected: 3");
+      expect(result.lines).toContain("Ideas rejected: 3");
       expect(result.lines).toContain("Proposed stories you dismissed: 1");
     }));
 
