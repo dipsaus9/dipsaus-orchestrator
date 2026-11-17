@@ -1,10 +1,10 @@
 ---
 id: DIPO-509
 title: Wrap long open and shell lines in the test overlay
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:40'
+updated_date: '2026-11-17 14:58'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -14,6 +14,9 @@ references:
   - packages/tui/src/checklist.tsx
   - packages/tui/src/checklist.test.tsx
   - packages/tui/src/format.ts
+modified_files:
+  - packages/tui/src/checklist.test.tsx
+  - packages/tui/src/checklist.tsx
 type: bug
 ---
 
@@ -56,9 +59,24 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An open line whose URL is longer than the overlay's inner width shows every character of the URL over two or more rows.
-- [ ] #2 A shell line whose command is longer than the overlay's inner width shows every character of the command over two or more rows.
-- [ ] #3 The o opens and c copies hints still show for a wrapped open or shell line.
-- [ ] #4 An open or shell line that fits renders as one row, as before.
-- [ ] #5 c copies the whole command of a wrapped shell line.
+- [x] #1 An open line whose URL is longer than the overlay's inner width shows every character of the URL over two or more rows.
+- [x] #2 A shell line whose command is longer than the overlay's inner width shows every character of the command over two or more rows.
+- [x] #3 The o opens and c copies hints still show for a wrapped open or shell line.
+- [x] #4 An open or shell line that fits renders as one row, as before.
+- [x] #5 c copies the whole command of a wrapped shell line.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-17 14:58 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 57,885 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
