@@ -1,10 +1,10 @@
 ---
 id: DIPO-503
 title: A design or docs run parks when a part changes a file outside its kind's area
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 13:08'
-updated_date: '2026-11-17 09:15'
+updated_date: '2026-11-17 09:18'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -64,12 +64,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A design run whose part changes only files under docs/design/<ID>/ of its own story commits the part.
-- [ ] #2 A design run whose part adds, changes or deletes a file outside docs/design/<ID>/ commits and pushes nothing and parks scope-violation.
-- [ ] #3 A docs run whose part changes a file outside the docs area of DIPO-502 commits and pushes nothing and parks scope-violation.
-- [ ] #4 The park detail of an outside-area hit names the run's kind and its area and holds no path; the run directory's record holds the paths.
-- [ ] #5 The last part at done gets the same check, and an outside-area hit there parks instead of moving the story to In Review.
-- [ ] #6 A code run, a run started before this change and a run whose stored role has no kind deliver parts exactly as before.
-- [ ] #7 A part after dipo merged base changes outside the area onto the story branch does not hit for those base changes.
-- [ ] #8 Decision 0008 lists the area check among the part scans and says it parks scope-violation.
+- [x] #1 A design run whose part changes only files under docs/design/<ID>/ of its own story commits the part.
+- [x] #2 A design run whose part adds, changes or deletes a file outside docs/design/<ID>/ commits and pushes nothing and parks scope-violation.
+- [x] #3 A docs run whose part changes a file outside the docs area of DIPO-502 commits and pushes nothing and parks scope-violation.
+- [x] #4 The park detail of an outside-area hit names the run's kind and its area and holds no path; the run directory's record holds the paths.
+- [x] #5 The last part at done gets the same check, and an outside-area hit there parks instead of moving the story to In Review.
+- [x] #6 A code run, a run started before this change and a run whose stored role has no kind deliver parts exactly as before.
+- [x] #7 A part after dipo merged base changes outside the area onto the story branch does not hit for those base changes.
+- [x] #8 Decision 0008 lists the area check among the part scans and says it parks scope-violation.
 <!-- AC:END -->
