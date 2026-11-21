@@ -18,7 +18,7 @@ jobs:
   # every other PR runs every job.
   changes:
     name: changes
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     outputs:
@@ -77,7 +77,7 @@ jobs:
   ready-gate:
     name: ready-gate
     needs: changes
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       pull-requests: read
@@ -108,7 +108,7 @@ jobs:
     name: checks
     needs: changes
     if: needs.changes.outputs.scope != 'backlog-only'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -132,7 +132,7 @@ jobs:
     name: test-shards
     needs: changes
     if: needs.changes.outputs.scope != 'backlog-only'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -155,7 +155,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     env:
@@ -185,7 +185,7 @@ jobs:
     name: dependency-review
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.scope != 'backlog-only'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -239,7 +239,7 @@ jobs:
     name: shellcheck
     needs: changes
     if: needs.changes.outputs.scope != 'backlog-only'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -261,7 +261,7 @@ jobs:
     name: actionlint
     needs: changes
     if: needs.changes.outputs.scope != 'backlog-only'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     env:
@@ -299,7 +299,7 @@ jobs:
         smoke,
       ]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions: {}
     steps:
       - name: Check that every needed job succeeded or was skipped by design
