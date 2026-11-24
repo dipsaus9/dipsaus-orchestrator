@@ -1,10 +1,10 @@
 ---
 id: DIPO-511
 title: Check a Ready story in pickup mode in the Queue preview
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-16 14:31'
-updated_date: '2026-11-17 15:04'
+updated_date: '2026-11-24 07:52'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -17,6 +17,12 @@ references:
   - packages/engine/test/gate/story-gate.test.ts
   - packages/tui/src/queue.test.tsx
   - docs/decisions/0009-tui.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - packages/engine/src/gate-decisions/feature.ts
+  - packages/engine/test/gate/gate.test.ts
+  - packages/engine/test/gate/story-gate.ci.test.ts
+  - packages/engine/test/gate/story-gate.test.ts
 type: bug
 ---
 
@@ -68,3 +74,18 @@ test_plan:
 - [x] #5 story.gate stores no gate decision in either mode.
 - [x] #6 Decision 0009 says the Queue checks a Ready story in pickup mode and any other story in ready mode.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-24 07:52 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 66,294 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
