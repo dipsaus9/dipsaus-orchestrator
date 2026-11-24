@@ -52,7 +52,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           stories: backlogStoryStore({ spawn: systemSpawn, command: ["false"], env: repo.env }),
         });
         const story = StoryId.parse("TASK-1");
-        const cliError = await broken.checkReady(officeId, story).catch((error: unknown) => error);
+        const cliError = await broken.checkStory(officeId, story).catch((error: unknown) => error);
         expect(cliError).toBeInstanceOf(CommandError);
         expect((cliError as CommandError).error).toMatchObject({
           code: "backlog.unreadable",
@@ -69,7 +69,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           stories: backlogStoryStore(CLI(repo)),
         });
         const configError = await unconfigured
-          .checkReady(officeId, story)
+          .checkStory(officeId, story)
           .catch((error: unknown) => error);
         expect((configError as CommandError).error).toMatchObject({
           code: "config.invalid",
@@ -86,7 +86,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           stories: backlogStoryStore(CLI(repo)),
         });
         const gitError = await detached
-          .checkReady(officeId, story)
+          .checkStory(officeId, story)
           .catch((error: unknown) => error);
         expect((gitError as CommandError).error).toMatchObject({
           code: "office.refused",
