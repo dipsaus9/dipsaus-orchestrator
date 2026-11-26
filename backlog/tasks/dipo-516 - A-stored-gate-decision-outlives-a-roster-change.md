@@ -1,10 +1,10 @@
 ---
 id: DIPO-516
 title: Show a stored gate decision only while the roster it read is in force
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-16 14:29'
-updated_date: '2026-11-26 10:06'
+updated_date: '2026-11-26 10:31'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -20,6 +20,31 @@ references:
   - packages/engine/src/db/migrations/0016-gate-roster-hash.ts
   - packages/engine/test/views/derive.test.ts
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0012-story-standard.md
+  - packages/engine/src/db/migrations/0016-gate-roster-hash.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/gate-decisions/decisions.ts
+  - packages/engine/src/gate-decisions/feature.ts
+  - packages/engine/src/gate/hash.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/views/story.ts
+  - packages/engine/test/backlog/pr/adopt.ci.test.ts
+  - packages/engine/test/backlog/pr/pr.ci.test.ts
+  - packages/engine/test/commands/helpers.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/gate-decisions/store.test.ts
+  - packages/engine/test/office/roles.test.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/overview/reads.test.ts
+  - packages/engine/test/reconcile/reconcile.ci.test.ts
+  - packages/engine/test/retention/retention.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/engine/test/run/work-run.test.ts
+  - packages/engine/test/views/derive.test.ts
 type: bug
 ---
 
@@ -73,3 +98,18 @@ test_plan:
 - [x] #5 A decision stored before the migration, with no roster hash, shows neither failures nor a pass.
 - [x] #6 Decision 0012 says a stored gate decision keeps the hash of the roster it read and counts for the Queue only while that roster is in force.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-26 10:31 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 127,002 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
