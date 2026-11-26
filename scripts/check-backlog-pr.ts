@@ -1,5 +1,5 @@
 // The structural check of a backlog-only PR (0010) in CI: the `ready-gate` job of ci.yml runs it on
-// a PR that the `changes` job found changes only `backlog/` (0016). It is the engine's own check
+// a PR that the `changes` job found changes only `backlog/` and role files (0016). It is the engine's own check
 // (`checkBacklogPr`) over the engine's own diff (`collectPrDiff`), which views every changed task on
 // both sides with the Backlog CLI in a temporary worktree of this script's, removed afterwards.
 //

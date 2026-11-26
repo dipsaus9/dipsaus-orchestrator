@@ -1,6 +1,6 @@
 // The light CI path of backlog-only PRs (0016, DIPO-341), read from ci.yml as it is in the
 // repository. The `changes` step and the `ci-ok` step run here as written, with bash and jq: the
-// changes job finds a PR that changes only regular Backlog files from GitHub's merge commit, and
+// changes job finds a PR that changes only regular Backlog and role files from GitHub's merge commit, and
 // ci-ok passes that PR with its heavy jobs skipped, and fails a job that failed, or was skipped for
 // any other reason.
 
@@ -221,6 +221,16 @@ async function executable(repo: TempRepo): Promise<void> {
   chmodSync(join(repo.dir, "backlog/tasks/a.md"), 0o755);
   await repo.git("add", "--", "backlog/tasks/a.md");
 }
+async function roleSymlink(repo: TempRepo): Promise<void> {
+  await Bun.write(join(repo.dir, ".dipo/roles/keep.md"), "x\n");
+  symlinkSync("keep.md", join(repo.dir, ".dipo/roles/link.md"));
+  await repo.git("add", "--", ".dipo/roles/keep.md", ".dipo/roles/link.md");
+}
+async function roleExecutable(repo: TempRepo): Promise<void> {
+  await put(repo, ".dipo/roles/designer.md");
+  chmodSync(join(repo.dir, ".dipo/roles/designer.md"), 0o755);
+  await repo.git("add", "--", ".dipo/roles/designer.md");
+}
 async function submodule(repo: TempRepo): Promise<void> {
   const sha = (await repo.git("rev-parse", "HEAD")).trim();
   await repo.git("update-index", "--add", "--cacheinfo", `160000,${sha},backlog/sub.md`);
@@ -258,6 +268,30 @@ describe("ci.yml light path: the changes job", () => {
     expect(await prScope(symlink)).toBe("scope=full\n");
     expect(await prScope(executable)).toBe("scope=full\n");
     expect(await prScope(submodule)).toBe("scope=full\n");
+  });
+
+  it("finds a PR that changes Backlog files and role files under .dipo/roles/ (DIPO-514)", async () => {
+    const output = await prScope(async (repo) => {
+      await put(repo, "backlog/tasks/b.md");
+      await put(repo, ".dipo/roles/designer.md");
+    });
+    expect(output).toBe("scope=backlog-only\n");
+  });
+
+  it("runs everything for a role file next to a path outside backlog/ and .dipo/roles/ (DIPO-514)", async () => {
+    const output = await prScope(async (repo) => {
+      await put(repo, ".dipo/roles/designer.md");
+      await put(repo, "packages/engine/src/index.ts");
+    });
+    expect(output).toBe("scope=full\n");
+    // Another .dipo/ file is not a role file.
+    expect(await prScope((repo) => put(repo, ".dipo/planning.md"))).toBe("scope=full\n");
+    expect(await prScope((repo) => put(repo, ".dipo/roles/designer.yaml"))).toBe("scope=full\n");
+  });
+
+  it("runs everything for a role file that is a symlink or an executable (DIPO-514)", async () => {
+    expect(await prScope(roleSymlink)).toBe("scope=full\n");
+    expect(await prScope(roleExecutable)).toBe("scope=full\n");
   });
 
   it("runs everything for a PR that changes nothing", async () => {
