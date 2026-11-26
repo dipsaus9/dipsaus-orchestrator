@@ -19,7 +19,7 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 
 | Job | Runner | Does |
 |---|---|---|
-| `changes` | `ubuntu-24.04` | Decides whether the PR changes only `backlog/`; the heavy jobs below skip when it does |
+| `changes` | `ubuntu-24.04` | Decides whether the PR changes only `backlog/` and role files `.dipo/roles/<name>.md`; the heavy jobs below skip when it does |
 | `ready-gate` | `ubuntu-24.04` | The Ready gate and the structural check of 0010 on every story the PR changes |
 | `checks` | `ubuntu-24.04` | `bun run check`: format, lint and typecheck, once |
 | `test-shards` | `ubuntu-24.04` | The coverage check: every test file is in exactly one shard of `verify` |
@@ -36,7 +36,7 @@ Runner labels are explicit, never `-latest`.
 
 **Test shards.** Together `checks` and the shards run what `bun run verify` runs locally in one go. A failed or cancelled shard makes its matrix job failed or cancelled, so `ci-ok` fails. A test file with no recorded time goes to the shard with the least time. `bun scripts/test-timings.ts <run id>` refreshes the times from the logs of a green run.
 
-**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the `checks`, `test-shards`, `verify`, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays required and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
+**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/` and role files `.dipo/roles/<name>.md`, the `checks`, `test-shards`, `verify`, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays required and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
 
 **The PR title check** (`.github/workflows/pr-title.yml`, job `pr-title`) runs `scripts/check-pr-title.ts` on `opened`, `edited`, `synchronize` and `reopened`. It is the second required check. Accepted titles:
 
@@ -122,6 +122,7 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
 
 ## Replaced
 
+- The light path only for a PR that changes nothing but `backlog/` (2026-10-28, DIPO-341). Replaced by `backlog/` and role files `.dipo/roles/<name>.md`, which a planning session's backlog PR writes (2026-11-26, DIPO-514).
 - "There is no self-update." (2026-10-24). Replaced by an update from the base commit of an office whose repository is dipo's source, when idle, on the maintainer's confirm (2026-11-10, DIPO-485, 0005); a release install still updates with the install script.
 - Four release targets: darwin-arm64, darwin-x64, linux-x64 and linux-arm64 (2026-10-10). Replaced by darwin-arm64 only (2026-10-24, 0004). The smoke jobs for the other three go, as do the glibc floor checks and the musl question.
 - `strict` on, with a merge slot that kept branches up to date at merge time (2026-10-10). `strict` turned off (2026-10-22). The slot was replaced by GitHub auto-merge (0002, 2026-10-24).

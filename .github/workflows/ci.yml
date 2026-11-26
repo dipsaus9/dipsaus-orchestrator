@@ -13,8 +13,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # 0016: a PR that changes only backlog/ takes the light path. This job decides it; on that path the
-  # heavy jobs below skip by design, and ready-gate and pr-title still run. Every push to main and
+  # 0016: a PR that changes only backlog/ and role files .dipo/roles/<name>.md takes the light path.
+  # This job decides it; on that path the heavy jobs below skip by design, and ready-gate and pr-title
+  # still run. Every push to main and
   # every other PR runs every job.
   changes:
     name: changes
@@ -33,8 +34,10 @@ jobs:
       # The scope is decided here with git and the shell, never by code from the PR's checkout, so
       # a PR cannot change the decision without a change under .github/ (code-owner review). Light
       # only when every changed entry is a regular file on both sides (mode 100644, or 000000 where
-      # it is absent) whose path is a .md file under backlog/ or backlog/config.yml. A symlink, a
-      # submodule, an executable, any other path and an empty diff are full. -z keeps paths with
+      # it is absent) whose path is a .md file under backlog/, backlog/config.yml or a .md file under
+      # .dipo/roles/. A symlink, a submodule, an executable, any other path and an empty diff are
+      # full. A nested or misnamed path under .dipo/roles/ is light here, and the structural check
+      # in ready-gate refuses it, so ci-ok fails. -z keeps paths with
       # spaces or newlines whole; output that does not end in a whole entry is full.
       - name: Classify the changed paths
         id: scope
@@ -60,7 +63,7 @@ jobs:
             read -r from to _ <<< "${meta#:}"
             case "$from" in 100644 | 000000) ;; *) scope=full ;; esac
             case "$to" in 100644 | 000000) ;; *) scope=full ;; esac
-            case "$path" in backlog/config.yml | backlog/*.md) ;; *) scope=full ;; esac
+            case "$path" in backlog/config.yml | backlog/*.md | .dipo/roles/*.md) ;; *) scope=full ;; esac
             meta=""
           done < "$diff"
           if [ "$count" -eq 0 ] || [ -n "$meta" ]; then

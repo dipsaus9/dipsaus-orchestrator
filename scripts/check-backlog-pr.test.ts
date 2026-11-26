@@ -203,6 +203,20 @@ describe("the structural check of a backlog-only PR in CI", () => {
     });
   }, 60_000);
 
+  it("fails a nested or misnamed path under .dipo/roles/, which the changes job lets on the light path (DIPO-514)", async () => {
+    await withTempRepo(async (repo) => {
+      const [base, head] = await pr(repo, {
+        ".dipo/roles/sub/x.md": DEVELOPER_ROLE,
+        ".dipo/roles/Designer.md": DEVELOPER_ROLE,
+      });
+      const result = await check(repo, base, head);
+      expect(result.failures.map((failure) => failure.message)).toEqual([
+        "the PR changes paths that are not Backlog files (a .md file under backlog/, backlog/config.yml, or a role file .dipo/roles/<name>.md): .dipo/roles/Designer.md, .dipo/roles/sub/x.md",
+      ]);
+      expect(result.passed).toBe(false);
+    });
+  }, 60_000);
+
   it("fails a symlink, an executable and a non-.md file under backlog/ (DIPO-341)", async () => {
     await withTempRepo(async (repo) => {
       const [base, head] = await pr(repo, { "backlog/x.test.ts": "x\n" }, async () => {
