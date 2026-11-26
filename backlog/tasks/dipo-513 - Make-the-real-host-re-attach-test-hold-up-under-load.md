@@ -1,10 +1,10 @@
 ---
 id: DIPO-513
 title: 'Make the real-host re-attach tests wait by time, not by poll count'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-26 09:41'
+updated_date: '2026-11-26 09:44'
 labels:
   - tech-debt
   - 'tier:S'
@@ -57,8 +57,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 realPendingHost and stoppedItself wait on elapsed time from systemClock, with no fixed poll counts.
-- [ ] #2 When the socket, park or exit wait runs out, the failure message names that wait and the milliseconds it waited.
-- [ ] #3 The never-binds and identity-check tests both use the same helpers.
-- [ ] #4 The tests' timeout is computed from the deadline and the named graces, so it is longer than all the waits added together.
+- [x] #1 realPendingHost and stoppedItself wait on elapsed time from systemClock, with no fixed poll counts.
+- [x] #2 When the socket, park or exit wait runs out, the failure message names that wait and the milliseconds it waited.
+- [x] #3 The never-binds and identity-check tests both use the same helpers.
+- [x] #4 The tests' timeout is computed from the deadline and the named graces, so it is longer than all the waits added together.
 <!-- AC:END -->
