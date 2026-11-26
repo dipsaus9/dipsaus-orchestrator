@@ -44,8 +44,10 @@ import { useBatchedState } from "./batch";
 import type { ReadChain, ReadGate } from "./chain";
 import { type ReadDesk } from "./desk";
 import { type ReadOutput, type ReadPrompt } from "./detail";
-import { leavesOverlay, useHome } from "./home";
+import { type Home, leavesOverlay, useHome } from "./home";
+import { bodyTop } from "./frame";
 import { useKeys, useQuitKey } from "./input";
+import { type MouseEvent, useMouse } from "./mouse";
 import { type ReadDigest } from "./digest";
 import type { ActionId } from "./keys";
 import { initialMode, modeReducer, typesText } from "./mode";
@@ -232,6 +234,19 @@ function onDaemonScreenKey(
   }
 }
 
+/**
+ * Only the Desk answers the mouse (DIPO-515), and only where its keys act: not while a prompt, a
+ * steer or an overlay has the keys, not on a daemon screen, not offline. It always has the rooms
+ * band above it.
+ */
+function useDeskMouse(state: OfficeStoreState, free: boolean, home: Home): void {
+  useMouse((event: MouseEvent) => {
+    if (!free || home.steering.draft !== null) return;
+    if (daemonScreen(state) !== null || isOffline(state)) return;
+    home.onDeskMouse(event, bodyTop(true));
+  });
+}
+
 export function App(props: AppProps) {
   const { store, clock, display, actions } = props;
   const state = useBatchedState(store, clock);
@@ -258,6 +273,7 @@ export function App(props: AppProps) {
     openUrl: (url) => actions.openUrl(url),
   });
   const shared = { store, actions, state, setMessage, refusedOffline };
+  useDeskMouse(state, mode.kind === "home" && acts.flow === null, home);
   const planning = usePlanning({
     ...shared,
     leave: goHome,
@@ -277,7 +293,6 @@ export function App(props: AppProps) {
     resetHome: home.reset,
     sendPrivacy: home.sendPrivacy,
   };
-
   const overlays = useOverlays({ state, home, dispatch, setMessage });
 
   /** Picks the handler of the mode. */

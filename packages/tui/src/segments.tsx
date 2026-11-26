@@ -15,6 +15,8 @@ export interface Seg {
   readonly underline?: boolean;
   /** On the focused row's background (`[sel]…[/]`). */
   readonly sel?: boolean;
+  /** Part of a clickable button: the key it presses (DIPO-515). */
+  readonly hit?: string;
 }
 
 export type SegLine = readonly Seg[];

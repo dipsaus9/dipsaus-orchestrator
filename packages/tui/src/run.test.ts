@@ -161,3 +161,92 @@ describe("runTui", () => {
     expect(Bun.stripANSI(terminal.raw())).not.toContain("Offices");
   });
 });
+
+describe("runTui mouse reporting (DIPO-515)", () => {
+  const ON = "\u001b[?1000h\u001b[?1006h";
+  const OFF = "\u001b[?1006l\u001b[?1000l";
+
+  it("turns SGR press and wheel reporting on at start and off after q twice", async () => {
+    const { terminal, deps, waitScreen } = setup();
+    const running = runTui([], deps);
+    await waitScreen("dipo / dipsaus-orchestrator");
+    expect(terminal.raw()).toContain(ON);
+    expect(terminal.raw()).not.toContain(OFF);
+    await terminal.press("q");
+    await terminal.press("q");
+    expect(await running).toBe(0);
+    expect(terminal.raw().lastIndexOf(OFF)).toBeGreaterThan(terminal.raw().lastIndexOf(ON));
+  });
+
+  it("turns it off on Ctrl+C and on SIGTERM", async () => {
+    const first = setup();
+    const ctrlC = runTui([], first.deps);
+    await first.waitScreen("dipo / dipsaus-orchestrator");
+    await first.terminal.press("ctrl-c");
+    await ctrlC;
+    expect(first.terminal.raw()).toContain(OFF);
+    const second = setup();
+    const term = runTui([], second.deps);
+    await second.waitScreen("dipo / dipsaus-orchestrator");
+    second.signals.get("SIGTERM")?.();
+    await term;
+    expect(second.terminal.raw()).toContain(OFF);
+  });
+
+  it("turns it off on a crash (the process exit event) and takes the handler away after", async () => {
+    const { terminal, deps, waitScreen } = setup();
+    const exits = new Set<() => void>();
+    const running = runTui([], {
+      ...deps,
+      onExit: (handler) => {
+        exits.add(handler);
+        return () => exits.delete(handler);
+      },
+    });
+    await waitScreen("dipo / dipsaus-orchestrator");
+    expect(exits.size).toBe(1);
+    for (const handler of exits) handler();
+    expect(terminal.raw()).toContain(OFF);
+    await terminal.press("ctrl-c");
+    await running;
+    expect(exits.size).toBe(0);
+  });
+
+  it("turns it off before a suspend and on again after the process continues", async () => {
+    const { terminal, signals, deps, waitScreen } = setup();
+    let suspended = 0;
+    const running = runTui([], {
+      ...deps,
+      suspend: () => {
+        suspended += 1;
+      },
+    });
+    await waitScreen("dipo / dipsaus-orchestrator");
+    const count = (text: string) => terminal.raw().split(text).length - 1;
+    expect(count(ON)).toBe(1);
+    signals.get("SIGTSTP")?.();
+    expect(suspended).toBe(1);
+    expect(count(OFF)).toBe(1);
+    // The stop handler is gone, so the next stop is the default one until the process continues.
+    expect(signals.has("SIGTSTP")).toBe(false);
+    signals.get("SIGCONT")?.();
+    expect(count(ON)).toBe(2);
+    expect(signals.has("SIGTSTP")).toBe(true);
+    await terminal.press("ctrl-c");
+    await running;
+  });
+
+  it("never turns it on with --no-mouse or --inline", async () => {
+    for (const flag of ["--no-mouse", "--inline"]) {
+      const { terminal, signals, deps, waitScreen } = setup();
+      const running = runTui([flag], deps);
+      await waitScreen("dipo / dipsaus-orchestrator");
+      expect(signals.has("SIGTSTP")).toBe(false);
+      await terminal.press("ctrl-c");
+      await running;
+      expect(terminal.raw()).not.toContain("\u001b[?1000h");
+      expect(terminal.raw()).not.toContain("\u001b[?1006h");
+      expect(terminal.raw()).not.toContain(OFF);
+    }
+  });
+});

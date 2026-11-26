@@ -273,7 +273,8 @@ function textRows(item: DeskItem, ctx: PreviewContext, title: string): SegLine[]
 function button(key: string, label: string, primary: boolean, ascii: boolean): Seg[] {
   const [open, close] = ascii ? ["[", "]"] : ["⟦", "⟧"];
   const edge = primary ? ("acc" as const) : ("faint" as const);
-  return [seg(open, edge), seg(" "), seg(key, "acc"), seg(` ${label} `), seg(close, edge)];
+  const pieces = [seg(open, edge), seg(" "), seg(key, "acc"), seg(` ${label} `), seg(close, edge)];
+  return pieces.map((piece) => ({ ...piece, hit: key }));
 }
 
 /** The buttons, two spaces apart, wrapped onto more rows when the pane is narrow. */

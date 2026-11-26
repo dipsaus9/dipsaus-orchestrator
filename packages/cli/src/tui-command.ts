@@ -80,6 +80,13 @@ export function systemTui(
         process.on(signal, handler);
         return () => process.off(signal, handler);
       },
+      onExit: (handler) => {
+        process.on("exit", handler);
+        return () => process.off("exit", handler);
+      },
+      suspend: () => {
+        process.kill(process.pid, "SIGTSTP");
+      },
       clientInfo,
       queryBackground: () => queryBackground(process.stdin, process.stdout, systemClock),
       // The daemon stopped screen (DIPO-458): `r` starts it as `dipo daemon start` does, `l` opens

@@ -1,6 +1,7 @@
 // `dipo tui` flags and display settings (0009): `--no-color` and `NO_COLOR` turn colour
 // off, `--ascii` replaces non-ASCII glyphs, `--inline` renders in the normal scrollback instead of
-// the alternate screen, and `--office <id>` opens that office first.
+// the alternate screen, `--no-mouse` (and `--inline`) leave mouse reporting off, and
+// `--office <id>` opens that office first.
 
 import { type OfficeId, OfficeId as OfficeIdSchema } from "@dipsaus-orchestrator/contract";
 
@@ -8,6 +9,8 @@ export interface TuiOptions {
   readonly color: boolean;
   readonly ascii: boolean;
   readonly inline: boolean;
+  /** Mouse reporting on (DIPO-515): off with `--no-mouse` and with `--inline`. */
+  readonly mouse: boolean;
   readonly office: OfficeId | null;
 }
 
@@ -35,12 +38,14 @@ export function parseTuiArgs(
   let color = !noColorEnv(env);
   let ascii = false;
   let inline = false;
+  let mouse = true;
   let office: OfficeId | null = null;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--no-color") color = false;
     else if (arg === "--ascii") ascii = true;
     else if (arg === "--inline") inline = true;
+    else if (arg === "--no-mouse") mouse = false;
     else if (arg === "--office") {
       const parsed = OfficeIdSchema.safeParse(args[i + 1]);
       if (!parsed.success) return "--office needs an office id (off_...)";
@@ -50,5 +55,5 @@ export function parseTuiArgs(
       return `unknown argument ${JSON.stringify(arg)}`;
     }
   }
-  return { color, ascii, inline, office };
+  return { color, ascii, inline, mouse: mouse && !inline, office };
 }

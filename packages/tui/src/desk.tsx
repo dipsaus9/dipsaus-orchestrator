@@ -32,10 +32,11 @@ import {
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 import { Box } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { ActionState } from "./actions";
 import type { Role } from "./colour";
+import type { DeskHitMap, HitButton } from "./mouse";
 import type { DigestResult } from "./digest";
 import { age, truncate } from "./format";
 import type { Display } from "./options";
@@ -414,10 +415,16 @@ function actionRows(action: ActionState, width: number, ascii: boolean): SegLine
 export function listLines(
   groups: readonly DeskGroup[],
   ctx: ListContext,
-): { readonly lines: SegLine[]; readonly focus: readonly [number, number] } {
+): {
+  readonly lines: SegLine[];
+  readonly focus: readonly [number, number];
+  /** The item each line belongs to (its rows and its action rows), null for the rest. */
+  readonly owners: readonly (number | null)[];
+} {
   const g = glyphs(ctx.ascii);
   const lines: SegLine[] = [];
   let focus: [number, number] = [0, 0];
+  const spans: [number, number][] = [];
   if (!ctx.narrow) {
     const count = needsYou(groups.flatMap((group) => group.items));
     lines.push(spread([seg("NEEDS YOU", "hi", true)], [seg(`${count}  `, "acc")], ctx.width), []);
@@ -462,10 +469,13 @@ export function listLines(
       }
       if (action !== null) lines.push(...actionRows(action, ctx.width, ctx.ascii));
       if (focused) focus = [from, lines.length - 1];
+      spans.push([from, lines.length]);
       index += 1;
     }
   });
-  return { lines, focus };
+  const owners = lines.map((): number | null => null);
+  spans.forEach(([from, to], item) => owners.fill(item, from, to));
+  return { lines, focus, owners };
 }
 
 /**
@@ -502,8 +512,32 @@ export function emptyLines(running: number, inReview: number, ascii: boolean): S
 /** The rows of a preview at `height`, from `scroll` down; past its end, the last rows show (DIPO-483). */
 export function previewRows(lines: readonly SegLine[], height: number, scroll: number): SegLine[] {
   const room = Math.max(1, height);
-  const start = Math.max(0, Math.min(scroll, lines.length - room));
+  const start = previewStart(lines.length, height, scroll);
   return lines.slice(start, start + room);
+}
+
+/** The first row of a preview of `total` rows shown at `height` and scrolled to `scroll`. */
+export function previewStart(total: number, height: number, scroll: number): number {
+  return Math.max(0, Math.min(scroll, total - Math.max(1, height)));
+}
+
+/** The buttons in the visible `rows` of a preview, `x` cells in from the body's left edge. */
+function buttonsIn(rows: readonly SegLine[], x: number, firstRow: number): HitButton[] {
+  const found: HitButton[] = [];
+  rows.forEach((line, i) => {
+    let at = x;
+    let open: { from: number; key: string } | null = null;
+    for (const piece of line) {
+      if (open !== null && piece.hit !== open.key) {
+        found.push({ row: firstRow + i, from: open.from, to: at, key: open.key });
+        open = null;
+      }
+      if (open === null && piece.hit !== undefined) open = { from: at, key: piece.hit };
+      at += piece.text.length;
+    }
+    if (open !== null) found.push({ row: firstRow + i, from: open.from, to: at, key: open.key });
+  });
+  return found;
 }
 
 /** The rows of a pane at `height`, scrolled so the focused range shows. */
@@ -512,12 +546,16 @@ export function windowed(
   height: number,
   focus: readonly [number, number],
 ): SegLine[] {
-  const room = Math.max(1, height);
-  const start = Math.max(0, Math.min(focus[1] - room + 1, focus[0]));
-  return lines.slice(start, start + room);
+  const start = windowStart(height, focus);
+  return lines.slice(start, start + Math.max(1, height));
 }
 
-export function Desk(props: {
+/** The first row `windowed` shows. */
+function windowStart(height: number, focus: readonly [number, number]): number {
+  return Math.max(0, Math.min(focus[1] - Math.max(1, height) + 1, focus[0]));
+}
+
+export interface DeskProps {
   readonly desk: DeskState;
   /** The focused row in `deskGroups(...).all`, -1 for none. */
   readonly selected: number;
@@ -542,17 +580,17 @@ export function Desk(props: {
   readonly queued: QueuedAccept | null;
   /** The office's running and in-review counts, for the empty Desk. */
   readonly team: { readonly running: number; readonly inReview: number };
-}) {
+  /** Where the Desk records where it drew its parts, for the mouse (DIPO-515). */
+  readonly hits?: { current: DeskHitMap | null };
+}
+
+const rows = (lines: SegLine[], map: DeskHitMap | null = null) => ({ lines, map });
+
+/** The Desk's rows, and where its list rows, preview and buttons are (DIPO-515). */
+export function deskLayout(props: DeskProps): { lines: SegLine[]; map: DeskHitMap | null } {
   const { desk, columns, display } = props;
   const g = glyphs(display.ascii);
   const width = columns - 1;
-  const rows = (lines: readonly SegLine[]) => (
-    <Box flexDirection="column">
-      {lines.map((line, i) => (
-        <SegRow key={i} line={line} display={display} />
-      ))}
-    </Box>
-  );
   if (desk.items === null) {
     const status =
       desk.error === null
@@ -573,11 +611,18 @@ export function Desk(props: {
     ]);
   }
   const narrow = columns < DESK_SPLIT_COLUMNS;
-  if (narrow && props.previewOpen)
-    return rows([
-      ...error,
-      ...previewRows(props.preview(width), props.height - error.length, props.previewScroll),
-    ]);
+  if (narrow && props.previewOpen) {
+    const full = props.preview(width);
+    const room = props.height - error.length;
+    const shown = previewRows(full, room, props.previewScroll);
+    return rows([...error, ...shown], {
+      listRows: [],
+      listWidth: 0,
+      previewX: 0,
+      previewMax: Math.max(0, full.length - Math.max(1, room)),
+      buttons: buttonsIn(shown, 0, error.length),
+    });
+  }
   const band = narrow || props.since === null ? null : sinceBand(props.since, width, display.ascii);
   const top: SegLine[] = [...error, ...queuedRows];
   if (band !== null) top.push(band, [seg((display.ascii ? "-" : "─").repeat(width), "faint")]);
@@ -592,9 +637,22 @@ export function Desk(props: {
     action: props.action,
   });
   const shown = windowed(list.lines, height, list.focus);
-  if (narrow) return rows([...top, ...shown]);
+  const listRows = [
+    ...top.map((): number | null => null),
+    ...list.owners.slice(windowStart(height, list.focus)),
+  ];
+  if (narrow) {
+    return rows([...top, ...shown], {
+      listRows,
+      listWidth: width,
+      previewX: null,
+      previewMax: 0,
+      buttons: [],
+    });
+  }
   const paneWidth = width - DESK_LIST_COLUMNS - 3;
-  const preview = previewRows(props.preview(paneWidth), height, props.previewScroll);
+  const previewAll = props.preview(paneWidth);
+  const preview = previewRows(previewAll, height, props.previewScroll);
   const rule = seg(display.ascii ? "|" : "│", "faint");
   const body: SegLine[] = [];
   for (let i = 0; i < height; i++) {
@@ -602,5 +660,31 @@ export function Desk(props: {
     const right = preview[i] ?? [];
     body.push(lineWidth(right) === 0 ? [...left, rule] : [...left, rule, seg("  "), ...right]);
   }
-  return rows([...top, ...body]);
+  // The preview starts after the list, the rule and two spaces.
+  const previewX = DESK_LIST_COLUMNS + 3;
+  return rows([...top, ...body], {
+    listRows,
+    listWidth: DESK_LIST_COLUMNS,
+    previewX,
+    previewMax: Math.max(0, previewAll.length - Math.max(1, height)),
+    buttons: buttonsIn(preview, previewX, top.length),
+  });
+}
+
+export function Desk(props: DeskProps) {
+  const { lines, map } = deskLayout(props);
+  const { hits } = props;
+  useLayoutEffect(() => {
+    if (hits !== undefined) hits.current = map;
+    return () => {
+      if (hits !== undefined) hits.current = null;
+    };
+  });
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, i) => (
+        <SegRow key={i} line={line} display={props.display} />
+      ))}
+    </Box>
+  );
 }

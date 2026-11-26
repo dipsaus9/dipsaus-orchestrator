@@ -18,7 +18,7 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 import { Box, type Key, useWindowSize } from "ink";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ActionTarget, useActions } from "./actions";
 import type { RunRequest, RunResult, TuiActions } from "./app";
@@ -33,6 +33,7 @@ import {
   useDesk,
 } from "./desk";
 import { previewLines } from "./desk-preview";
+import { DOUBLE_CLICK_MS, type DeskHitMap, deskHit, type MouseEvent, WHEEL_ROWS } from "./mouse";
 import { Detail, type DetailTarget } from "./detail";
 import { useSteering } from "./steering";
 import { useChain, useGate } from "./chain";
@@ -295,6 +296,10 @@ export function useHome(args: HomeArgs) {
   const [deskPreview, setDeskPreview] = useState(false);
   // The preview's first row: PgUp and PgDn move it by a step, and moving the selection resets it.
   const [deskScroll, setDeskScroll] = useState(0);
+  // Where the Desk drew its rows and buttons (it writes it), and the last click (DIPO-515).
+  const deskHits = useRef<DeskHitMap | null>(null);
+  const lastClick = useRef<{ readonly id: string; readonly at: number } | null>(null);
+  const pressed = useRef<MouseEvent | null>(null);
   // The digest whose Since band any key dismissed, by its `since`.
   const [sinceDismissed, setSinceDismissed] = useState<string | null>(null);
   const desk = useDesk({
@@ -864,6 +869,61 @@ export function useHome(args: HomeArgs) {
     }
   };
 
+  /**
+   * A mouse report on the Desk (DIPO-515): a click on a list row focuses it, a second click on it
+   * within 400 ms is Enter, a click on a preview button presses its key, and the wheel moves the
+   * focus over the list and scrolls the preview. `bodyTop` is the screen row of the body's first row.
+   */
+  const onDeskMouse = (event: MouseEvent, bodyTop: number) => {
+    const map = deskHits.current;
+    if (view !== "desk" || detail !== null || card !== null || map === null) return;
+    if (event.kind === "press") {
+      pressed.current = event;
+      return;
+    }
+    if (event.kind === "release") {
+      const down = pressed.current;
+      pressed.current = null;
+      if (down === null || down.x !== event.x || down.y !== event.y) return;
+      const target = deskHit(map, bodyTop, event);
+      if (target === null) return;
+      if (target.area === "preview") {
+        if (target.button !== null) onDeskKey(target.button, NO_KEY);
+        return;
+      }
+      const item = target.item === null ? undefined : deskAll[target.item];
+      if (item === undefined || target.item === null) return;
+      const id = deskRowId(item);
+      const last = lastClick.current;
+      if (last !== null && last.id === id && clock.now() - last.at <= DOUBLE_CLICK_MS) {
+        lastClick.current = null;
+        // What Enter does, on the row that was clicked.
+        if (deskNarrow && !deskPreview) setDeskPreview(true);
+        else openCard(item);
+        return;
+      }
+      lastClick.current = { id, at: clock.now() };
+      if (target.item !== deskIndex) {
+        setDeskPreview(false);
+        setDeskScroll(0);
+        selectDesk(target.item);
+      }
+      return;
+    }
+    const target = deskHit(map, bodyTop, event);
+    if (target === null) return;
+    const down = event.kind === "wheelDown";
+    if (target.area === "list") {
+      setDeskPreview(false);
+      setDeskScroll(0);
+      selectDesk(deskIndex + (down ? 1 : -1));
+    } else {
+      setDeskScroll((at) =>
+        Math.max(0, Math.min(map.previewMax, at + (down ? WHEEL_ROWS : -WHEEL_ROWS))),
+      );
+    }
+  };
+
   /** The keys of each view after the shared ones. */
   const onViewKey: Readonly<Record<View, (input: string, key: Key) => void>> = {
     overview: onOverviewKey,
@@ -1046,6 +1106,8 @@ export function useHome(args: HomeArgs) {
     latest,
     digest,
     onKey,
+    onDeskMouse,
+    deskHits,
     paletteFocus,
     stopRun,
     /** The privacy settings, opened from the palette. */
@@ -1210,6 +1272,7 @@ export function HomeMode(props: HomeModeProps) {
       preview={home.deskPreviewLines}
       previewOpen={home.deskPreview}
       previewScroll={home.deskScroll}
+      hits={home.deskHits}
       since={home.sinceShown ? home.digest : null}
       action={home.deskAction}
       queued={home.deskQueued}

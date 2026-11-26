@@ -10,6 +10,7 @@ describe("dipo tui options", () => {
       color: true,
       ascii: false,
       inline: false,
+      mouse: true,
       office: null,
     });
   });
@@ -26,8 +27,14 @@ describe("dipo tui options", () => {
       color: false,
       ascii: true,
       inline: true,
+      mouse: false,
       office: OfficeId.parse("off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA"),
     });
+  });
+
+  it("turns the mouse off with --no-mouse and --inline", () => {
+    expect(parseTuiArgs(["--no-mouse"], {})).toMatchObject({ mouse: false, inline: false });
+    expect(parseTuiArgs(["--inline"], {})).toMatchObject({ mouse: false });
   });
 
   it("refuses unknown arguments and a bad office id", () => {

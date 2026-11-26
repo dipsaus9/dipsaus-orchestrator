@@ -48,7 +48,7 @@ describe("dipo tui", () => {
     const lines: string[] = [];
     await main(["--help"], { writeLine: (line: string) => lines.push(line) } as never);
     expect(lines.join("\n")).toContain(
-      "dipo tui [--office <id>] [--no-color] [--ascii] [--inline]",
+      "dipo tui [--office <id>] [--no-color] [--ascii] [--inline] [--no-mouse]",
     );
   });
 
