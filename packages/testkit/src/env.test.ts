@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
-import { cleanEnv, daemonTestEnv, withCleanEnv } from "./env";
+import { cleanEnv, daemonTestEnv, readDaemonLog, withCleanEnv } from "./env";
 import { withTempDir } from "./temp";
 
 const SOURCE = {
@@ -67,5 +67,25 @@ describe("daemonTestEnv", () => {
       expect(daemonTestEnv(dir, { ...SOURCE, PATH: path, DIPO_TEST_BOX: "0" }).PATH).not.toContain(
         withCli,
       );
+    }));
+});
+
+describe("readDaemonLog", () => {
+  it("returns only the complete lines, parsed, and leaves out a last line still being written", () =>
+    withTempDir((dir) => {
+      mkdirSync(join(dir, "state", "logs"), { recursive: true });
+      writeFileSync(
+        join(dir, "state", "logs", "daemon.log"),
+        '{"msg":"first"}\n{"msg":"second","to":"running"}\n{"msg":"half',
+      );
+      expect(readDaemonLog(dir)).toEqual([
+        { msg: "first" },
+        { msg: "second", to: "running" },
+      ]);
+    }));
+
+  it("returns no lines and does not throw when the log is missing", () =>
+    withTempDir((dir) => {
+      expect(readDaemonLog(dir)).toEqual([]);
     }));
 });

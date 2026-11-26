@@ -4,7 +4,7 @@
 // test's temp directory (DIPO-109), and without the PATH directories that hold the Apple `container`
 // CLI unless DIPO_TEST_BOX=1 (DIPO-423): a test daemon never touches the maintainer's boxes.
 
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import { isolatedDaemonEnv } from "./runtime";
@@ -78,4 +78,18 @@ export async function withCleanEnv<T>(fn: () => T | Promise<T>): Promise<T> {
   } finally {
     for (const [name, value] of saved) process.env[name] = value;
   }
+}
+
+/**
+ * The complete lines of the daemon log in `dir`, parsed. A last line without its newline is one the
+ * daemon is still writing, and it is left out. No lines when the log does not exist yet.
+ */
+export function readDaemonLog<T extends { msg: string } = { msg: string }>(dir: string): T[] {
+  const path = join(dir, "state", "logs", "daemon.log");
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .slice(0, -1)
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as T);
 }
