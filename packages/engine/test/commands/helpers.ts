@@ -79,6 +79,13 @@ export function addOffice(t: TestState, name = "demo"): OfficeHandle {
       { office, path: `/repos/${name}`, name, at: t.clock.now() },
     ),
   );
+  // The roster in force is "r": a gate decision a test stores with that hash shows (DIPO-516).
+  t.state.connection.immediate(() =>
+    t.state.connection.run(
+      "insert into office_roster (office_id, roster_hash) values ($office, 'r')",
+      { office },
+    ),
+  );
   return t.state.office(office);
 }
 

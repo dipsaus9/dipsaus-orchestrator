@@ -237,6 +237,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             key: fresh.keys.two,
             result: { mode: "ready", passed: true, failures: [] },
             contentHash: gateContentHash(gateStoryFromView(view, [])),
+            rosterHash: "r",
             at: fresh.t.clock.now(),
           }),
         );

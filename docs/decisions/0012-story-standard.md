@@ -72,7 +72,7 @@ Every other transition is refused. Three more rules:
 
 - **Inputs:** the story, the other active tasks in the office's backlog (their id, status, dependencies and branch, read in one pass over the task files, 0010), and the office config (tier set, roster, banned phrases, contract size).
 - **No model, no file contents.** The gate reads no repository files and calls no model.
-- **Recorded.** Each result is stored as a gate decision keyed on the story's content hash.
+- **Recorded.** Each result is stored as a gate decision keyed on the story's content hash, with the hash of the roster it read; the Queue shows it only while that roster is in force.
 - **Two modes.** The `ready` mode checks R01a. The pickup mode, which `work.run` runs before every claim, checks R01b. Both modes check R02 to R26 and R30; the pickup mode also checks R31.
 
 | Rule | Check |
@@ -138,3 +138,4 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 - Parked left only by a resume, a discard or a drop (2026-10-24), so a story whose PR merged while it was parked stayed Parked on the base. Replaced by the Parked to Done row for a story whose PR merged (2026-11-09).
 - The `Outcome:` line, the one result a story delivers (2026-10-10). Replaced by the `Story:` line (2026-11-03), so every story says whom it serves and why.
 - R24 as a placeholder that failed every story with a non-code role until M4 (2026-10-24). Replaced by the design and docs areas, which keep a story's references to what its role may write (2026-11-13).
+- A stored gate decision keyed on the story content hash alone (2026-10-24). Replaced by a decision that also keeps the hash of the roster it read and shows only while that roster is in force (2026-11-26), so the Queue never shows a role failure or pass for a roster that has changed.

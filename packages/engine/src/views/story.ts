@@ -196,7 +196,8 @@ function parkOf(json: string | null, since: number | null): ParkFacts | undefine
 /**
  * The story's latest Ready gate decision made for its current content (`gateHash`, the hash of
  * `gateContentHash` kept on its mirror row): whether it passed and the failed rules. Null when
- * there is none, or the content has changed since (DIPO-496).
+ * there is none, the content has changed since (DIPO-496), or the roster it read is not the one in
+ * force (DIPO-516).
  */
 export function latestGate(
   office: OfficeHandle,
@@ -209,6 +210,7 @@ export function latestGate(
        join gates g on g.office_id = d.office_id and g.gate_id = d.gate_id
       where d.office_id = $office_id and g.key = $key and g.kind in ('ready', 'pickup')
         and d.content_hash = $hash
+        and d.roster_hash = (select r.roster_hash from office_roster r where r.office_id = d.office_id)
       order by d.decided_at desc, d.rowid desc limit 1`,
     { key, hash: gateHash },
   );

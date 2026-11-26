@@ -88,6 +88,7 @@ async function setup(repo: TempRepoWithRemote, proposals: readonly unknown[]) {
           key: story,
           result,
           contentHash: gateContentHash(input.story),
+          rosterHash: "r",
           at: s.t.clock.now(),
         }),
       );

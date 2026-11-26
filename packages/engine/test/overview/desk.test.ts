@@ -1240,6 +1240,7 @@ describe("what the desk preview shows (DIPO-459)", () => {
               key: keyOf(office, id),
               result: { mode: "ready", passed: true, failures: [] } as never,
               contentHash,
+              rosterHash: "r",
               at: t.clock.now(),
             }),
           );

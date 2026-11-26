@@ -70,6 +70,8 @@ export interface StoreDecision {
   readonly key: StoryKey | null;
   readonly result: GateResult;
   readonly contentHash: string;
+  /** The hash of the roster the evaluation read (DIPO-516). */
+  readonly rosterHash: string;
   readonly at: number;
 }
 
@@ -80,7 +82,7 @@ export function storeGateDecision(
   decision: StoreDecision,
 ): GateDecisionRecord {
   const gate = ids.next("gat") as GateId;
-  const { result, key, contentHash, at } = decision;
+  const { result, key, contentHash, rosterHash, at } = decision;
   const failed = result.failures.length;
   office.run(
     `insert into gates (office_id, gate_id, kind, key, run_id, opened_at, waiting_on, summary)
@@ -96,13 +98,14 @@ export function storeGateDecision(
   const results = ruleResults(result);
   office.run(
     `insert into gate_decisions
-       (office_id, gate_id, decision, decided_by, note, rule_results, content_hash, decided_at)
-     values ($office_id, $gate, $decision, 'rule', null, $results, $hash, $at)`,
+       (office_id, gate_id, decision, decided_by, note, rule_results, content_hash, roster_hash, decided_at)
+     values ($office_id, $gate, $decision, 'rule', null, $results, $hash, $roster, $at)`,
     {
       gate,
       decision: result.passed ? "approved" : "rejected",
       results: JSON.stringify(results),
       hash: contentHash,
+      roster: rosterHash,
       at,
     },
   );

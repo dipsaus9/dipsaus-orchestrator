@@ -34,6 +34,8 @@ import { claudeWorkerPort } from "../../src/workers/claude-cli/adapter";
 import type { HostOp, LaunchPlan } from "../../src/workers/types";
 import { renderRoleFile } from "../../src/roles/file";
 import { FakeBoxes } from "../box/fake-boxes";
+import { rosterHash } from "../../src/gate/hash";
+import type { GateRole } from "../../src/gate/types";
 import { addOffice, type TestState } from "../commands/helpers";
 
 export const PLANNING_MODEL = "claude-opus-5-5";
@@ -483,13 +485,18 @@ export function laneGate(s: {
   readonly git: OfficeGit;
   readonly cli: BacklogCli;
 }): GateStore {
+  const roster: GateRole[] = [{ name: "developer", code: true, kind: "code" }];
+  // The roster in force is the one the gate reads, so its decisions show (DIPO-516).
+  s.office.run("update office_roster set roster_hash = $hash where office_id = $office_id", {
+    hash: rosterHash(roster),
+  });
   return new GateStore({
     git: { forOffice: () => s.git },
     stories: backlogStoryStore(s.cli),
     offices: {
       get: () => s.office,
       config: () => OFFICE_DEFAULTS,
-      roster: () => [{ name: "developer", code: true, kind: "code" }],
+      roster: () => roster,
     },
     clock: s.t.clock,
     ids: s.t.ids,

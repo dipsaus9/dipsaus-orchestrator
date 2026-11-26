@@ -321,7 +321,13 @@ beforeEach(async () => {
         });
         const result = w.gate(key, mode);
         office.immediate(() =>
-          storeGateDecision(office, t.ids, { key, result, contentHash: "h", at: t.clock.now() }),
+          storeGateDecision(office, t.ids, {
+            key,
+            result,
+            contentHash: "h",
+            rosterHash: "r",
+            at: t.clock.now(),
+          }),
         );
         return { passed: result.passed, result };
       },

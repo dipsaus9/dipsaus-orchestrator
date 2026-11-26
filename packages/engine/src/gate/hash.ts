@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "../config/merge";
 import { FieldBlockError, parseFieldBlock } from "../story-store/fields/block";
 import { storyLines } from "./rules";
-import type { GateStory } from "./types";
+import type { GateRole, GateStory } from "./types";
 
 function fieldBlockOf(description: string): unknown {
   try {
@@ -52,4 +52,12 @@ export function gateContentHash(story: GateStory): string {
   return createHash("sha256")
     .update(canonicalJson(gateContent(story)))
     .digest("hex");
+}
+
+/** sha256, hex, over the canonical JSON of each role's name, kind and code flag, sorted by name. */
+export function rosterHash(roster: readonly GateRole[]): string {
+  const roles = roster
+    .map(({ name, kind, code }) => ({ name, kind, code }))
+    .toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return createHash("sha256").update(canonicalJson(roles)).digest("hex");
 }

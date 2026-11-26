@@ -118,6 +118,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             key: two,
             result: { mode: "ready", passed: true, failures: [] },
             contentHash: gateContentHash(gateStoryFromView(view, [])),
+            rosterHash: "r",
             at: 0,
           }),
         );

@@ -48,6 +48,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   // DIPO-310: the maintainer's confirmations and the pending proposals lay over every profile.
   capability_confirmations: kept("kept: the maintainer's confirmations"),
   capability_proposals: kept("replaced or removed by the scan"),
+  office_roster: kept("kept: one row per office"),
   office_scan_marks: kept("kept: one row per office"),
   released_branches: aged(
     "reclaimed more than retention.days ago; a branch not yet reclaimed is kept",

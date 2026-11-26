@@ -165,6 +165,7 @@ describe("story.detail", () => {
           key: started.key,
           result: { mode: "pickup", passed: true, failures: [] } as never,
           contentHash: "h",
+          rosterHash: "r",
           at: t.clock.now(),
         }),
       );

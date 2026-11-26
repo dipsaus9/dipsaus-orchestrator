@@ -274,6 +274,7 @@ function store(
       key: story.key,
       result: evaluateGate(gateInput, mode),
       contentHash: gateContentHash(gateInput.story),
+      rosterHash: "r",
       at: t.clock.now(),
     }),
   );
