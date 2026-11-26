@@ -1,10 +1,10 @@
 ---
 id: DIPO-516
 title: Show a stored gate decision only while the roster it read is in force
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-16 14:29'
-updated_date: '2026-11-26 10:04'
+updated_date: '2026-11-26 10:06'
 labels:
   - 'tier:M'
   - 'role:developer'
