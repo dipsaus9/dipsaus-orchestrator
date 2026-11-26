@@ -1,10 +1,10 @@
 ---
 id: DIPO-514
 title: Take the light CI path for a backlog PR that also changes role files
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-11-13 12:21'
-updated_date: '2026-11-17 14:50'
+updated_date: '2026-11-26 09:25'
 labels:
   - tech-debt
   - 'tier:S'
