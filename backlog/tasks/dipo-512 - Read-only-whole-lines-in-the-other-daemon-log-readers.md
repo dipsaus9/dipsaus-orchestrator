@@ -1,10 +1,10 @@
 ---
 id: DIPO-512
 title: Read only whole lines in every daemon log reader of the integration tests
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-10 14:16'
-updated_date: '2026-11-26 09:41'
+updated_date: '2026-11-26 09:44'
 labels:
   - tech-debt
   - 'tier:S'
@@ -57,6 +57,10 @@ test_plan:
       check: "The shared reader on a missing file returns no lines and does not throw"
     - kind: "automated"
       check: "The daemon integration tests pass in CI with the shared reader in every file named in the criteria"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Test-plan entry 3 needs the DIPO_TEST_CI=1 integration tests to pass, and my instructions say not to set that variable in this box. May CI be the place that runs them, with this PR's report accepted on the strength of the CI run, or do you want me to set DIPO_TEST_CI=1 here for one run?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -67,3 +71,16 @@ test_plan:
 - [ ] #3 Every read of daemon.log in foreground.ci.test.ts that runs while the daemon may still write uses the shared function.
 - [ ] #4 No test under packages/daemon/test/integration parses daemon log lines with its own split and JSON.parse while the daemon runs.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-26 09:44 UTC: ambiguous-spec
+- Detail: Test-plan entry 3 needs the DIPO_TEST_CI=1 integration tests to pass, and my instructions say not to set that variable in this box. May CI be the place that runs them, with this PR's report accepted…
+- Run: run_01M8BKNA5W37K0TGSHD2E40PF9
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 1 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 71,155 of 300,000 tokens; 28 of 90 turns; 3 of 45 minutes
+- Last good commit: 8799607863f6e9af7645e7352c9a9bff0b768a09
+<!-- SECTION:NOTES:END -->
