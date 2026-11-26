@@ -1,10 +1,10 @@
 ---
 id: DIPO-512
 title: Read only whole lines in every daemon log reader of the integration tests
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 14:16'
-updated_date: '2026-11-26 10:01'
+updated_date: '2026-11-26 10:02'
 labels:
   - tech-debt
   - 'tier:S'
@@ -19,6 +19,16 @@ references:
   - packages/testkit/src/env.ts
   - packages/daemon/test/integration/db-close.ci.test.ts
   - packages/daemon/test/integration/foreground.ci.test.ts
+modified_files:
+  - packages/daemon/test/integration/db-close.ci.test.ts
+  - packages/daemon/test/integration/drain.ci.test.ts
+  - packages/daemon/test/integration/foreground.ci.test.ts
+  - packages/daemon/test/integration/reattach-kill.ci.test.ts
+  - packages/daemon/test/integration/reconcile.ci.test.ts
+  - packages/daemon/test/integration/uncaught-error.ci.test.ts
+  - packages/testkit/src/env.test.ts
+  - packages/testkit/src/env.ts
+  - packages/testkit/src/index.ts
 type: chore
 ---
 
@@ -99,3 +109,20 @@ Parked 2026-11-26 09:47 UTC: ambiguous-spec
 
 Resumed 2026-11-26 09:50 UTC; grants: none; note: Not accepted as pre-existing: main's CI passes this test (run of 2026-11-26 09:37), and it reads the daemon log, which is this story's area. Check it on origin/main's code in this box: if it passes t…
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-26 10:02 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 2; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 175,587 of 300,000 tokens
+- Runs: 1; resumes: 2
+- Parks: 2
+  - 2026-11-26 09:44 UTC ambiguous-spec: Test-plan entry 3 needs the DIPO_TEST_CI=1 integration tests to pass, and my instructions say not to set that variable in this box. May CI be the place that runs them, with this PR's report accepted…
+  - 2026-11-26 09:47 UTC ambiguous-spec: The reconcile CI test (reconcile.ci.test.ts, "loads and reconciles every registered office in recovering, before running") fails in this box both with my change and on the untouched HEAD file: no "of…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 4
+<!-- SECTION:FINAL_SUMMARY:END -->
