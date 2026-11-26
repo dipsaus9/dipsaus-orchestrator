@@ -142,6 +142,6 @@ The maintainer visions the whole plan and micromanages it, like a good manager: 
 
 ## Open questions
 
-1. **Role library:** roles are stored per office (decided). Should there also be a personal library of tuned roles to copy into a new office as a starting template? Decided with M4.
+1. **Role library:** roles are stored per office (decided). Should there also be a personal library of tuned roles to copy into a new office as a starting template? Deferred to the Later list in 0003 on 2026-11-26.
 
 Answered since the first draft: one daemon serves all offices, and offices are opened explicitly (0005); the script standard (0013); work state in one central database keyed by office (0007).

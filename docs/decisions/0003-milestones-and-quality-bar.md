@@ -43,6 +43,7 @@ Until M3, stories are written by hand through the Backlog CLI to the 0012 standa
 - another story tracker, such as Jira, behind the `StoryStore` seam (0010);
 - a Homebrew tap, after the first stable minor (0016);
 - an experiment: a full plan written in the story, against a planning session by the worker before Build, measured against each other.
+- a personal library of tuned roles to copy into a new office as a starting template (deferred from M4, 2026-11-26).
 
 ## Current state
 
