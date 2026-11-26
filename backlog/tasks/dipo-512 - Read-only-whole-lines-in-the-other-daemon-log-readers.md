@@ -1,10 +1,10 @@
 ---
 id: DIPO-512
 title: Read only whole lines in every daemon log reader of the integration tests
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 14:16'
-updated_date: '2026-11-26 09:50'
+updated_date: '2026-11-26 10:01'
 labels:
   - tech-debt
   - 'tier:S'
@@ -68,10 +68,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One shared testkit function returns the parsed lines of a daemon log, leaving out a last line without a newline, and returns no lines when the file is missing.
-- [ ] #2 drain, db-close, reconcile, reattach-kill and uncaught-error read the daemon log only through the shared function.
-- [ ] #3 Every read of daemon.log in foreground.ci.test.ts that runs while the daemon may still write uses the shared function.
-- [ ] #4 No test under packages/daemon/test/integration parses daemon log lines with its own split and JSON.parse while the daemon runs.
+- [x] #1 One shared testkit function returns the parsed lines of a daemon log, leaving out a last line without a newline, and returns no lines when the file is missing.
+- [x] #2 drain, db-close, reconcile, reattach-kill and uncaught-error read the daemon log only through the shared function.
+- [x] #3 Every read of daemon.log in foreground.ci.test.ts that runs while the daemon may still write uses the shared function.
+- [x] #4 No test under packages/daemon/test/integration parses daemon log lines with its own split and JSON.parse while the daemon runs.
 <!-- AC:END -->
 
 ## Implementation Notes
