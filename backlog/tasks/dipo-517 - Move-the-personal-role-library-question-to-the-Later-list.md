@@ -1,10 +1,10 @@
 ---
 id: DIPO-517
 title: Move the personal role library question to the Later list
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-26 14:37'
-updated_date: '2026-11-26 14:37'
+updated_date: '2026-11-26 14:50'
 labels:
   - 'tier:S'
   - 'role:developer'
