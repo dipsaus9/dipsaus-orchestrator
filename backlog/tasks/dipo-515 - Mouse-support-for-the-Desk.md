@@ -1,10 +1,10 @@
 ---
 id: DIPO-515
 title: Click and scroll the Desk with the mouse
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-26 09:57'
+updated_date: '2026-11-26 09:59'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -22,6 +22,25 @@ references:
   - packages/tui/src/desk.test.tsx
   - packages/tui/src/actions.ts
   - packages/tui/src/frame.tsx
+modified_files:
+  - docs/design/tui-v2/spec.md
+  - packages/cli/src/index.ts
+  - packages/cli/src/tui-command.test.ts
+  - packages/cli/src/tui-command.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/colour.tsx
+  - packages/tui/src/desk-preview.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
+  - packages/tui/src/frame.tsx
+  - packages/tui/src/home.tsx
+  - packages/tui/src/mouse.test.ts
+  - packages/tui/src/mouse.ts
+  - packages/tui/src/options.test.ts
+  - packages/tui/src/options.ts
+  - packages/tui/src/run.test.ts
+  - packages/tui/src/run.tsx
+  - packages/tui/src/segments.tsx
 type: feature
 ---
 
@@ -87,3 +106,18 @@ test_plan:
 - [x] #8 The wheel over the Desk list moves the focus by one row per step, and over the preview it scrolls the preview.
 - [x] #9 Every key works as before on every screen.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-26 09:59 UTC
+- Criteria met: 9 of 9 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 180,088 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
