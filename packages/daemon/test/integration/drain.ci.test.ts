@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import {
   assertTestRuntimeDir,
   daemonTestEnv,
+  readDaemonLog,
   withDaemonTempDir,
 } from "@dipsaus-orchestrator/testkit";
 
@@ -17,16 +18,6 @@ const FIXTURE = resolve(import.meta.dir, "fixtures/drain-daemon.ts");
 const TIMEOUT_MS = 30_000;
 
 type Line = { msg: string; to?: string; reason?: string; childPid?: number; removed?: boolean };
-
-function readLog(dir: string): Line[] {
-  const path = join(dir, "state", "logs", "daemon.log");
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .trim()
-    .split("\n")
-    .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as Line);
-}
 
 function start(dir: string, command: string, capMs: number) {
   return Bun.spawn({
@@ -44,7 +35,7 @@ async function waitForRunning(dir: string, daemon: Bun.Subprocess): Promise<numb
     // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
     assertTestRuntimeDir(dir);
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
-    const log = readLog(dir);
+    const log = readDaemonLog<Line>(dir);
     const child = log.find((line) => line.msg === "test child started")?.childPid;
     if (child !== undefined && log.some((l) => l.msg === "daemon state" && l.to === "running")) {
       return child;
@@ -97,7 +88,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(existsSync(join(dir, "run", "dipo.sock"))).toBe(false);
             expect(existsSync(join(dir, "state", "dipo.pid"))).toBe(false);
 
-            const log = readLog(dir);
+            const log = readDaemonLog<Line>(dir);
             const messages = log.map((line) => line.msg);
             const draining = log.find((l) => l.msg === "daemon state" && l.to === "draining");
             expect(draining?.reason).toBe("SIGTERM");
@@ -138,7 +129,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             }
             expect(alive(child)).toBe(false);
             expect(alive(grandchild)).toBe(false);
-            const messages = readLog(dir).map((line) => line.msg);
+            const messages = readDaemonLog<Line>(dir).map((line) => line.msg);
             expect(messages).toContain("the drain reached its cap; exiting anyway");
             expect(existsSync(join(dir, "run", "dipo.sock"))).toBe(false);
             expect(existsSync(join(dir, "state", "dipo.pid"))).toBe(false);

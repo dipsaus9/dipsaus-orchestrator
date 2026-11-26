@@ -16,6 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   assertTestRuntimeDir,
   daemonTestEnv,
+  readDaemonLog,
   type TempRepoWithRemote,
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
@@ -114,20 +115,14 @@ function start(env: Record<string, string>): Daemon {
   });
 }
 
-function logLines(dir: string): LogLine[] {
-  const path = join(dir, "state", "logs", "daemon.log");
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter((line) => line.startsWith("{"))
-    .map((line) => JSON.parse(line) as LogLine);
-}
-
 /** The last lines of the daemon log, for a failure message. */
 function logTail(dir: string, lines = 40): string {
-  const path = join(dir, "state", "logs", "daemon.log");
-  if (!existsSync(path)) return "(no daemon.log yet)";
-  return readFileSync(path, "utf8").trimEnd().split("\n").slice(-lines).join("\n");
+  const log = readDaemonLog<LogLine>(dir);
+  if (log.length === 0) return "(no daemon.log yet)";
+  return log
+    .slice(-lines)
+    .map((line) => JSON.stringify(line))
+    .join("\n");
 }
 
 /** `error` with the daemon log's tail appended, so a CI failure says what the daemon did. */
@@ -297,10 +292,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 fileSize(live.event_file) > down + 200 ? true : null,
               );
 
-              const before = logLines(dir).length;
+              const before = readDaemonLog<LogLine>(dir).length;
               second = start(env);
               await waitUntilRunning(dir, second);
-              const reattached = logLines(dir)
+              const reattached = readDaemonLog<LogLine>(dir)
                 .slice(before)
                 .filter((line) => line.msg === "worker host re-attached" && line.run === run);
               expect(reattached.map((line) => line.outcome)).toEqual(["steer"]);

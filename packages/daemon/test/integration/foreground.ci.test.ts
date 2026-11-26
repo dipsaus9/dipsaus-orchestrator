@@ -23,6 +23,7 @@ import { parsePidRecord } from "@dipsaus-orchestrator/contract";
 import {
   assertTestRuntimeDir,
   daemonTestEnv,
+  readDaemonLog,
   withDaemonTempDir,
 } from "@dipsaus-orchestrator/testkit";
 
@@ -66,7 +67,6 @@ function start(env: Record<string, string>): Daemon {
 async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
   const deadline = performance.now() + 10_000;
   const socket = join(dir, "run", "dipo.sock");
-  const log = join(dir, "state", "logs", "daemon.log");
   while (performance.now() < deadline) {
     // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
     assertTestRuntimeDir(dir);
@@ -77,7 +77,7 @@ async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
         await client.hello();
         const status = await client.read("daemon.status");
         const result = status.ok ? (status.result as { pid: number; state: string }) : null;
-        const opened = readFileSync(log, "utf8").includes("opened state database");
+        const opened = readDaemonLog(dir).some((line) => line.msg === "opened state database");
         const recovered = result?.state === "running";
         if (result?.pid === daemon.pid && opened && recovered) return;
       } finally {
@@ -165,19 +165,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(existsSync(join(state, "dipo.pid"))).toBe(false);
             expect(existsSync(join(dir, "run", "dipo.sock"))).toBe(false);
 
-            const log = readFileSync(join(state, "logs", "daemon.log"), "utf8");
-            const messages = log
-              .trim()
-              .split("\n")
-              .map((line) => (JSON.parse(line) as { msg: string }).msg);
+            const log = readDaemonLog<{ msg: string; step?: string }>(dir);
+            const messages = log.map((line) => line.msg);
             expect(messages).toContain("opened state database");
             expect(messages.at(-1)).toBe("daemon stopped");
             // Re-attach is a recovery step after reconcile (DIPO-57 AC #8); the run temp directory
             // sweep follows it (DIPO-102).
             const steps = log
-              .trim()
-              .split("\n")
-              .map((line) => JSON.parse(line) as { msg: string; step?: string })
               .filter((line) => line.msg === "recovery step")
               .map((line) => line.step);
             expect(steps).toEqual([
@@ -268,11 +262,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(existsSync(mine)).toBe(false);
             expect(existsSync(foreign)).toBe(true);
             expect(existsSync(unowned)).toBe(true);
-            const removed = readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8")
-              .trim()
-              .split("\n")
-              .map((entry) => JSON.parse(entry) as Record<string, unknown>)
-              .find((entry) => entry["msg"] === "removed run temp directories of ended runs");
+            const removed = readDaemonLog<Record<string, unknown> & { msg: string }>(dir).find(
+              (entry) => entry["msg"] === "removed run temp directories of ended runs",
+            );
             expect(removed).toMatchObject({ removed: [mine] });
           } finally {
             expect(await stop(daemon)).toBe(0);
@@ -368,7 +360,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               pid: number;
             };
             expect(record.pid).toBe(daemon.pid);
-            const log = readFileSync(join(state, "logs", "daemon.log"), "utf8");
+            const log = JSON.stringify(readDaemonLog(dir));
             expect(log).toContain("took the daemon lock");
             expect(log).not.toContain("stale");
           } finally {
@@ -490,10 +482,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             const reply = await client.command("daemon.stop", { stopWorkers: true });
             expect(reply).toMatchObject({ ok: true, result: { state: "draining" }, changed: true });
             expect(await daemon.exited).toBe(0);
-            const messages = readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8")
-              .trim()
-              .split("\n")
-              .map((line) => (JSON.parse(line) as { msg: string }).msg);
+            const messages = readDaemonLog(dir).map((line) => line.msg);
             // Run control was asked, found no live worker, and the drain ended after it.
             expect(messages).not.toContain("no workers to stop: this daemon has no run control");
             expect(messages).toContain("no live workers to stop");

@@ -21,6 +21,7 @@ export {
   cleanEnv,
   daemonTestEnv,
   isRemovedEnvName,
+  readDaemonLog,
   REMOVED_ENV_PREFIXES,
   withCleanEnv,
 } from "./env";

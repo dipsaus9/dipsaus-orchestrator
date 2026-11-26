@@ -1,10 +1,10 @@
 ---
 id: DIPO-512
 title: Read only whole lines in every daemon log reader of the integration tests
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 14:16'
-updated_date: '2026-11-17 14:49'
+updated_date: '2026-11-26 10:02'
 labels:
   - tech-debt
   - 'tier:S'
@@ -19,6 +19,16 @@ references:
   - packages/testkit/src/env.ts
   - packages/daemon/test/integration/db-close.ci.test.ts
   - packages/daemon/test/integration/foreground.ci.test.ts
+modified_files:
+  - packages/daemon/test/integration/db-close.ci.test.ts
+  - packages/daemon/test/integration/drain.ci.test.ts
+  - packages/daemon/test/integration/foreground.ci.test.ts
+  - packages/daemon/test/integration/reattach-kill.ci.test.ts
+  - packages/daemon/test/integration/reconcile.ci.test.ts
+  - packages/daemon/test/integration/uncaught-error.ci.test.ts
+  - packages/testkit/src/env.test.ts
+  - packages/testkit/src/env.ts
+  - packages/testkit/src/index.ts
 type: chore
 ---
 
@@ -48,7 +58,13 @@ None.
 
 ```dipo
 branch: "DIPO-512/read-only-whole-lines-every-daemon-log"
-unknowns: []
+unknowns:
+  - q: "Test-plan entry 3 needs the DIPO_TEST_CI=1 integration tests to pass, and my instructions say not to set that variable in this box. May CI be the place that runs them, with this PR's report accepted on the strength of the CI run, or do you want me to set DIPO_TEST_CI=1 here for one run?"
+    status: "resolved"
+    answer: "Yes you are allowed this one time"
+  - q: "The reconcile CI test (reconcile.ci.test.ts, \"loads and reconciles every registered office in recovering, before running\") fails in this box both with my change and on the untouched HEAD file: no \"office reconciled\" or \"reconcile failed\" line appears in the second start's log. Should this story be accepted with that failure recorded as pre-existing and handled in its own story, or should I investigate and fix it here before the story can be done?"
+    status: "resolved"
+    answer: "Not accepted as pre-existing: main's CI passes this test (run of 2026-11-26 09:37), and it reads the daemon log, which is this story's area. Check it on origin/main's code in this box: if it passes there, your change breaks it, so fix it here. If it fails on main's code in the box as well, it is the box (timing or load): record that in the PR with both results, do not change the test, and let CI decide; park only if CI fails on it too."
 test_plan:
   entries:
     - kind: "automated"
@@ -62,8 +78,51 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One shared testkit function returns the parsed lines of a daemon log, leaving out a last line without a newline, and returns no lines when the file is missing.
-- [ ] #2 drain, db-close, reconcile, reattach-kill and uncaught-error read the daemon log only through the shared function.
-- [ ] #3 Every read of daemon.log in foreground.ci.test.ts that runs while the daemon may still write uses the shared function.
-- [ ] #4 No test under packages/daemon/test/integration parses daemon log lines with its own split and JSON.parse while the daemon runs.
+- [x] #1 One shared testkit function returns the parsed lines of a daemon log, leaving out a last line without a newline, and returns no lines when the file is missing.
+- [x] #2 drain, db-close, reconcile, reattach-kill and uncaught-error read the daemon log only through the shared function.
+- [x] #3 Every read of daemon.log in foreground.ci.test.ts that runs while the daemon may still write uses the shared function.
+- [x] #4 No test under packages/daemon/test/integration parses daemon log lines with its own split and JSON.parse while the daemon runs.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-26 09:44 UTC: ambiguous-spec
+- Detail: Test-plan entry 3 needs the DIPO_TEST_CI=1 integration tests to pass, and my instructions say not to set that variable in this box. May CI be the place that runs them, with this PR's report accepted…
+- Run: run_01M8BKNA5W37K0TGSHD2E40PF9
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 1 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 71,155 of 300,000 tokens; 28 of 90 turns; 3 of 45 minutes
+- Last good commit: 8799607863f6e9af7645e7352c9a9bff0b768a09
+
+Resumed 2026-11-26 09:44 UTC; grants: none; note: Yes you are allowed this one time
+
+Parked 2026-11-26 09:47 UTC: ambiguous-spec
+- Detail: The reconcile CI test (reconcile.ci.test.ts, "loads and reconciles every registered office in recovering, before running") fails in this box both with my change and on the untouched HEAD file: no "of…
+- Run: run_01M8BKNA5W37K0TGSHD2E40PF9
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 1 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 115,779 of 300,000 tokens; 40 of 90 turns; 5 of 45 minutes
+- Last good commit: def975cc82cad830404b390d8a8b6933e6575372
+
+Resumed 2026-11-26 09:50 UTC; grants: none; note: Not accepted as pre-existing: main's CI passes this test (run of 2026-11-26 09:37), and it reads the daemon log, which is this story's area. Check it on origin/main's code in this box: if it passes t…
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-26 10:02 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 2; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 175,587 of 300,000 tokens
+- Runs: 1; resumes: 2
+- Parks: 2
+  - 2026-11-26 09:44 UTC ambiguous-spec: Test-plan entry 3 needs the DIPO_TEST_CI=1 integration tests to pass, and my instructions say not to set that variable in this box. May CI be the place that runs them, with this PR's report accepted…
+  - 2026-11-26 09:47 UTC ambiguous-spec: The reconcile CI test (reconcile.ci.test.ts, "loads and reconciles every registered office in recovering, before running") fails in this box both with my change and on the untouched HEAD file: no "of…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 4
+<!-- SECTION:FINAL_SUMMARY:END -->
