@@ -1,10 +1,10 @@
 ---
 id: DIPO-512
 title: Read only whole lines in every daemon log reader of the integration tests
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-10 14:16'
-updated_date: '2026-11-26 09:44'
+updated_date: '2026-11-26 09:47'
 labels:
   - tech-debt
   - 'tier:S'
@@ -60,6 +60,10 @@ test_plan:
       check: "The shared reader on a missing file returns no lines and does not throw"
     - kind: "automated"
       check: "The daemon integration tests pass in CI with the shared reader in every file named in the criteria"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "The reconcile CI test (reconcile.ci.test.ts, \"loads and reconciles every registered office in recovering, before running\") fails in this box both with my change and on the untouched HEAD file: no \"office reconciled\" or \"reconcile failed\" line appears in the second start's log. Should this story be accepted with that failure recorded as pre-existing and handled in its own story, or should I investigate and fix it here before the story can be done?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -84,4 +88,13 @@ Parked 2026-11-26 09:44 UTC: ambiguous-spec
 - Last good commit: 8799607863f6e9af7645e7352c9a9bff0b768a09
 
 Resumed 2026-11-26 09:44 UTC; grants: none; note: Yes you are allowed this one time
+
+Parked 2026-11-26 09:47 UTC: ambiguous-spec
+- Detail: The reconcile CI test (reconcile.ci.test.ts, "loads and reconciles every registered office in recovering, before running") fails in this box both with my change and on the untouched HEAD file: no "of…
+- Run: run_01M8BKNA5W37K0TGSHD2E40PF9
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 1 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 115,779 of 300,000 tokens; 40 of 90 turns; 5 of 45 minutes
+- Last good commit: def975cc82cad830404b390d8a8b6933e6575372
 <!-- SECTION:NOTES:END -->
