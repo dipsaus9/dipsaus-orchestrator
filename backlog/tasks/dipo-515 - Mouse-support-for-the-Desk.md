@@ -1,10 +1,10 @@
 ---
 id: DIPO-515
 title: Click and scroll the Desk with the mouse
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-26 09:46'
+updated_date: '2026-11-26 09:57'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -77,13 +77,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Starting the TUI turns on SGR 1006 press and wheel reporting, and quitting, Ctrl-C, suspend and a crash each turn it off.
-- [ ] #2 With --inline or --no-mouse the TUI never turns mouse reporting on.
-- [ ] #3 A mouse report never reaches the key handler, so a click or a wheel turn on any screen triggers no key action.
-- [ ] #4 A mouse report split across two stdin reads is parsed as one report.
-- [ ] #5 A click on a Desk list row focuses that row.
-- [ ] #6 Two clicks on the same Desk list row within 400 ms do what Enter does on it.
-- [ ] #7 A click on a button in the Desk preview runs the same action as that button's key.
-- [ ] #8 The wheel over the Desk list moves the focus by one row per step, and over the preview it scrolls the preview.
-- [ ] #9 Every key works as before on every screen.
+- [x] #1 Starting the TUI turns on SGR 1006 press and wheel reporting, and quitting, Ctrl-C, suspend and a crash each turn it off.
+- [x] #2 With --inline or --no-mouse the TUI never turns mouse reporting on.
+- [x] #3 A mouse report never reaches the key handler, so a click or a wheel turn on any screen triggers no key action.
+- [x] #4 A mouse report split across two stdin reads is parsed as one report.
+- [x] #5 A click on a Desk list row focuses that row.
+- [x] #6 Two clicks on the same Desk list row within 400 ms do what Enter does on it.
+- [x] #7 A click on a button in the Desk preview runs the same action as that button's key.
+- [x] #8 The wheel over the Desk list moves the focus by one row per step, and over the preview it scrolls the preview.
+- [x] #9 Every key works as before on every screen.
 <!-- AC:END -->
