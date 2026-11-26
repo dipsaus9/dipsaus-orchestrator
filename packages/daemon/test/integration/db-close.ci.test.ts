@@ -4,12 +4,13 @@
 // files stay under the test's temp directory, and the daemon is killed in a `finally` if needed.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
   assertTestRuntimeDir,
   daemonTestEnv,
+  readDaemonLog,
   withDaemonTempDir,
 } from "@dipsaus-orchestrator/testkit";
 
@@ -24,23 +25,14 @@ const CLOSE_WARNINGS = [
 
 type Line = { msg: string; level?: string; to?: string };
 
-function readLog(dir: string): Line[] {
-  const path = join(dir, "state", "logs", "daemon.log");
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .trim()
-    .split("\n")
-    .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as Line);
-}
-
 async function waitForRunning(dir: string, daemon: Bun.Subprocess): Promise<void> {
   const deadline = performance.now() + 10_000;
   while (performance.now() < deadline) {
     // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
     assertTestRuntimeDir(dir);
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
-    if (readLog(dir).some((l) => l.msg === "daemon state" && l.to === "running")) return;
+    if (readDaemonLog<Line>(dir).some((l) => l.msg === "daemon state" && l.to === "running"))
+      return;
     await Bun.sleep(50);
   }
   throw new Error("daemon did not reach running within 10 s");
@@ -80,7 +72,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(existsSync(join(state, "dipo.db-wal"))).toBe(false);
             expect(existsSync(join(state, "dipo.db-shm"))).toBe(false);
 
-            const log = readLog(dir);
+            const log = readDaemonLog<Line>(dir);
             const messages = log.map((line) => line.msg);
             expect(messages).toContain("closed state database");
             expect(messages.indexOf("socket closed")).toBeLessThan(

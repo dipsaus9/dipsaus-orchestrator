@@ -5,10 +5,14 @@
 // `running`. State, runtime directory and temp files stay under the test's temp directory.
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { assertTestRuntimeDir, daemonTestEnv, withBareRemote } from "@dipsaus-orchestrator/testkit";
+import {
+  assertTestRuntimeDir,
+  daemonTestEnv,
+  readDaemonLog,
+  withBareRemote,
+} from "@dipsaus-orchestrator/testkit";
 
 import { TestClient } from "../support/client";
 
@@ -33,13 +37,6 @@ function start(env: Record<string, string>): Daemon {
     stdout: "pipe",
     stderr: "pipe",
   });
-}
-
-function logLines(dir: string): LogLine[] {
-  return readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8")
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as LogLine);
 }
 
 async function waitUntilRunning(dir: string, daemon: Daemon): Promise<void> {
@@ -106,12 +103,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             } finally {
               await stop(first);
             }
-            const before = logLines(dir).length;
+            const before = readDaemonLog<LogLine>(dir).length;
 
             const second = start(env);
             try {
               await waitUntilRunning(dir, second);
-              const lines = logLines(dir).slice(before);
+              const lines = readDaemonLog<LogLine>(dir).slice(before);
               const reconciled = lines.findIndex(
                 (line) =>
                   (line.msg === "office reconciled" || line.msg === "reconcile failed") &&

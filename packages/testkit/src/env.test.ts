@@ -78,7 +78,7 @@ describe("readDaemonLog", () => {
         join(dir, "state", "logs", "daemon.log"),
         '{"msg":"first"}\n{"msg":"second","to":"running"}\n{"msg":"half',
       );
-      expect(readDaemonLog(dir)).toEqual([
+      expect(readDaemonLog<{ msg: string; to?: string }>(dir)).toEqual([
         { msg: "first" },
         { msg: "second", to: "running" },
       ]);

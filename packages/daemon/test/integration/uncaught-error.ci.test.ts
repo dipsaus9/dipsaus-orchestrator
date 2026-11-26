@@ -19,12 +19,13 @@
 // in a `finally`.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
   assertTestRuntimeDir,
   daemonTestEnv,
+  readDaemonLog,
   withDaemonTempDir,
 } from "@dipsaus-orchestrator/testkit";
 
@@ -44,17 +45,6 @@ type Line = {
   errorCode?: string;
   error?: { message?: string };
 };
-
-/** The log's complete lines: a line the daemon is still writing has no newline yet and is left out. */
-function readLog(dir: string): Line[] {
-  const path = join(dir, "state", "logs", "daemon.log");
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .slice(0, -1)
-    .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as Line);
-}
 
 function start(dir: string, args: readonly string[]): Bun.Subprocess<"ignore", "ignore", "pipe"> {
   return Bun.spawn({
@@ -78,7 +68,7 @@ async function waitForLog(
   while (performance.now() < deadline) {
     // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
     assertTestRuntimeDir(dir);
-    if (readLog(dir).slice(from).some(match)) return;
+    if (readDaemonLog<Line>(dir).slice(from).some(match)) return;
     if (daemon.exitCode !== null) throw new Error(`daemon exited with ${daemon.exitCode}`);
     await Bun.sleep(50);
   }
@@ -136,9 +126,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           let child = 0;
           try {
             await waitForLog(dir, daemon, "rejection", (line) => line.msg === REJECTION);
-            child = readLog(dir).find((line) => line.msg === "test child started")?.childPid ?? 0;
+            child =
+              readDaemonLog<Line>(dir).find((line) => line.msg === "test child started")
+                ?.childPid ?? 0;
             expect(await daemon.exited).toBe(1);
-            const log = readLog(dir);
+            const log = readDaemonLog<Line>(dir);
             const messages = log.map((line) => line.msg);
 
             const failures = log.filter((line) => line.msg === REJECTION);
@@ -179,7 +171,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const daemon = start(dir, ["timer-throw"]);
           try {
             expect(await daemon.exited).toBe(1);
-            const log = readLog(dir);
+            const log = readDaemonLog<Line>(dir);
             const messages = log.map((line) => line.msg);
             const failures = log.filter((line) => line.msg === EXCEPTION);
             expect(failures).toHaveLength(1);
@@ -213,14 +205,16 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           let child = 0;
           try {
             await waitForLog(dir, daemon, "running state", reachedState("running"));
-            child = readLog(dir).find((line) => line.msg === "test child started")?.childPid ?? 0;
+            child =
+              readDaemonLog<Line>(dir).find((line) => line.msg === "test child started")
+                ?.childPid ?? 0;
             expect(child).toBeGreaterThan(0);
             daemon.kill("SIGTERM");
             // The child holds the drain open until the error is logged; then the test ends it.
             await waitForLog(dir, daemon, "uncaught exception", (line) => line.msg === EXCEPTION);
             process.kill(-child, "SIGKILL");
             expect(await daemon.exited).toBe(1);
-            const log = readLog(dir);
+            const log = readDaemonLog<Line>(dir);
             const messages = log.map((line) => line.msg);
             expect(log.filter(reachedState("draining")).map((line) => line.reason)).toEqual([
               "SIGTERM",
@@ -249,14 +243,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               await cleanup(daemon);
             }
           }
-          const before = readLog(dir).length;
+          const before = readDaemonLog<Line>(dir).length;
           const daemon = start(dir, ["none"]);
           try {
             await waitForLog(dir, daemon, "running state", reachedState("running"), before);
             expect(existsSync(join(dir, "state", "crashes.json"))).toBe(false);
             daemon.kill("SIGTERM");
             expect(await daemon.exited).toBe(0);
-            const log = readLog(dir).slice(before);
+            const log = readDaemonLog<Line>(dir).slice(before);
             expect(log.map((line) => line.msg)).not.toContain(CRASH_EXIT);
           } finally {
             await cleanup(daemon);
