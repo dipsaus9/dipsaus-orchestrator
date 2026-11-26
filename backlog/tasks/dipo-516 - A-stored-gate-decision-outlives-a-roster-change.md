@@ -1,10 +1,10 @@
 ---
 id: DIPO-516
 title: Show a stored gate decision only while the roster it read is in force
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-16 14:29'
-updated_date: '2026-11-26 09:41'
+updated_date: '2026-11-26 09:56'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -66,10 +66,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every Ready gate decision stored in ready or pickup mode, and by the planning lane, keeps the hash of the roster it was evaluated with.
-- [ ] #2 After the role files on the base change the roster, the story view of a Refined story whose latest decision used the old roster shows no gate failures and no pass.
-- [ ] #3 A role file change that keeps every role's name, kind and code flag keeps the stored decision showing.
-- [ ] #4 A daemon restart over the same role files keeps the stored decisions showing.
-- [ ] #5 A decision stored before the migration, with no roster hash, shows neither failures nor a pass.
-- [ ] #6 Decision 0012 says a stored gate decision keeps the hash of the roster it read and counts for the Queue only while that roster is in force.
+- [x] #1 Every Ready gate decision stored in ready or pickup mode, and by the planning lane, keeps the hash of the roster it was evaluated with.
+- [x] #2 After the role files on the base change the roster, the story view of a Refined story whose latest decision used the old roster shows no gate failures and no pass.
+- [x] #3 A role file change that keeps every role's name, kind and code flag keeps the stored decision showing.
+- [x] #4 A daemon restart over the same role files keeps the stored decisions showing.
+- [x] #5 A decision stored before the migration, with no roster hash, shows neither failures nor a pass.
+- [x] #6 Decision 0012 says a stored gate decision keeps the hash of the roster it read and counts for the Queue only while that roster is in force.
 <!-- AC:END -->
