@@ -589,7 +589,9 @@ describe("the reviewer's system file", () => {
       const session = await startSession(w);
       const text = readFileSync(session.spec.systemFile, "utf8");
       expect(text).toBe(renderSystemFile("review-box", ROLE_TEMPLATES.reviewer));
-      expect(text).toContain("the engine ran it on this change in the developer's box");
+      expect(text).toContain(
+        "the engine ran the project's verify command on this change in the developer's box",
+      );
       await w.launcher.finish(office, w.run.runId, session.agent);
     }));
 });

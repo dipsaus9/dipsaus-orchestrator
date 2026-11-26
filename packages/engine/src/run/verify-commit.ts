@@ -520,12 +520,17 @@ export class VerifyCommit implements RunFinisher {
   /**
    * The office's verify in the box at done (0002, DIPO-346): null when it is green or the office
    * names none; else what the turn decides: a red verify is one loop with its evidence (a park at
-   * a capped turn, which has no turn left), a verify dipo could not run parks `worker-failed`.
+   * a capped turn, which has no turn left), a verify dipo could not run parks `worker-failed`. A
+   * design or docs run skips it (DIPO-506).
    */
   async #verifyInBox(ctx: TurnContext): Promise<TurnDecision | null> {
     const verify = this.#deps.verify;
     if (verify === undefined) return null;
     const { run } = ctx;
+    // A design or docs run changes no code, so the office's code check is skipped (DIPO-506, 0002).
+    // Nothing is recorded: a green verify leaves no record either.
+    const kind = run.roleFile?.kind;
+    if (kind === "design" || kind === "docs") return null;
     const result = await verify(ctx.office, run).catch((error: unknown): BoxVerifyResult => ({
       kind: "failed",
       reason: `dipo could not run the verify in the box (${codeOf(error)})`,
