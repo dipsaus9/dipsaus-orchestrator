@@ -1,10 +1,10 @@
 ---
 id: DIPO-512
 title: Read only whole lines in every daemon log reader of the integration tests
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-10 14:16'
-updated_date: '2026-11-26 09:47'
+updated_date: '2026-11-26 09:50'
 labels:
   - tech-debt
   - 'tier:S'
@@ -52,6 +52,9 @@ unknowns:
   - q: "Test-plan entry 3 needs the DIPO_TEST_CI=1 integration tests to pass, and my instructions say not to set that variable in this box. May CI be the place that runs them, with this PR's report accepted on the strength of the CI run, or do you want me to set DIPO_TEST_CI=1 here for one run?"
     status: "resolved"
     answer: "Yes you are allowed this one time"
+  - q: "The reconcile CI test (reconcile.ci.test.ts, \"loads and reconciles every registered office in recovering, before running\") fails in this box both with my change and on the untouched HEAD file: no \"office reconciled\" or \"reconcile failed\" line appears in the second start's log. Should this story be accepted with that failure recorded as pre-existing and handled in its own story, or should I investigate and fix it here before the story can be done?"
+    status: "resolved"
+    answer: "Not accepted as pre-existing: main's CI passes this test (run of 2026-11-26 09:37), and it reads the daemon log, which is this story's area. Check it on origin/main's code in this box: if it passes there, your change breaks it, so fix it here. If it fails on main's code in the box as well, it is the box (timing or load): record that in the PR with both results, do not change the test, and let CI decide; park only if CI fails on it too."
 test_plan:
   entries:
     - kind: "automated"
@@ -60,10 +63,6 @@ test_plan:
       check: "The shared reader on a missing file returns no lines and does not throw"
     - kind: "automated"
       check: "The daemon integration tests pass in CI with the shared reader in every file named in the criteria"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "The reconcile CI test (reconcile.ci.test.ts, \"loads and reconciles every registered office in recovering, before running\") fails in this box both with my change and on the untouched HEAD file: no \"office reconciled\" or \"reconcile failed\" line appears in the second start's log. Should this story be accepted with that failure recorded as pre-existing and handled in its own story, or should I investigate and fix it here before the story can be done?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -97,4 +96,6 @@ Parked 2026-11-26 09:47 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 115,779 of 300,000 tokens; 40 of 90 turns; 5 of 45 minutes
 - Last good commit: def975cc82cad830404b390d8a8b6933e6575372
+
+Resumed 2026-11-26 09:50 UTC; grants: none; note: Not accepted as pre-existing: main's CI passes this test (run of 2026-11-26 09:37), and it reads the daemon log, which is this story's area. Check it on origin/main's code in this box: if it passes t…
 <!-- SECTION:NOTES:END -->
