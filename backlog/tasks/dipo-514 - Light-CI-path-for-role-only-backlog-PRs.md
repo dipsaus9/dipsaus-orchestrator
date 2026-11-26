@@ -1,10 +1,10 @@
 ---
 id: DIPO-514
 title: Take the light CI path for a backlog PR that also changes role files
-status: Refined
+status: Parked
 assignee: []
 created_date: '2026-11-13 12:21'
-updated_date: '2026-11-26 09:25'
+updated_date: '2026-11-26 09:47'
 labels:
   - tech-debt
   - 'tier:S'
@@ -56,6 +56,10 @@ test_plan:
       check: "The changes job on a PR whose role file is a symlink or has mode 100755 outputs full"
     - kind: "automated"
       check: "The structural check on a light-path PR with .dipo/roles/sub/x.md fails, naming the path"
+park:
+  reason: "by-maintainer"
+  from: "Refined"
+  note: "Changes .github/workflows/ci.yml, which dipo may not write (R31): a builder or the maintainer takes it."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

@@ -1,10 +1,10 @@
 ---
 id: DIPO-513
 title: 'Make the real-host re-attach tests wait by time, not by poll count'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:50'
+updated_date: '2026-11-26 09:45'
 labels:
   - tech-debt
   - 'tier:S'
@@ -12,6 +12,8 @@ labels:
 milestone: m-4
 dependencies: []
 references:
+  - packages/engine/test/run/reattach.test.ts
+modified_files:
   - packages/engine/test/run/reattach.test.ts
 type: chore
 ---
@@ -57,8 +59,23 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 realPendingHost and stoppedItself wait on elapsed time from systemClock, with no fixed poll counts.
-- [ ] #2 When the socket, park or exit wait runs out, the failure message names that wait and the milliseconds it waited.
-- [ ] #3 The never-binds and identity-check tests both use the same helpers.
-- [ ] #4 The tests' timeout is computed from the deadline and the named graces, so it is longer than all the waits added together.
+- [x] #1 realPendingHost and stoppedItself wait on elapsed time from systemClock, with no fixed poll counts.
+- [x] #2 When the socket, park or exit wait runs out, the failure message names that wait and the milliseconds it waited.
+- [x] #3 The never-binds and identity-check tests both use the same helpers.
+- [x] #4 The tests' timeout is computed from the deadline and the named graces, so it is longer than all the waits added together.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-26 09:45 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 29,305 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
