@@ -1,10 +1,10 @@
 ---
 id: DIPO-512
 title: Read only whole lines in every daemon log reader of the integration tests
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 14:16'
-updated_date: '2026-11-17 14:49'
+updated_date: '2026-11-26 09:41'
 labels:
   - tech-debt
   - 'tier:S'
