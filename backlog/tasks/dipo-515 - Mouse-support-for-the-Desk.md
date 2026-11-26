@@ -1,10 +1,10 @@
 ---
 id: DIPO-515
 title: Click and scroll the Desk with the mouse
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:50'
+updated_date: '2026-11-26 09:46'
 labels:
   - 'tier:M'
   - 'role:developer'
