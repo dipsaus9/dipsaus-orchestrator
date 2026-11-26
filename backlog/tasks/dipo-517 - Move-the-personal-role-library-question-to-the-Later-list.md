@@ -1,10 +1,10 @@
 ---
 id: DIPO-517
 title: Move the personal role library question to the Later list
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-26 14:37'
-updated_date: '2026-11-26 14:50'
+updated_date: '2026-11-26 14:52'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -47,7 +47,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/vision.md no longer says the role library question is decided with M4, and says it was deferred to the Later list in 0003 on 2026-11-26
-- [ ] #2 The Later list in docs/decisions/0003-milestones-and-quality-bar.md has a line for a personal library of tuned roles to copy into a new office
-- [ ] #3 No other line of either file changes
+- [x] #1 docs/vision.md no longer says the role library question is decided with M4, and says it was deferred to the Later list in 0003 on 2026-11-26
+- [x] #2 The Later list in docs/decisions/0003-milestones-and-quality-bar.md has a line for a personal library of tuned roles to copy into a new office
+- [x] #3 No other line of either file changes
 <!-- AC:END -->
