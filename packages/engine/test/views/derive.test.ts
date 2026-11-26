@@ -114,6 +114,7 @@ describe("story view", () => {
               failures: [{ rule: "R07", message: "ready TASK-3 failed R07: milestone is missing" }],
             } as never,
             contentHash: "h",
+            rosterHash: "r",
             at: t.clock.now(),
           }),
         );
@@ -171,6 +172,7 @@ describe("story view", () => {
                 failures: passed ? [] : [{ rule: "R07", message: "R07: milestone is missing" }],
               } as never,
               contentHash,
+              rosterHash: "r",
               at: t.clock.now(),
             }),
           );

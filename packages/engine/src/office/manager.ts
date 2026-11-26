@@ -42,6 +42,7 @@ import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import { type GitSettings, OfficeGit } from "../git/office";
 import { clockSleep, spawnGitExec } from "../git/runner";
+import { rosterHash } from "../gate/hash";
 import type { GateRole } from "../gate/types";
 import type { Logger } from "../log/logger";
 import type { MountReader } from "../platform/sqlite";
@@ -546,9 +547,14 @@ export class OfficeManager implements OfficeDirectory {
     const decisions = await readBaseDecisions(git, instance.decisions.commit).catch(() => null);
     if (decisions !== null) instance.decisions = decisions;
     const read = await readBaseRoles(git);
-    if (read === null) return;
+    if (read === null) {
+      // No base yet: the roster in force is the one the instance holds, so decisions still match.
+      this.#keepRosterHash(instance);
+      return;
+    }
     const before = instance.roles.files;
     instance.roles = read;
+    this.#keepRosterHash(instance);
     if (!sameFiles(before, read.files)) this.#rolesChanged(instance);
     for (const problem of read.problems) {
       const path = problem.slice(0, problem.indexOf(":"));
@@ -559,6 +565,16 @@ export class OfficeManager implements OfficeDirectory {
         text: `Role file ${problem}. The role is left out of the roster until the file is fixed on the base.`,
       });
     }
+  }
+
+  /** Keeps the hash of the roster in force in the office database, for the gate decisions to match (DIPO-516). */
+  #keepRosterHash(instance: OfficeInstance): void {
+    const hash = rosterHash(rosterOf(instance.roles.roles));
+    instance.office.run(
+      `insert into office_roster (office_id, roster_hash) values ($office_id, $hash)
+       on conflict (office_id) do update set roster_hash = excluded.roster_hash`,
+      { hash },
+    );
   }
 
   /** The roster of the role files on the base of `office` (0017); empty when it is not loaded. */

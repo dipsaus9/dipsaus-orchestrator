@@ -310,6 +310,7 @@ describe("retention of run rows", () => {
               key: story.key,
               result: { mode: "pickup", passed: true, failures: [] },
               contentHash: "0".repeat(64),
+              rosterHash: "r",
               at,
             }).gate,
         );

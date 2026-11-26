@@ -299,6 +299,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             key,
             result: passed,
             contentHash: hash,
+            rosterHash: "r",
             at: 1,
           }),
         );

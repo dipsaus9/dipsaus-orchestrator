@@ -36,7 +36,7 @@ import type { GateConfig, GateMode, GateResult, GateRole, GateTask } from "../ga
 
 import { baseSha, cachedGateTasks } from "./cache";
 import { type GateDecisionRecord, storeGateDecision } from "./decisions";
-import { gateContentHash } from "../gate/hash";
+import { gateContentHash, rosterHash } from "../gate/hash";
 import { readGateInput, StoryNotFoundError } from "./read";
 import { BaseTreeCache, listTreeFiles } from "./tree";
 
@@ -83,6 +83,8 @@ export interface GateEvaluation {
   readonly story: StoryId;
   readonly result: GateResult;
   readonly contentHash: string;
+  /** The hash of the roster the evaluation read (DIPO-516). */
+  readonly rosterHash: string;
   /** The story's declared scope (its References), for the Queue's preview (DIPO-460). */
   readonly touches: readonly string[];
 }
@@ -198,10 +200,12 @@ export class GateStore {
     }
     // Without a mode, a Ready story is checked as the pickup check sees it, any other in ready mode.
     const resolved = mode ?? (input.story.status === "Ready" ? "pickup" : "ready");
+    const roster = this.#deps.offices.roster(office);
     return {
       story,
-      result: evaluateGate({ ...input, roster: this.#deps.offices.roster(office) }, resolved),
+      result: evaluateGate({ ...input, roster }, resolved),
       contentHash: gateContentHash(input.story),
+      rosterHash: rosterHash(roster),
       touches: input.story.references,
     };
   }
@@ -307,6 +311,7 @@ export class GateStore {
         key,
         result: evaluation.result,
         contentHash: evaluation.contentHash,
+        rosterHash: evaluation.rosterHash,
         at,
       }),
     );
