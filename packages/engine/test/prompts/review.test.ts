@@ -207,11 +207,12 @@ describe("the reviewer's system file (L1 + L2)", () => {
     expect(box()).not.toBe(renderSystemFile("implement-box", DEVELOPER_SEED));
   });
 
-  // DIPO-346: dipo runs the verify in the developer's box at done (0002).
-  it("says dipo ran the verify in the developer's box, and CI runs with the review", () => {
+  // DIPO-346: dipo runs the verify in the developer's box at done (0002); DIPO-506: not for a
+  // design or docs run.
+  it("says dipo ran the verify in the developer's box for a code run, and CI runs with the review", () => {
     const text = box();
     expect(text).toContain(
-      "When the project names a verify command, the engine ran it on this change in the developer's box when it reported done; CI runs on the same pushed commit at the same time as your review.",
+      "For a code role's run the engine ran the project's verify command on this change in the developer's box when it reported done, when the project names one; a design or docs run skips that verify, as it changes no code. CI runs on the same pushed commit at the same time as your review.",
     );
     expect(text).toContain(
       "no tests and no builds: the engine's verify in the developer's box, when the project names one, and CI on the pushed commit cover those.",

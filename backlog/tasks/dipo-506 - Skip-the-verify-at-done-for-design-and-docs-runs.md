@@ -1,10 +1,10 @@
 ---
 id: DIPO-506
 title: Skip the verify at done for design and docs runs
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-13 13:33'
-updated_date: '2026-11-26 09:45'
+updated_date: '2026-11-26 10:11'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -17,6 +17,14 @@ references:
   - packages/engine/src/prompts/contract/review-box.md
   - packages/engine/test/prompts/golden/system-review-box-reviewer.md
   - docs/decisions/0002-review-and-testing.md
+modified_files:
+  - docs/decisions/0002-review-and-testing.md
+  - packages/engine/src/prompts/contract/review-box.md
+  - packages/engine/src/run/verify-commit.ts
+  - packages/engine/test/prompts/golden/system-review-box-reviewer.md
+  - packages/engine/test/prompts/review.test.ts
+  - packages/engine/test/run/review-launch.test.ts
+  - packages/engine/test/run/verify-in-box.test.ts
 type: feature
 ordinal: 477000
 ---
@@ -51,9 +59,24 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A design run that reports done moves to In Review without the office's verify running in its box.
-- [ ] #2 A docs run that reports done moves to In Review without the office's verify running in its box.
-- [ ] #3 A code run and a run without a stored kind run the verify at done as before, and a red verify still loops.
-- [ ] #4 Decision 0002 says the verify at done is skipped for design and docs runs.
-- [ ] #5 The reviewer contract says the engine ran the verify at done for a code role's run and that a design or docs run skips it.
+- [x] #1 A design run that reports done moves to In Review without the office's verify running in its box.
+- [x] #2 A docs run that reports done moves to In Review without the office's verify running in its box.
+- [x] #3 A code run and a run without a stored kind run the verify at done as before, and a red verify still loops.
+- [x] #4 Decision 0002 says the verify at done is skipped for design and docs runs.
+- [x] #5 The reviewer contract says the engine ran the verify at done for a code role's run and that a design or docs run skips it.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-26 10:11 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 66,721 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

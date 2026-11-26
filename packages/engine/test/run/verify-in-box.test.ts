@@ -1341,6 +1341,58 @@ describe("dipo's verify in the box at done (DIPO-346, 0002)", () => {
   });
 });
 
+/** Stores the run's role file with that kind (DIPO-503); "none": a role file with no kind stored. */
+function setRoleKind(kind: "code" | "design" | "docs" | "none"): void {
+  const stored = kind === "none" ? null : kind;
+  w.f.office.run(
+    `update runs set role_instructions = $instructions, role_kind = $kind
+     where office_id = $office_id and run_id = $run`,
+    { instructions: "Write the notes.", kind: stored, run: w.f.run },
+  );
+}
+
+// DIPO-506 (0002): a design or docs run skips the office's verify at done; a code run and a run
+// with no stored kind run it as before.
+describe("the verify at done by the run's kind (DIPO-506)", () => {
+  const RED: BoxVerifyResult = {
+    kind: "red",
+    command: "bun run verify",
+    exitCode: 1,
+    signal: null,
+    timedOutMinutes: null,
+    output: "1 fail\n",
+  };
+
+  for (const kind of ["design", "docs"] as const) {
+    it(`moves a ${kind} run to In Review without the verify, though it would fail`, async () => {
+      setRoleKind(kind);
+      w.verifyResult = RED;
+      w.logVerify = true;
+      await play();
+      expect(w.verified).toEqual([]);
+      expect(w.calls).not.toContain("verify in the box");
+      expect(w.calls).toContain("in-review [1]");
+      expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
+      expect(parks()).toEqual([]);
+      expect(loopSteps()).toEqual([]);
+      expect(feedbackTexts()).toEqual([]);
+    });
+  }
+
+  for (const kind of ["code", "none"] as const) {
+    it(`runs the verify at done for a ${kind === "none" ? "run with no stored kind" : "code run"}, and a red one loops`, async () => {
+      setRoleKind(kind);
+      w.verifyResult = RED;
+      w.logVerify = true;
+      await play();
+      expect(w.calls).toContain("verify in the box");
+      expect(w.calls).not.toContain("in-review [1]");
+      expect(feedbackTexts()).toHaveLength(1);
+      expect(loopSteps()).toEqual([VERIFY_LOOP]);
+    });
+  }
+});
+
 describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
   it("runs in the held turn at the last part's commit, before the end is claimed", async () => {
     await play();
