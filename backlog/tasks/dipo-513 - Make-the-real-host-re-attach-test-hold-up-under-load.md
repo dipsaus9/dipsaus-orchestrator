@@ -1,10 +1,10 @@
 ---
 id: DIPO-513
 title: 'Make the real-host re-attach tests wait by time, not by poll count'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-17 14:50'
+updated_date: '2026-11-26 09:41'
 labels:
   - tech-debt
   - 'tier:S'
