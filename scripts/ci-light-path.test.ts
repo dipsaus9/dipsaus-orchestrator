@@ -1,6 +1,6 @@
 // The light CI path of backlog-only PRs (0016, DIPO-341), read from ci.yml as it is in the
 // repository. The `changes` step and the `ci-ok` step run here as written, with bash and jq: the
-// changes job finds a PR that changes only regular Backlog files from GitHub's merge commit, and
+// changes job finds a PR that changes only regular Backlog and role files from GitHub's merge commit, and
 // ci-ok passes that PR with its heavy jobs skipped, and fails a job that failed, or was skipped for
 // any other reason.
 

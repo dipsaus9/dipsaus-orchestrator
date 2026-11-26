@@ -15,8 +15,7 @@ concurrency:
 jobs:
   # 0016: a PR that changes only backlog/ and role files .dipo/roles/<name>.md takes the light path.
   # This job decides it; on that path the heavy jobs below skip by design, and ready-gate and pr-title
-  # still run. Every push to main and
-  # every other PR runs every job.
+  # still run. Every push to main and every other PR runs every job.
   changes:
     name: changes
     runs-on: ubuntu-24.04
@@ -313,7 +312,8 @@ jobs:
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           # Skipped by design, and nothing else: dependency-review outside pull requests, and the
           # heavy jobs on a pull request that the changes job (which itself succeeded) found changes
-          # only backlog/ (0016). changes and ready-gate must always succeed.
+          # only backlog/ and role files .dipo/roles/<name>.md (0016). changes and ready-gate must
+          # always succeed.
           failed=$(echo "$NEEDS" | jq -r --arg event "$EVENT" '
             (.changes.result == "success" and .changes.outputs.scope == "backlog-only") as $light
             | to_entries[]
