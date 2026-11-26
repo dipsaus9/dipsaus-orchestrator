@@ -268,12 +268,14 @@ Usage:
                     set or replace the subscription token that boxes reach the
                     model with: paste a token from claude setup-token at the
                     Keychain prompt; dipo never sees it typed and never shows it
-  dipo tui [--office <id>] [--no-color] [--ascii] [--inline]
+  dipo tui [--office <id>] [--no-color] [--ascii] [--inline] [--no-mouse]
                     open the full-screen client: the office of the current
                     directory (else the first registered one), with o to switch
                     offices and q twice to quit; needs a terminal. NO_COLOR is
                     honoured, --ascii draws only ASCII, --inline keeps the
-                    normal scrollback instead of the alternate screen
+                    normal scrollback instead of the alternate screen; the Desk
+                    answers the mouse (click, double-click, wheel) unless
+                    --no-mouse or --inline is given
 
 Office commands use --office, else the office of the current directory.
 

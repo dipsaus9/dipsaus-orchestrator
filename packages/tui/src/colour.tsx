@@ -167,3 +167,9 @@ export function Shaded(props: { readonly display: Display; readonly children: Re
 export function osc52(text: string): string {
   return `\u001b]52;c;${Buffer.from(text, "utf8").toString("base64")}\u0007`;
 }
+
+/** Turns press and wheel reporting on, in SGR form (`mouse.ts`, DIPO-515). */
+export const MOUSE_ON = "\u001b[?1000h\u001b[?1006h";
+
+/** Turns it off again, in the reverse order. */
+export const MOUSE_OFF = "\u001b[?1006l\u001b[?1000l";

@@ -1423,3 +1423,126 @@ describe("the desk preview scrolls (DIPO-483)", () => {
     expect(previewRows(rows, 10, 500)).toEqual(rows.slice(20, 30));
   });
 });
+
+describe("the mouse on the Desk (DIPO-515)", () => {
+  type Ui = { press(key: string): Promise<void>; frame(): string };
+  const ESC = "\u001b";
+  /** A left click: press and release at the cell `x`, `y`, counted from 1. */
+  const click = (ui: Ui, x: number, y: number) =>
+    ui.press(`${ESC}[<0;${x};${y}M${ESC}[<0;${x};${y}m`);
+  const wheel = (ui: Ui, x: number, y: number, down: boolean) =>
+    ui.press(`${ESC}[<${down ? 65 : 64};${x};${y}M`);
+  /** The screen row, from 1, of the first line of the list holding `text`. */
+  const rowOf = (ui: Ui, text: string, side = listSide) => {
+    const at = side(ui.frame()).findIndex((line) => line.includes(text));
+    if (at === -1) throw new Error(`no line holds ${text}:\n${ui.frame()}`);
+    return at + 1;
+  };
+  const focused = (ui: Ui) => itemRows(ui.frame()).find((line) => line.startsWith("▌ "));
+
+  it("focuses the row of a click, and opens it on a second click within 400 ms", async () => {
+    const { ui, session } = await openDesk();
+    const third = itemRows(ui.frame())[2] ?? "";
+    expect(focused(ui)).not.toBe(third);
+    await click(ui, 6, rowOf(ui, third.slice(2)));
+    await until(() => focused(ui)?.slice(2) === third.slice(2), "the third row to take the focus");
+    expect(ui.frame()).toContain("NEEDS YOU");
+    // A row opens with a double click: what Enter does.
+    await selectRow(ui, "DIPO-24");
+    const y = rowOf(ui, "DIPO-24");
+    await click(ui, 6, y);
+    expect(session.reads.some((read) => read.name === "story.detail")).toBe(false);
+    await click(ui, 6, y);
+    await until(
+      () => session.reads.some((read) => read.name === "story.detail"),
+      "the story to open",
+    );
+    expect(
+      session.reads.find((read) => read.name === "story.detail")?.args as object,
+    ).toMatchObject({
+      story: KEY_24,
+    });
+    expect(ui.frame()).not.toContain("NEEDS YOU");
+  });
+
+  it("does not open a row when the second click comes later than 400 ms or on another row", async () => {
+    const { ui, clock } = await openDesk();
+    const rows = itemRows(ui.frame());
+    const first = rowOf(ui, (rows[0] ?? "").slice(2));
+    await click(ui, 6, first);
+    clock.advance(500);
+    await click(ui, 6, first);
+    await click(ui, 6, rowOf(ui, (rows[1] ?? "").slice(2)));
+    await click(ui, 6, first);
+    expect(ui.frame()).toContain("NEEDS YOU");
+    expect(lines(ui.frame()).at(-1)).not.toContain("Esc");
+  });
+
+  it("presses the key of a preview button when it is clicked", async () => {
+    const { ui, session } = await openDesk();
+    await selectRow(ui, "Split RunOutcomes");
+    const y = rowOf(ui, "⟦ y Accept ⟧", lines);
+    const x = (lines(ui.frame())[y - 1] ?? "").indexOf("⟦ y Accept ⟧") + 3;
+    // A click beside the buttons does nothing.
+    await click(ui, x + 40, y);
+    expect(session.commands).toHaveLength(0);
+    await click(ui, x, y);
+    await until(() => session.commands.length === 1, "idea.accept");
+    expect(sent(session)).toEqual([{ name: "idea.accept", args: { idea: PROPOSAL } }]);
+    // The second button of the row presses its own key.
+    const dismissX = (lines(ui.frame())[y - 1] ?? "").indexOf("⟦ n Dismiss ⟧") + 3;
+    await click(ui, dismissX, y);
+    await until(() => session.commands.length === 2, "idea.dismiss");
+  });
+
+  it("moves the focus one row per wheel step over the list", async () => {
+    const { ui } = await openDesk();
+    expect(focused(ui)).toBe(itemRows(ui.frame())[0]);
+    await wheel(ui, 6, 6, true);
+    await until(() => focused(ui) === itemRows(ui.frame())[1], "the focus to move down one row");
+    await wheel(ui, 6, 6, true);
+    await until(() => focused(ui) === itemRows(ui.frame())[2], "the focus to move down again");
+    await wheel(ui, 6, 6, false);
+    await until(() => focused(ui) === itemRows(ui.frame())[1], "the focus to move up one row");
+  });
+
+  it("scrolls the preview over it, not the focus", async () => {
+    const { ui } = await openDesk({ rows: 16, desk: [proposal] });
+    const before = previewSide(ui.frame());
+    const title = focused(ui);
+    await wheel(ui, 70, 8, true);
+    await until(() => previewSide(ui.frame())[0] !== before[0], "the preview to scroll");
+    expect(focused(ui)).toBe(title);
+    await wheel(ui, 70, 8, false);
+    await until(() => previewSide(ui.frame())[0] === before[0], "the preview to scroll back");
+  });
+
+  it("takes no mouse report as a key, on the Desk or on any other screen", async () => {
+    const { ui, quits, session } = await openDesk();
+    const row = focused(ui);
+    // The report holds the digits of the room keys 2 and 3 and an M: were it typed, the room would change.
+    await ui.press(`${ESC}[<0;2;3M`);
+    await ui.press(`${ESC}[<0;2;3m`);
+    await ui.press(`${ESC}[<65;2;3M`);
+    expect(ui.frame()).toContain("NEEDS YOU");
+    expect(focused(ui)).toBe(row);
+    expect(session.commands).toHaveLength(0);
+    expect(quits()).toBe(0);
+    await ui.press("3");
+    await ui.waitFor("▌ → DIPO-30");
+    const queue = ui.frame();
+    await click(ui, 2, 5);
+    await ui.press(`${ESC}[<0;2;2M${ESC}[<0;2;2m`);
+    await wheel(ui, 6, 6, true);
+    expect(ui.frame()).toBe(queue);
+    expect(session.commands).toHaveLength(0);
+  });
+
+  it("keeps the keys as they were while the mouse is on", async () => {
+    const { ui } = await openDesk();
+    await ui.press("j");
+    await until(() => focused(ui) === itemRows(ui.frame())[1], "j to move the focus");
+    await ui.press("k");
+    await until(() => focused(ui) === itemRows(ui.frame())[0], "k to move the focus");
+  });
+});

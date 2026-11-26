@@ -2,7 +2,8 @@
 // client connects (the connect function starts the daemon when autostart allows, 0005), feeds an
 // `OfficeStore` and opens the office of the current directory, else the first registered one,
 // else the switcher. Quitting, Ctrl+C and SIGTERM unmount Ink, which leaves the alternate screen
-// and raw mode, so the shell gets its terminal back.
+// and raw mode, so the shell gets its terminal back. Mouse reporting (`mouse.ts`, DIPO-515) is on
+// from the start unless `--no-mouse` or `--inline`, and off again on every way out.
 
 import {
   type DipoClient,
@@ -34,11 +35,17 @@ import { Box, render, Text, useInput } from "ink";
 import { useState } from "react";
 
 import { App, type TuiActions } from "./app";
-import { osc52 } from "./colour";
+import { MOUSE_OFF, MOUSE_ON, osc52 } from "./colour";
 import { QUIT_WINDOW_MS } from "./input";
 import { parseTuiArgs } from "./options";
 import { classicalEnv, detectTone } from "./theme";
 import { glyphs } from "./views";
+
+/** Mouse reporting on the terminal: `off` writes only after `on` did. */
+interface Mouse {
+  readonly on: () => void;
+  readonly off: () => void;
+}
 
 /** What the TUI needs from a connected client. `DipoClient` is one. */
 export type TuiSession = StoreClient & Pick<DipoClient, "command" | "close">;
@@ -61,7 +68,14 @@ export interface TuiDeps extends TuiStreams {
   /** An absolute path for what the maintainer typed (`~` and relative paths). */
   readonly resolvePath: (path: string) => string;
   /** Calls `handler` on the signal; returns a function that stops it. */
-  readonly onSignal: (signal: "SIGTERM" | "SIGHUP", handler: () => void) => () => void;
+  readonly onSignal: (
+    signal: "SIGTERM" | "SIGHUP" | "SIGTSTP" | "SIGCONT",
+    handler: () => void,
+  ) => () => void;
+  /** Calls `handler` when the process exits, a crash included; returns a function that stops it. */
+  readonly onExit?: (handler: () => void) => () => void;
+  /** Stops the process as Ctrl-Z does, after the TUI gave the terminal back (SIGTSTP's default). */
+  readonly suspend?: () => void;
   readonly clientInfo: { readonly name: string; readonly version: string };
   /** Asks the terminal for its background colour (OSC 11); the theme falls back to `COLORFGBG`. */
   readonly queryBackground?: () => Promise<string | null>;
@@ -92,6 +106,28 @@ function engineMessage(error: EngineError): string {
 
 /** Runs the TUI until the maintainer quits; resolves to the exit code. */
 export async function runTui(args: readonly string[], deps: TuiDeps): Promise<number> {
+  // Mouse reporting is off again on every way out: a quit, a signal, a suspend and a crash
+  // (DIPO-515). Writing the off codes twice does no harm.
+  let on = false;
+  const mouse = {
+    on: () => {
+      on = true;
+      deps.stdout.write(MOUSE_ON);
+    },
+    off: () => {
+      if (on) deps.stdout.write(MOUSE_OFF);
+    },
+  };
+  const stopExit = deps.onExit?.(mouse.off);
+  try {
+    return await runTuiScreen(args, deps, mouse);
+  } finally {
+    mouse.off();
+    stopExit?.();
+  }
+}
+
+async function runTuiScreen(args: readonly string[], deps: TuiDeps, mouse: Mouse): Promise<number> {
   const options = parseTuiArgs(args, deps.env);
   if (typeof options === "string") {
     deps.writeError(`dipo: tui: ${options}\nRun \`dipo --help\` for usage.`);
@@ -139,6 +175,10 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
     deps.onSignal("SIGTERM", () => end(143)),
     deps.onSignal("SIGHUP", () => end(129)),
   ];
+  if (options.mouse) {
+    mouse.on();
+    stopSignals.push(watchSuspend(deps, mouse, () => done));
+  }
 
   let session: TuiSession | null = null;
   let store: OfficeStore | null = null;
@@ -410,6 +450,7 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
   })();
 
   const code = await finished.promise;
+  mouse.off();
   instance.unmount();
   await instance.waitUntilExit().catch(() => undefined);
   for (const stop of stopSignals) stop();
@@ -419,6 +460,32 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
   (session as TuiSession | null)?.close();
   if (failure !== null) deps.writeError(failure);
   return code;
+}
+
+/**
+ * Ctrl-Z as a signal: the terminal is given back (mouse off), then the process stops; `fg` turns
+ * the mouse on again. Returns a function that stops watching.
+ */
+function watchSuspend(deps: TuiDeps, mouse: Mouse, ended: () => boolean): () => void {
+  let stop: (() => void) | null = null;
+  const arm = () => {
+    stop = deps.onSignal("SIGTSTP", () => {
+      mouse.off();
+      stop?.();
+      deps.suspend?.();
+    });
+  };
+  arm();
+  const stopCont = deps.onSignal("SIGCONT", () => {
+    if (ended()) return;
+    mouse.on();
+    stop?.();
+    arm();
+  });
+  return () => {
+    stop?.();
+    stopCont();
+  };
 }
 
 /** Shown while the client connects and, when needed, starts the daemon. */

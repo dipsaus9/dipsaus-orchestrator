@@ -21,6 +21,11 @@ export function tooSmall(columns: number, rows: number): boolean {
   return columns < MIN_COLUMNS || rows < MIN_ROWS;
 }
 
+/** The screen row, counted from 1, where the body starts: after the header, the rooms and a rule. */
+export function bodyTop(rooms: boolean): number {
+  return 3 + (rooms ? 1 : 0);
+}
+
 /** The rows the Frame takes around the body: header, the two rules and the keys, rooms and the ticker's rows. */
 export function frameRows(rooms: boolean, tickerRows: number): number {
   return 4 + (rooms ? 1 : 0) + tickerRows;
