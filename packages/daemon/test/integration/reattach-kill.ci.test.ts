@@ -117,9 +117,12 @@ function start(env: Record<string, string>): Daemon {
 
 /** The last lines of the daemon log, for a failure message. */
 function logTail(dir: string, lines = 40): string {
-  const path = join(dir, "state", "logs", "daemon.log");
-  if (!existsSync(path)) return "(no daemon.log yet)";
-  return readFileSync(path, "utf8").trimEnd().split("\n").slice(-lines).join("\n");
+  const log = readDaemonLog<LogLine>(dir);
+  if (log.length === 0) return "(no daemon.log yet)";
+  return log
+    .slice(-lines)
+    .map((line) => JSON.stringify(line))
+    .join("\n");
 }
 
 /** `error` with the daemon log's tail appended, so a CI failure says what the daemon did. */
