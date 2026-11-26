@@ -1,10 +1,10 @@
 ---
 id: DIPO-506
 title: Skip the verify at done for design and docs runs
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-13 13:33'
-updated_date: '2026-11-26 09:58'
+updated_date: '2026-11-26 10:02'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -51,9 +51,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A design run that reports done moves to In Review without the office's verify running in its box.
-- [ ] #2 A docs run that reports done moves to In Review without the office's verify running in its box.
-- [ ] #3 A code run and a run without a stored kind run the verify at done as before, and a red verify still loops.
-- [ ] #4 Decision 0002 says the verify at done is skipped for design and docs runs.
-- [ ] #5 The reviewer contract says the engine ran the verify at done for a code role's run and that a design or docs run skips it.
+- [x] #1 A design run that reports done moves to In Review without the office's verify running in its box.
+- [x] #2 A docs run that reports done moves to In Review without the office's verify running in its box.
+- [x] #3 A code run and a run without a stored kind run the verify at done as before, and a red verify still loops.
+- [x] #4 Decision 0002 says the verify at done is skipped for design and docs runs.
+- [x] #5 The reviewer contract says the engine ran the verify at done for a code role's run and that a design or docs run skips it.
 <!-- AC:END -->
