@@ -1430,11 +1430,37 @@ const CLI_MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const realProbe = systemProcessProbe(currentPlatform());
 /** Time a real host gets to start Bun and read its launch file before its deadline. */
 const REAL_HOST_DEADLINE_MS = 4_500;
+/** Grace after the launch deadline for the daemon to park the story. */
+const REAL_HOST_PARK_GRACE_MS = 5_000;
+/** Grace after the park for the real host process to exit. */
+const REAL_HOST_EXIT_GRACE_MS = 5_000;
+/** Room on top of the waits for a loaded machine, so the test timeout never cuts a wait short. */
+const REAL_HOST_MARGIN_MS = 5_000;
 /**
- * The timeout of a test that waits for a real host to reach its deadline: the deadline itself plus
- * room for Bun to start the host and the poll after it, so a loaded machine does not cut it short.
+ * The timeout of a test that waits for a real host: the launch deadline, the park grace, the exit
+ * grace and the margin, added together, so it outlasts every wait the test makes.
  */
-const REAL_HOST_TEST_MS = REAL_HOST_DEADLINE_MS + 10_000;
+const REAL_HOST_TEST_MS =
+  REAL_HOST_DEADLINE_MS + REAL_HOST_PARK_GRACE_MS + REAL_HOST_EXIT_GRACE_MS + REAL_HOST_MARGIN_MS;
+
+/**
+ * Polls `holds` on the system clock until it holds, or until `untilMs` passes. Returns the time it
+ * held. When the wait runs out, fails naming `what` and the milliseconds it waited.
+ */
+async function waitUntil(
+  what: string,
+  untilMs: number,
+  holds: () => boolean | Promise<boolean>,
+): Promise<number> {
+  const startedAt = systemClock.now();
+  while (!(await holds())) {
+    if (systemClock.now() >= untilMs) {
+      throw new Error(`${what} ran out after ${systemClock.now() - startedAt} ms`);
+    }
+    await Bun.sleep(10);
+  }
+  return systemClock.now();
+}
 
 /** Whether a real process runs: a zombie or a PID that is gone does not. */
 async function running(pid: number): Promise<boolean> {
@@ -1522,19 +1548,26 @@ async function realPendingHost(
     env: { ...env, DIPO_HOME: join(real, "state"), DIPO_TMP: real },
     probe: realProbe,
   });
-  for (let i = 0; i < 400 && !existsSync(host.socketPath); i += 1) await Bun.sleep(10);
-  expect(existsSync(host.socketPath)).toBe(true);
+  await waitUntil("the host's socket wait", deadline, () => existsSync(host.socketPath));
   return { host, deadline };
 }
 
 /** After the deadline: the row is gone, the story parked, and the host stopped itself. */
 async function stoppedItself(host: LaunchedHost, deadline: number, d: Daemon): Promise<void> {
-  for (let i = 0; i < 800 && parks().length === 0; i += 1) await Bun.sleep(10);
+  const parkedAt = await waitUntil(
+    "the park wait after the launch deadline",
+    deadline + REAL_HOST_PARK_GRACE_MS,
+    () => parks().length > 0,
+  );
   expect(systemClock.now()).toBeGreaterThanOrEqual(deadline);
   await d.control.idle();
   expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
   expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
-  for (let i = 0; i < 300 && (await running(host.pid)); i += 1) await Bun.sleep(20);
+  await waitUntil(
+    "the host exit wait after the park",
+    parkedAt + REAL_HOST_EXIT_GRACE_MS,
+    async () => !(await running(host.pid)),
+  );
   expect(await running(host.pid)).toBe(false);
   expect(JSON.parse(readFileSync(join(host.runDir, EXIT_FILE), "utf8"))).toMatchObject({
     signal: "SIGTERM",
@@ -1545,6 +1578,19 @@ async function stoppedItself(host: LaunchedHost, deadline: number, d: Daemon): P
   expect(w.signals).toEqual([]);
   expect(w.sent).toEqual([]);
 }
+
+describe("waiting for a real host by time (DIPO-513)", () => {
+  it("fails once its time has passed, naming the wait and the milliseconds it waited", async () => {
+    const error = await waitUntil("the test wait", systemClock.now() + 100, () => false).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(Error);
+    const waited = Number(
+      /^the test wait ran out after (\d+) ms$/.exec((error as Error).message)?.[1],
+    );
+    expect(waited).toBeGreaterThanOrEqual(100);
+  });
+});
 
 describe("re-attach of real worker host processes left pending (DIPO-386)", () => {
   it("re-attaches a real host that binds its socket after the first ask timed out, at a later ask, and claims it once it is recorded; no signal", async () => {
