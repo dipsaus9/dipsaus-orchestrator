@@ -1,10 +1,10 @@
 ---
 id: DIPO-506
 title: Skip the verify at done for design and docs runs
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-13 13:33'
-updated_date: '2026-11-26 09:45'
+updated_date: '2026-11-26 09:58'
 labels:
   - 'tier:S'
   - 'role:developer'
