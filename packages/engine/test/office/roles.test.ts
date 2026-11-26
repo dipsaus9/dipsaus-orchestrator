@@ -8,6 +8,12 @@ import { join } from "node:path";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
+import { buildRegistry } from "../../src/commands/registry";
+import { createLogger } from "../../src/log/logger";
+import { officeFeature } from "../../src/office/feature";
+import { OfficeManager } from "../../src/office/manager";
+import { localMounts } from "../db/helpers";
+import { backlogLayout } from "../story-store/backlog";
 import { executeRead } from "../../src/reads/execute";
 import { nextRequestId } from "./helpers";
 import { cursorAt } from "../../src/changelog/log";
@@ -19,7 +25,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { latestGate } from "../../src/views/story";
 import { keyOf as storyKeyOf } from "../views/helpers";
 import { pass, task } from "../stories/helpers";
-import { BACKLOG_FIXTURE, officeSetup, resultOf, send } from "./helpers";
+import { BACKLOG_FIXTURE, officeSetup, pingFeature, resultOf, send } from "./helpers";
 
 const ROLE = (purpose: string, kind = "code") =>
   `---\nversion: 1\npurpose: ${purpose}\nkind: ${kind}\n---\nDo the work.\n`;
@@ -181,6 +187,28 @@ describe("the roster from role files on the base", () => {
         decide(two, true, rosterHash(s.manager.roster(office)));
         expect(latestGate(handle, two, "h")?.passed).toBe(true);
         await s.manager.reloadIfChanged(office, git);
+        expect(latestGate(handle, two, "h")?.passed).toBe(true);
+
+        // A daemon restart: a new manager loads the office over the same database and files.
+        const restarted = new OfficeManager({
+          stories: backlogLayout,
+          database: () => s.state,
+          registry: () => registry,
+          software: s.software,
+          clock: s.clock,
+          ids: s.ids,
+          git: { spawn: systemSpawn, env: repo.env },
+          logger: createLogger({ clock: s.clock, sinks: [], component: "office", level: "error" }),
+          readMounts: localMounts,
+        });
+        const registry = buildRegistry([officeFeature(restarted), pingFeature, engineGit.feature]);
+        const loaded = await restarted.load(office);
+        expect(loaded.ok).toBe(true);
+        expect(restarted.roster(office).map((role) => role.name)).toEqual([
+          "designer",
+          "developer",
+        ]);
+        expect(latestGate(handle, one, "h")).toBeNull();
         expect(latestGate(handle, two, "h")?.passed).toBe(true);
 
         // The designer role is removed: the stored pass no longer shows.

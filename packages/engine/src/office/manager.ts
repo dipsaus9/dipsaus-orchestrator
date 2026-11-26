@@ -547,7 +547,11 @@ export class OfficeManager implements OfficeDirectory {
     const decisions = await readBaseDecisions(git, instance.decisions.commit).catch(() => null);
     if (decisions !== null) instance.decisions = decisions;
     const read = await readBaseRoles(git);
-    if (read === null) return;
+    if (read === null) {
+      // No base yet: the roster in force is the one the instance holds, so decisions still match.
+      this.#keepRosterHash(instance);
+      return;
+    }
     const before = instance.roles.files;
     instance.roles = read;
     this.#keepRosterHash(instance);
