@@ -1,10 +1,10 @@
 ---
 id: DIPO-518
 title: Run the skills and plugins probes and approve decision 0023
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-26 14:50'
-updated_date: '2026-11-27 12:00'
+updated_date: '2026-11-27 14:53'
 labels:
   - 'tier:M'
   - 'role:developer'
