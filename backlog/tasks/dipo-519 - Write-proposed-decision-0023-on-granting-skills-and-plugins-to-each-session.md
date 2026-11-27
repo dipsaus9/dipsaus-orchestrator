@@ -1,10 +1,10 @@
 ---
 id: DIPO-519
 title: Write proposed decision 0023 on granting skills and plugins to each session
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-27 08:53'
-updated_date: '2026-11-27 08:53'
+updated_date: '2026-11-27 09:06'
 labels:
   - 'tier:M'
   - 'role:developer'
