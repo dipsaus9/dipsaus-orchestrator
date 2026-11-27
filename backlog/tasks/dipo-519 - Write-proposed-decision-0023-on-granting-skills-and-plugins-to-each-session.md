@@ -1,10 +1,10 @@
 ---
 id: DIPO-519
 title: Write proposed decision 0023 on granting skills and plugins to each session
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-27 08:53'
-updated_date: '2026-11-27 08:53'
+updated_date: '2026-11-27 09:49'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -26,6 +26,8 @@ references:
   - packages/engine/src/workers/claude-cli/adapter.ts
   - packages/engine/src/roles/parse.ts
   - packages/engine/src/config/schema.ts
+modified_files:
+  - docs/decisions/0023-skills-and-plugins.md
 type: spike
 ordinal: 480000
 ---
@@ -78,9 +80,24 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/decisions/0023-skills-and-plugins.md exists with status proposed and answers each question in the context, each with the options weighed and one recommended
-- [ ] #2 0023 names the guard for the scan session on the Mac and the probe that shows the guard holds
-- [ ] #3 0023 has a Probes section with P1, P2 and P3, each with the scratch repository setup, the commands in order and the expected result
-- [ ] #4 Every claim in 0023 about how Claude Code loads a skill or plugin that no recorded probe has measured is marked unmeasured and names the probe that checks it
-- [ ] #5 0023 lists the lines of 0008, 0017, 0014 and 0001 that the decision would change, and none of those files changes in this story
+- [x] #1 docs/decisions/0023-skills-and-plugins.md exists with status proposed and answers each question in the context, each with the options weighed and one recommended
+- [x] #2 0023 names the guard for the scan session on the Mac and the probe that shows the guard holds
+- [x] #3 0023 has a Probes section with P1, P2 and P3, each with the scratch repository setup, the commands in order and the expected result
+- [x] #4 Every claim in 0023 about how Claude Code loads a skill or plugin that no recorded probe has measured is marked unmeasured and names the probe that checks it
+- [x] #5 0023 lists the lines of 0008, 0017, 0014 and 0001 that the decision would change, and none of those files changes in this story
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-27 09:49 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 156,295 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 2 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
