@@ -4,13 +4,13 @@ title: Run the skills and plugins probes and approve decision 0023
 status: Ready
 assignee: []
 created_date: '2026-11-26 14:50'
-updated_date: '2026-11-26 14:50'
+updated_date: '2026-11-27 09:58'
 labels:
   - 'tier:M'
   - 'role:developer'
 milestone: m-4
 dependencies:
-  - DIPO-116
+  - DIPO-519
 references:
   - docs/decisions/0023-skills-and-plugins.md
   - tools/box-probe/probe.sh
