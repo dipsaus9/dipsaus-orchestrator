@@ -1,10 +1,10 @@
 ---
 id: DIPO-519
 title: Write proposed decision 0023 on granting skills and plugins to each session
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-27 08:53'
-updated_date: '2026-11-27 09:06'
+updated_date: '2026-11-27 09:10'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -78,9 +78,9 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/decisions/0023-skills-and-plugins.md exists with status proposed and answers each question in the context, each with the options weighed and one recommended
-- [ ] #2 0023 names the guard for the scan session on the Mac and the probe that shows the guard holds
-- [ ] #3 0023 has a Probes section with P1, P2 and P3, each with the scratch repository setup, the commands in order and the expected result
-- [ ] #4 Every claim in 0023 about how Claude Code loads a skill or plugin that no recorded probe has measured is marked unmeasured and names the probe that checks it
-- [ ] #5 0023 lists the lines of 0008, 0017, 0014 and 0001 that the decision would change, and none of those files changes in this story
+- [x] #1 docs/decisions/0023-skills-and-plugins.md exists with status proposed and answers each question in the context, each with the options weighed and one recommended
+- [x] #2 0023 names the guard for the scan session on the Mac and the probe that shows the guard holds
+- [x] #3 0023 has a Probes section with P1, P2 and P3, each with the scratch repository setup, the commands in order and the expected result
+- [x] #4 Every claim in 0023 about how Claude Code loads a skill or plugin that no recorded probe has measured is marked unmeasured and names the probe that checks it
+- [x] #5 0023 lists the lines of 0008, 0017, 0014 and 0001 that the decision would change, and none of those files changes in this story
 <!-- AC:END -->
