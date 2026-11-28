@@ -1,9 +1,10 @@
 ---
 id: DIPO-530
 title: 'TUI v2: close the gaps between the shipped screens and the mocks'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 18:14'
 labels:
   - 'tier:M'
   - 'role:developer'
