@@ -354,12 +354,8 @@ export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readon
   "03-floor-background.txt#C3 Floor: the BACKGROUND group, the header chip and the chat line (chat hidden with \\)":
     { story: "DIPO-526", cells: ["2", "26", "27", "28", "29", "30"] },
   "04-background-detail.txt#C3 Floor › a background item: a story PR's checks (chat hidden with \\)":
-<<<<<<< 1d746c9bb9fd9a0cfa1513daaf9f94707ef1aaa1
     { story: "DIPO-526", cells: ["27", "30"] },
-=======
-    { story: "DIPO-528" },
   // Only the focused steer card's cells (rows 13 to 17, from the dock's `│`) are held (DIPO-525); the room and the dock around it are DIPO-526's and DIPO-530's.
->>>>>>> 4345fdc2eff1609a5506b638f72a6b09f5b5858a
   "05-run-with-dock-wide.txt#C1 Run with the chat docked on the right (152 columns or wider) · a steer card in focus":
     {
       story: "DIPO-526",
