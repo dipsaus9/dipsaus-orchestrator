@@ -1,10 +1,10 @@
 ---
 id: DIPO-524
 title: 'Chat: send the facts of the room and the focused item with every message'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:35'
+updated_date: '2026-11-28 19:44'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -46,8 +46,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 chat.message carries and stores a context of room and optional item
-- [ ] #2 Code builds the facts for each room spec.md lists and sends them when the context changes
-- [ ] #3 The proposal schemas follow the context
-- [ ] #4 /general and /here drop and restore the item
+- [x] #1 chat.message carries and stores a context of room and optional item
+- [x] #2 Code builds the facts for each room spec.md lists and sends them when the context changes
+- [x] #3 The proposal schemas follow the context
+- [x] #4 /general and /here drop and restore the item
 <!-- AC:END -->
