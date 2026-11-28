@@ -1,7 +1,7 @@
 ---
 id: DIPO-518
 title: Run the skills and plugins probes and approve decision 0023
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-26 14:50'
 updated_date: '2026-11-28 12:23'
@@ -49,6 +49,10 @@ Steps:
 ```dipo
 branch: "DIPO-518/run-skills-plugins-probes-approve"
 unknowns: []
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "This story's probes (P1 to P3) need `container` boxes and the Mac scan session, which this Linux worker box lacks. Please run it on the Mac (maintainer or builder) and do not give it to a dipo worker. Or tell me which part, if any, you want done here without the probes, for example only reading and tightening the wording of 0023."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -60,3 +64,16 @@ unknowns: []
 - [ ] #4 No claim in 0023 is still marked unmeasured, and the maintainer's approval of 0023 is recorded with its date
 - [ ] #5 Implementation stories for decision 0023 are filed in milestone m-4
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-28 12:23 UTC: ambiguous-spec
+- Detail: This story's probes (P1 to P3) need `container` boxes and the Mac scan session, which this Linux worker box lacks. Please run it on the Mac (maintainer or builder) and do not give it to a dipo worker…
+- Run: run_01M8H1RKHMX30G8R3J47M3DVVK
+- Criteria met: 0 of 5 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 23,620 of 800,000 tokens; 3 of 200 turns; 0 of 90 minutes
+- Last good commit: e1271e8599f0678e45e4b68589dc40d99ce67c31
+<!-- SECTION:NOTES:END -->
