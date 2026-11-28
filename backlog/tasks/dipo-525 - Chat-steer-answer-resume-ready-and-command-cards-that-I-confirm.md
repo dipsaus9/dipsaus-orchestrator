@@ -1,10 +1,10 @@
 ---
 id: DIPO-525
 title: 'Chat: steer, answer, resume, ready and command cards that I confirm'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:51'
+updated_date: '2026-11-28 19:53'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -18,6 +18,31 @@ references:
   - docs/design/chat-and-activity/screens/05-run-with-dock-wide.txt
   - docs/design/chat-and-activity/screens/01-queue-with-dock.txt
   - docs/design/chat-and-activity/screens/07-states.txt
+modified_files:
+  - packages/client/src/client.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/shared.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/envelope.ts
+  - packages/contract/src/work.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/run/chat-cards.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/test/run/chat-cards.test.ts
+  - packages/tui/src/actions.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/chat-card-state.ts
+  - packages/tui/src/chat-cards.test.tsx
+  - packages/tui/src/chat-cards.ts
+  - packages/tui/src/keys.ts
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/run.tsx
+  - packages/tui/src/screen.tsx
+  - packages/tui/src/transcript.ts
+  - packages/tui/test/support/mock-screens.ts
+  - packages/tui/test/support/setup.tsx
 priority: medium
 type: feature
 ordinal: 486000
@@ -56,3 +81,18 @@ test_plan:
 - [x] #4 Drop and discard appear only as command cards or open the existing prompts
 - [x] #5 The screens named above pass expectScreen
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-28 19:53 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 395,706 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
