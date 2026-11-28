@@ -3,9 +3,10 @@ id: DIPO-522
 title: >-
   Decide in ADR 0024 that each office has one standing chat in threads, led by
   context
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 16:50'
 labels:
   - 'tier:S'
   - 'role:developer'
