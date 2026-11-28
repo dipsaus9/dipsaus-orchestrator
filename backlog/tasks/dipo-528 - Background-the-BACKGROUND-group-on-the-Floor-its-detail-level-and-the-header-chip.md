@@ -3,10 +3,10 @@ id: DIPO-528
 title: >-
   Background: the BACKGROUND group on the Floor, its detail level and the header
   chip
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 20:01'
+updated_date: '2026-11-28 20:03'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -21,6 +21,28 @@ references:
   - docs/design/chat-and-activity/screens/03-floor-background.txt
   - docs/design/chat-and-activity/screens/04-background-detail.txt
   - docs/design/chat-and-activity/screens/07-states.txt
+modified_files:
+  - docs/design/chat-and-activity/screens/03-floor-background.txt
+  - docs/design/tui-v2/screens/02-floor.txt
+  - packages/client/src/index.ts
+  - packages/client/src/store/index.ts
+  - packages/client/src/store/office-store.ts
+  - packages/client/test/unit/office-store.test.ts
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/tui/src/background-detail.tsx
+  - packages/tui/src/footer.ts
+  - packages/tui/src/header.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/lane.ts
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/overview.tsx
+  - packages/tui/src/screen.tsx
+  - packages/tui/src/views.tsx
+  - packages/tui/test/support/mock-screens.ts
+  - packages/tui/test/support/setup.tsx
 priority: high
 type: feature
 ordinal: 489000
@@ -74,3 +96,19 @@ Parked 2026-11-28 19:10 UTC: ambiguous-spec
 
 Resumed 2026-11-28 19:38 UTC; grants: none; note: Build the level later. Close this story on the BACKGROUND group, the header chip, the ticker, and ⏎ for the backlog PR, test and audit kinds. For a story PR, ⏎ opens the PR (o) until the checks read…
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-28 20:03 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 380,682 of 800,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-28 19:10 UTC ambiguous-spec: 04-background-detail.txt shows a story PR's checks (format, lint, typecheck, `test (bun 1.4)` and so on, each with a state) and the failed check's log tail with the failing line. `BackgroundItem` and…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 3
+<!-- SECTION:FINAL_SUMMARY:END -->
