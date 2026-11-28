@@ -3,10 +3,10 @@ id: DIPO-521
 title: >-
   Plan view: no cut answers, one fold line per answer, one line per filed story,
   reasons for refusals
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:00'
+updated_date: '2026-11-28 19:05'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -51,9 +51,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No answer row is cut; answers wrap at the width the indent leaves
-- [ ] #2 An answer's tool and thinking lines fold into one dim line that ⏎ opens; lists inside answers use · and never ●
-- [ ] #3 A confirmed proposal shows as one line in the conversation; the fold-out lists it once
-- [ ] #4 A refused command names its reason in words (for example: set Ready DIPO-116 refused: R15 the unknowns list is missing)
-- [ ] #5 The head rule is faint and 07-plan.txt passes expectScreen
+- [x] #1 No answer row is cut; answers wrap at the width the indent leaves
+- [x] #2 An answer's tool and thinking lines fold into one dim line that ⏎ opens; lists inside answers use · and never ●
+- [x] #3 A confirmed proposal shows as one line in the conversation; the fold-out lists it once
+- [x] #4 A refused command names its reason in words (for example: set Ready DIPO-116 refused: R15 the unknowns list is missing)
+- [x] #5 The head rule is faint and 07-plan.txt passes expectScreen
 <!-- AC:END -->
