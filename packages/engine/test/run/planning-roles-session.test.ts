@@ -1,12 +1,12 @@
-// The roles session (DIPO-475): started from the Roles room, it shares the office's one planning
-// slot, its first message holds the roster, the invalid role files and each role's recent runs
-// counted by code, and it takes only role proposals while every other kind takes none.
+// The roles session (DIPO-475): started from the Roles room, a thread of the office chat whose
+// model session is the office's one (DIPO-523), its first message holds the roster, the invalid role
+// files and each role's recent runs counted by code, and it takes only role proposals while every
+// other kind takes none.
 
 import { describe, expect, it } from "bun:test";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { CommandError } from "../../src/commands/errors";
 import type { OfficeHandle } from "../../src/db/office";
 import { roleRunCounts } from "../../src/records/retro";
 import { renderRoleFile } from "../../src/roles/file";
@@ -15,6 +15,7 @@ import { openTestState } from "../commands/helpers";
 import {
   blocksOf,
   commandContext,
+  planningRun,
   planningWorld,
   type PlanningWorld,
   ROSTER_FILES,
@@ -163,15 +164,22 @@ describe("a roles session", () => {
       expect(first).not.toContain("<drafts>");
     }));
 
-  it("is refused as planning.open while a plan session is open, and the other way round", () =>
+  it("opens while a plan thread is open: the plan thread's model session ends switched first, so one runs at a time (DIPO-523)", () =>
     withWorld(async (w) => {
-      await w.sessions.start(commandContext(w), { kind: "plan", goal: "Plan" });
-      const refused = await w.sessions
-        .start(commandContext(w), { kind: "roles", goal: "Roles" })
-        .catch((error: unknown) => error);
-      expect(refused).toBeInstanceOf(CommandError);
-      expect((refused as CommandError).error.code).toBe("planning.open");
-      expect(w.boxes.made).toHaveLength(1);
+      const office = w.office.officeId as never;
+      const plan = await w.sessions.start(commandContext(w), { kind: "plan", goal: "Plan" });
+      await until(() => w.sessions.view(office)?.state === "waiting");
+      const roles = w.sessions.start(commandContext(w), { kind: "roles", goal: "Roles" });
+      await until(() => {
+        w.t.clock.advance(1_000);
+        return w.boxes.made.length === 2;
+      });
+      const started = await roles;
+      expect(started.result.view).toMatchObject({ kind: "roles", goal: "Roles" });
+      expect(started.result.view.session).toBe(started.result.run);
+      expect(w.sessions.liveRuns()).toEqual([started.result.run]);
+      expect(planningRun(w.office, plan.result.run)?.end_kind).toBe("done");
+      expect(w.boxes.ended).toHaveLength(1);
     }));
 
   it("refuses a story proposal block in its answer and keeps the role proposal", () =>

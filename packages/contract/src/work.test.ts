@@ -253,6 +253,7 @@ describe("office commands and reads", () => {
         "nextUp.decline",
         "test.start",
         "test.record",
+        "chat.message",
         "planning.start",
         "planning.continue",
         "planning.message",

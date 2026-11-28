@@ -336,6 +336,10 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { test: ids.test, result: "fail", note: "Esc does not go back." },
     result: { test: ids.test, result: "fail" },
   },
+  "chat.message": {
+    args: { text: "Why does DIPO-15 wait?", context: { room: "desk", item: "DIPO-15" } },
+    result: { thread: ids.run, outcome: "opened" },
+  },
   "planning.start": {
     args: { kind: "refine", goal: "Sharpen the criteria of the M3 drafts" },
     result: { run: ids.run, view: { ...planningView, state: "working", turns: 0 } },
@@ -356,7 +360,14 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { block: 1, answers: [{ option: 0 }, { free: "Only the daemon." }] },
     result: { run: ids.run, block: 1, delivered: "next-turn" },
   },
-  "planning.end": { args: {}, result: { run: ids.run, ended: "maintainer" } },
+  "planning.end": {
+    args: {},
+    result: {
+      run: ids.run,
+      ended: "maintainer",
+      refined: [{ story: "DIPO-31", message: "R15: the story has no test plan" }],
+    },
+  },
   "planning.confirm": {
     args: { proposal: 1 },
     result: {
