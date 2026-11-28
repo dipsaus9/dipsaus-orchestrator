@@ -454,6 +454,80 @@ describe("the Floor", () => {
     expectScreen(view.ui, "03-floor-background.txt");
   });
 
+  it("opens a story PR at its level and matches the mock of its checks (DIPO-528)", async () => {
+    const { snapshot, chain } = backgroundScenario();
+    const line = (hhmm: string | undefined, ...spans: [string, ("err" | "dim")?][]) => ({
+      ...(hhmm === undefined ? {} : { at: at(hhmm) }),
+      spans: spans.map(([text, tone]) => ({ text, ...(tone === undefined ? {} : { tone }) })),
+    });
+    const [failed, ...rest] = snapshot.background!;
+    const detailed = {
+      ...failed!,
+      detail: {
+        status: "attempt 2 of 3 · retries at 10:35",
+        next: ["retries at 10:35", "then on your Desk"],
+        note: "Failed on bun 1.4 in both attempts and passed on bun 1.5.",
+        checks: [
+          { name: "format", state: "passed", log: [] },
+          { name: "lint", state: "passed", log: [] },
+          { name: "typecheck", state: "passed", log: [] },
+          {
+            name: "test (bun 1.4)",
+            state: "failed",
+            at: at("10:30"),
+            seconds: 192,
+            log: [
+              line("10:30", ["bun test packages/daemon"]),
+              line(
+                "10:30",
+                ["✗", "err"],
+                [" lock survives restart  "],
+                ["packages/daemon/test/lock.test.ts:88", "dim"],
+              ),
+              line(undefined, ["expected pid 4121 to equal 4377"]),
+              line(undefined, ["at reacquire  "], ["packages/daemon/src/lock.ts:142", "dim"]),
+              line("10:30", ["412 pass · "], ["1 fail", "err"]),
+            ],
+          },
+          { name: "test (bun 1.5)", state: "passed", log: [] },
+        ],
+      },
+    };
+    const stories = [
+      ...snapshot.stories,
+      {
+        ...waiting(512, 519),
+        title: "Keep the daemon's lock across a restart",
+      },
+    ];
+    const view = await mount({
+      columns: 113,
+      rows: 30,
+      snapshots: new Map([
+        [
+          OFFICES.dipsaus,
+          { ...snapshot, stories, background: [detailed, ...rest] } as OfficeSnapshot,
+        ],
+      ]),
+      chain,
+      now: Date.parse(at("10:32")),
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("daemon live");
+    await view.ui.waitFor("BACKGROUND");
+    await view.ui.press("j");
+    await view.ui.press("enter");
+    await view.ui.waitFor("CHECKS");
+    const [, backlog, , , update] = snapshot.background!;
+    changed(view, 1, "10:24", "dipo restarted on f07dd11", "done", update);
+    changed(view, 3, "10:30", "PR #698 CI failed (test, bun 1.4)", "failed", detailed);
+    await view.ui.waitFor("10:30 PR #698 CI failed");
+    expectScreen(view.ui, "04-background-detail.txt");
+    void backlog;
+    await view.ui.press("escape");
+    await view.ui.waitFor("BACKGROUND");
+  });
+
   it("lists BACKGROUND from the snapshot in its order, after UP NEXT, and no group without items (DIPO-528)", async () => {
     const { snapshot, chain } = backgroundScenario();
     const view = await mount({

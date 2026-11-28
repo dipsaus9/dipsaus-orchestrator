@@ -4,7 +4,7 @@
 // body stays, frozen in shade, with what happened under it.
 
 import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
-import type { Clock } from "@dipsaus-orchestrator/contract";
+import type { BackgroundItem, Clock } from "@dipsaus-orchestrator/contract";
 import { useWindowSize } from "ink";
 import type { ReactNode } from "react";
 
@@ -33,7 +33,13 @@ import {
   OFFLINE_LINES,
   OfflineLines,
 } from "./states";
-import { backgroundTicker, Header, isOffline, type Room, Rooms } from "./views";
+import { backgroundTicker, Header, isOffline, officeName, type Room, Rooms } from "./views";
+import {
+  BackgroundDetailBody,
+  BackgroundHeader,
+  BackgroundTitle,
+  itemStory,
+} from "./background-detail";
 
 export interface ScreenProps {
   readonly mode: Mode;
@@ -49,6 +55,9 @@ export interface ScreenProps {
   readonly message: string | null;
   readonly outputTailBytes?: number;
 }
+
+/** The rows the story line and the Pipeline of a background level take above its rule. */
+const LEVEL_ROWS = 2;
 
 const overlaid = (mode: Mode) => mode.kind === "palette" || mode.kind === "help";
 
@@ -164,20 +173,89 @@ function RolesRoom(props: { props: ScreenProps; columns: number; height: number 
   );
 }
 
-export function Screen(props: ScreenProps) {
-  const { mode, state, clock, display, home, acts, planning, retro } = props;
-  const { columns, rows } = useWindowSize();
-  const offline = isOffline(state);
-  const inSwitcher = inSwitcherMode(mode);
-  const screen = daemonScreen(state);
-  const ticker =
+/** The keys of a background item's level (DIPO-528). */
+function levelKeys(item: BackgroundItem): Hint[] {
+  return [
+    { key: "↑↓", label: "check", priority: 90 },
+    ...(item.url === undefined ? [] : [{ key: "o", label: "PR", priority: 80 }]),
+    { key: "c", label: "copy id", priority: 60 },
+    { key: "esc", label: "back", priority: 100, side: "right" as const },
+    { key: "?", label: "keys", priority: 100, side: "right" as const },
+  ];
+}
+
+/** The ticker's line of the moment: a message, an action's status, a refusal, a notice, else the background's. */
+function tickerOf(props: ScreenProps): string | null {
+  const { state, acts, home } = props;
+  return (
     props.message ??
     acts.statusLine() ??
     home.refusal ??
     home.failure ??
     home.runSummary ??
     state.notice ??
-    backgroundTicker(state);
+    backgroundTicker(state)
+  );
+}
+
+/** A background item's level (DIPO-528): the Frame around the item's header, title and checks. */
+function LevelScreen(props: { readonly props: ScreenProps; readonly item: BackgroundItem }) {
+  const { state, clock, display, home } = props.props;
+  const { item } = props;
+  const ticker = tickerOf(props.props);
+  const { columns, rows } = useWindowSize();
+  const width = columns - 1;
+  const height =
+    rows - frameRows(false, ticker === null ? 0 : tickerLines(ticker, width).length) - LEVEL_ROWS;
+  const title = state.stories.find((story) => String(story.story) === itemStory(item))?.title;
+  return (
+    <Frame
+      display={display}
+      header={
+        <BackgroundHeader
+          office={officeName(state) ?? "no office"}
+          item={item}
+          live={!isOffline(state)}
+          now={clock.now()}
+          width={width}
+          display={display}
+        />
+      }
+      rooms={<BackgroundTitle item={item} title={title ?? ""} width={width} display={display} />}
+      ticker={ticker}
+      keys={levelKeys(item)}
+    >
+      <BackgroundDetailBody
+        item={item}
+        focus={home.backgroundCheck}
+        width={width}
+        height={height}
+        display={display}
+      />
+    </Frame>
+  );
+}
+
+export function Screen(props: ScreenProps) {
+  const { mode, state, home } = props;
+  // A background item's level replaces the Floor under its header (DIPO-528).
+  const level =
+    daemonScreen(state) === null &&
+    mode.kind === "home" &&
+    home.view === "overview" &&
+    home.detail === null
+      ? home.levelItem
+      : null;
+  return level === null ? <RoomScreen {...props} /> : <LevelScreen props={props} item={level} />;
+}
+
+function RoomScreen(props: ScreenProps) {
+  const { mode, state, clock, display, home, acts, planning, retro } = props;
+  const { columns, rows } = useWindowSize();
+  const offline = isOffline(state);
+  const inSwitcher = inSwitcherMode(mode);
+  const screen = daemonScreen(state);
+  const ticker = tickerOf(props);
 
   const keys = screenKeys(props, columns);
   const room = screen === null ? currentRoom(mode, home) : null;

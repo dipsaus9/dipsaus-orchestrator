@@ -49,7 +49,14 @@ import { OUTPUT_TAIL_BYTES } from "./output";
 import { promptRows } from "./prompt-box";
 import type { SegLine } from "./segments";
 import { waitsOn } from "./lane";
-import { boardEntries, isBackgroundEntry, Overview } from "./overview";
+import { itemStory } from "./background-detail";
+import {
+  backgroundItems,
+  backgroundKey,
+  boardEntries,
+  isBackgroundEntry,
+  Overview,
+} from "./overview";
 import { doneCount, Queue, queueRows } from "./queue";
 import { readyLines } from "@dipsaus-orchestrator/client";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
@@ -258,6 +265,15 @@ export function useHome(args: HomeArgs) {
   const overviewEntry =
     overviewPick === null || isBackgroundEntry(overviewPick) ? null : overviewPick;
   const [backgroundOpen, setBackgroundOpen] = useState<string | null>(null);
+  // The BACKGROUND item whose level shows (DIPO-528), and the check the cursor is on.
+  const [backgroundLevel, setBackgroundLevel] = useState<string | null>(null);
+  const [backgroundCheck, setBackgroundCheck] = useState(0);
+  const levelItem =
+    backgroundLevel === null
+      ? null
+      : (backgroundItems(state, clock.now()).find(
+          (item) => backgroundKey(item) === backgroundLevel,
+        ) ?? null);
   const queue = queueRows(state.stories, showDone);
   const queueSelected = Math.max(
     0,
@@ -650,6 +666,7 @@ export function useHome(args: HomeArgs) {
     } else if (key.escape) {
       setRun(null);
       setMessage(null);
+      setBackgroundLevel(null);
       acts.dismiss();
       setDeskPreview(false);
       if (view === "settings") setView("overview");
@@ -670,8 +687,16 @@ export function useHome(args: HomeArgs) {
       const test = state.tests.find((open) => String(open.test) === item.ref);
       if (test === undefined) setMessage("this test is no longer open");
       else openChecklist({ key: String(test.key), id: String(test.story) }, "overview");
+    } else if (item.detail !== undefined) {
+      setBackgroundCheck(
+        Math.max(
+          0,
+          item.detail.checks.findIndex((c) => c.state === "failed"),
+        ),
+      );
+      setBackgroundLevel(entry.key);
     } else if (item.url !== undefined) {
-      // A story PR's checks have no read yet: Enter opens the PR, as `o` does.
+      // A story PR the engine sent no checks for: Enter opens the PR, as `o` does.
       const url = item.url;
       void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
     } else {
@@ -679,7 +704,26 @@ export function useHome(args: HomeArgs) {
     }
   };
 
+  /** The keys of a background item's level (DIPO-528): the cursor over its checks, `o` and `c`. */
+  const onBackgroundLevelKey = (item: BackgroundItem, input: string, key: Key) => {
+    const checks = item.detail?.checks.length ?? 0;
+    if (key.downArrow || input === "j") {
+      setBackgroundCheck(Math.min(Math.max(0, checks - 1), backgroundCheck + 1));
+    } else if (key.upArrow || input === "k") {
+      setBackgroundCheck(Math.max(0, backgroundCheck - 1));
+    } else if (input === "o" && item.url !== undefined) {
+      const url = item.url;
+      void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
+    } else if (input === "c") {
+      copyId(item.kind === "story-pr" ? itemStory(item) : item.ref);
+    }
+  };
+
   const onOverviewKey = (input: string, key: Key) => {
+    if (levelItem !== null) {
+      onBackgroundLevelKey(levelItem, input, key);
+      return;
+    }
     const count = board.length;
     const select = (index: number) => {
       const entry = board[Math.max(0, Math.min(count - 1, index))];
@@ -1123,6 +1167,8 @@ export function useHome(args: HomeArgs) {
     /** The selected board row, a story's key or a BACKGROUND row's. */
     overviewSelected: overviewPick === null ? null : String(overviewPick.key),
     backgroundOpen,
+    levelItem,
+    backgroundCheck,
     settingsIndex,
     privacyWritten,
     checklistKey,

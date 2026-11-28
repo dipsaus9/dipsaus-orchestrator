@@ -719,6 +719,36 @@ export const BACKGROUND_STATES = ["failed", "needs-you", "running", "waiting", "
 export const BackgroundState = z.enum(BACKGROUND_STATES);
 export type BackgroundState = z.infer<typeof BackgroundState>;
 
+// The level a story PR's Enter opens (DIPO-528, screens/04-background-detail.txt): `status` is the
+// line at the right of the pipeline, `next` the lines under NEXT, `note` a line code derived from
+// the checks of every attempt, and `checks` each required check with the tail of its log. A log
+// line is spans: `tone` `err` marks a failure, `dim` a path, none plain text; `at` is the time of
+// the line, absent on a continuation.
+export const BackgroundLogSpan = z.object({
+  text: z.string(),
+  tone: z.enum(["err", "dim"]).optional(),
+});
+export const BackgroundLogLine = z.object({
+  at: Timestamp.optional(),
+  spans: z.array(BackgroundLogSpan),
+});
+export type BackgroundLogLine = z.infer<typeof BackgroundLogLine>;
+export const BackgroundCheck = z.object({
+  name: z.string(),
+  state: z.enum(["passed", "failed", "running"]),
+  at: Timestamp.optional(),
+  seconds: z.int().nonnegative().optional(),
+  log: z.array(BackgroundLogLine),
+});
+export type BackgroundCheck = z.infer<typeof BackgroundCheck>;
+export const BackgroundDetail = z.object({
+  status: z.string().optional(),
+  next: z.array(z.string()),
+  note: z.string().optional(),
+  checks: z.array(BackgroundCheck),
+});
+export type BackgroundDetail = z.infer<typeof BackgroundDetail>;
+
 export const BackgroundItem = z.object({
   kind: BackgroundKind,
   ref: z.string(),
@@ -728,6 +758,7 @@ export const BackgroundItem = z.object({
   next: z.string().optional(),
   since: Timestamp,
   url: z.string().optional(),
+  detail: BackgroundDetail.optional(),
 });
 export type BackgroundItem = z.infer<typeof BackgroundItem>;
 

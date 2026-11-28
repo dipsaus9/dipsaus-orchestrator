@@ -346,7 +346,7 @@ export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readon
   "03-floor-background.txt#C3 Floor: the BACKGROUND group, the header chip and the chat line (chat hidden with \\)":
     { story: "DIPO-526", cells: ["2", "26", "27", "28", "29", "30"] },
   "04-background-detail.txt#C3 Floor › a background item: a story PR's checks (chat hidden with \\)":
-    { story: "DIPO-528" },
+    { story: "DIPO-526", cells: ["27", "30"] },
   "05-run-with-dock-wide.txt#C1 Run with the chat docked on the right (152 columns or wider) · a steer card in focus":
     { story: "DIPO-526" },
   "06-desk-jump-and-line.txt#C4 Desk: the attention count, a question and the chat line (chat hidden with \\)":
