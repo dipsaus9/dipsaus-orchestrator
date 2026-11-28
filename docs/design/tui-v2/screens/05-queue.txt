@@ -13,7 +13,7 @@
                                                               [faint]│[/]  [dim]         [/]contract/src/office.ts
 [hi]**REFINED · not Ready yet**[/]                                    [dim]2  [/][faint]│[/]
   [err]✗[/] [dim]DIPO-116[/]  Skills and plugins              [dim]L[/]  [dim]2 unknowns  [/] [faint]│[/]  [dim]CHAIN[/]
-  [err]✗[/] [dim]DIPO-288[/]  Yarn, bun.lockb, pnpm           [dim]M[/]  [dim]no test plan  [/][faint]│[/]  [err]447✗[/] → 448 · 449 → 450 → 451
+  [err]✗[/] [dim]DIPO-288[/]  Yarn, bun.lockb, pnpm           [dim]M[/]  [dim]no test plan [/][faint]│[/]  [err]447✗[/] → 448 · 449 → 450 → 451
                                                               [faint]│[/]  [ok]452[/]  → 453
 [dim]  . show done (418)[/]                                           [faint]│[/]
                                                               [faint]│[/]  [dim]Everything below 447 waits on the park[/]

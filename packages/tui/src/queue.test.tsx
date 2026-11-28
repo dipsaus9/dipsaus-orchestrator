@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { Event, StoryView } from "@dipsaus-orchestrator/contract";
 
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
-import { mockRows } from "../test/support/mock-screens";
+import { expectScreen } from "../test/support/mock-screens";
 import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -121,8 +121,6 @@ function queueScenario() {
   };
 }
 
-const afterRule = (rows: string[]) => rows.findIndex((row) => row.startsWith("───")) + 1;
-
 describe("queue view", () => {
   it("lists READY, WAITING ON A DEPENDENCY and REFINED with the reason column, and previews the first story", async () => {
     const { ui } = await openQueue();
@@ -168,31 +166,7 @@ describe("queue view", () => {
     await view.ui.press("3");
     await view.ui.waitFor("Everything below 447 waits on the park");
     await view.ui.waitFor("1 warning");
-    const shown = lines(view.ui.frame());
-    const mock = mockRows("05-queue.txt");
-    const ours = shown.slice(afterRule(shown), -2);
-    const theirs = mock.slice(afterRule(mock), -2);
-    const pane = 62;
-    // The list, cell for cell: groups, counts, glyphs, tiers, reasons and the done toggle. (The
-    // mock's DIPO-288 row is one cell longer than its pane, so the pane rule is checked apart.)
-    expect(ours.map((row) => row.slice(0, pane).trimEnd())).toEqual(
-      theirs.map((row) => row.slice(0, pane).trimEnd()),
-    );
-    expect(ours.every((row) => row[pane] === "│")).toBe(true);
-    // The preview: the mock's title wraps in two lines, ours is one; everything else is the same.
-    const preview = (rows: string[]) =>
-      rows
-        .map((row) =>
-          row
-            .slice(pane)
-            .replace(/^\s*│\s*/, "")
-            .trim(),
-        )
-        .filter((row) => row !== "");
-    const wanted = preview(theirs).filter(
-      (row) => !/^(DIPO-452 File every incoming|as a draft and)/.test(row),
-    );
-    expect(preview(ours).filter((row) => !row.startsWith("DIPO-452 File"))).toEqual(wanted);
+    expectScreen(view.ui, "05-queue.txt");
   });
 
   it("prints Gate ✓ N rules from story.gate and reads it for each selected story", async () => {

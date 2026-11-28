@@ -4,10 +4,18 @@
 // that survives monochrome. The prototype found ink-testing-library 4.0.0 working with Ink 8 too,
 // but it is built against Ink 5 and has no terminal size or TTY stdin, so the TUI keeps this.
 
+import { dirname } from "node:path";
 import { PassThrough } from "node:stream";
 
 import { render as inkRender } from "ink";
 import type { ReactNode } from "react";
+
+// Bun's test process has no colour terminal, so chalk (Ink's) would paint nothing; the frames the tests
+// read cell for cell (DIPO-520) hold the SGR codes of colour.tsx. chalk is Ink's, found from Ink.
+const chalk = (
+  await import(Bun.resolveSync("chalk", dirname(Bun.resolveSync("ink", import.meta.dir))))
+).default as { level: number };
+chalk.level = 3;
 
 /** `text` without ANSI escape sequences. */
 export function stripAnsi(text: string): string {
@@ -60,6 +68,8 @@ export interface FakeTerminal {
   resize(columns: number, rows: number): void;
   /** Everything written, ANSI kept. */
   raw(): string;
+  /** The last frame written, ANSI kept: what `frameCells` reads. */
+  rawFrame(): string;
 }
 
 export function fakeTerminal(size: RenderSize = {}): FakeTerminal {
@@ -117,6 +127,7 @@ export function fakeTerminal(size: RenderSize = {}): FakeTerminal {
       stdout.emit("resize");
     },
     raw: () => all,
+    rawFrame: () => last,
   };
 }
 
