@@ -1,10 +1,10 @@
 ---
 id: DIPO-525
 title: 'Chat: steer, answer, resume, ready and command cards that I confirm'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 18:14'
+updated_date: '2026-11-28 19:35'
 labels:
   - 'tier:M'
   - 'role:developer'
