@@ -1,10 +1,10 @@
 ---
 id: DIPO-530
 title: 'TUI v2: close the gaps between the shipped screens and the mocks'
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:35'
+updated_date: '2026-11-28 19:59'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -70,6 +70,10 @@ test_plan:
       check: "(unit) on a 40-row terminal the keys are on row 40 for every room and level"
     - kind: "automated"
       check: "(unit) / filters the Floor list and n N move between matches"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 201 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -86,3 +90,16 @@ test_plan:
 - [ ] #9 Model names show in the short form of the mocks
 - [ ] #10 The rooms row shows rooms 1 to 4 only, and every underline takes its text's colour
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-28 19:59 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 201 turns
+- Run: run_01M8HTDS50QFSZE8VZQSPNAY86
+- Criteria met: 0 of 10 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 465,529 of 800,000 tokens; 201 of 200 turns; 24 of 90 minutes
+- Last good commit: 4a819a47a5794ddb340dead5a902b16d71db5866
+<!-- SECTION:NOTES:END -->
