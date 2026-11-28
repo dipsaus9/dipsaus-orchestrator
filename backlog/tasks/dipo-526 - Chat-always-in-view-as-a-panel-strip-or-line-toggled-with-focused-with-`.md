@@ -1,9 +1,10 @@
 ---
 id: DIPO-526
 title: 'Chat: always in view as a panel, strip or line, toggled with \, focused with `'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 18:14'
 labels:
   - 'tier:M'
   - 'role:developer'
