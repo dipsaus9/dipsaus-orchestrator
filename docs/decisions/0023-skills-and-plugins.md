@@ -1,6 +1,6 @@
 # 0023 Skills and plugins granted to a session
 
-Status: proposed. First written 2026-11-27 (spike DIPO-519). The probes P1 to P3 ran on 2026-11-28 (DIPO-518; results at the end of section 9 and in `tools/box-probe/RESULTS.md`), and sections 4, 6 and 7 follow them. It is not approved: it waits for the maintainer's approval. Until then the code and the accepted ADRs stand as they are: no session loads a skill or a plugin (0008).
+Status: accepted on 2026-11-28, with the probes P1 to P3 recorded. First written 2026-11-27 (spike DIPO-519). The probes ran on 2026-11-28 (DIPO-518; results at the end of section 9 and in `tools/box-probe/RESULTS.md`), and sections 4, 6 and 7 follow them. The maintainer approved this text on 2026-11-28, with section 6's option D for the scan. Until the implementation stories land, the code and the other ADRs stand as they are: no session loads a skill or a plugin (0008).
 
 ## Decision in short
 
@@ -297,4 +297,4 @@ Steps 6 of P1 and P3 (the engine's load-time check on the probe folders) and ste
 
 ## Replaced
 
-Nothing yet. On approval, the rule that no session loads a skill or a plugin (0008) and the `worker.plugins` office key's replacement (0017) are replaced by this decision, in those ADRs' own Replaced lists.
+Nothing yet. The implementation stories replace the rule that no session loads a skill or a plugin (0008) and the `worker.plugins` office key's idea (0017) by this decision, each in that ADR's own Replaced list, in the PR that changes the code (section 8).
