@@ -9,17 +9,17 @@
   [ok]→[/] [dim]DIPO-519[/]  Write proposed decision 0023… [dim]M[/]  [ok]next up[/]        [faint]│[/]  [dim]Progress [/][ok][/][faint]━━━━━━━━━━━━━━[/] 0 of 6 done
   [acc]○[/] [dim]DIPO-518[/]  Run the skills and plugins…   [dim]M[/]  [dim]needs [/][ok]519→[/]     [faint]│[/]  [dim]Ready    [/]none
   [err]✗[/] [dim]DIPO-116[/]  Propose decision 0023 on…     [dim]M[/]  [dim]replaced[/]       [faint]│[/]  [dim]Not yet  [/]1 has an open unknown, 5 wait
-                                                              [faint]│[/]  [dim]Next     [/]DIPO-902, a spike: decide ADR 0024
+                                                              [faint]│[/]  [dim]Next     [/]DIPO-522, a spike: decide ADR 0024
 [sel][acc]▌[/] [hi]**M5 Conversation**[/]                         [ok][/][faint]━━━━━━━━━━━━━━[/][dim] 0/6  [/][/][faint]│[/]
-  [err]✗[/] [dim]DIPO-902[/]  Decide ADR 0024, the chat     [dim]S[/]  [dim]1 unknown[/]      [faint]│[/]  [dim]CHAIN[/]
-  [acc]○[/] [dim]DIPO-903[/]  One standing chat in threads  [dim]L[/]  [dim]needs 902[/]      [faint]│[/]  [err]902✗[/] → 903 → 904 · 905 · 906 → 909
-  [acc]○[/] [dim]DIPO-904[/]  Context with every message    [dim]M[/]  [dim]needs 903[/]      [faint]│[/]
-  [acc]○[/] [dim]DIPO-905[/]  Action cards                  [dim]M[/]  [dim]needs 903[/]      [faint]│[/]  [dim]Everything in M5 waits on DIPO-902's open[/]
+  [err]✗[/] [dim]DIPO-522[/]  Decide ADR 0024, the chat     [dim]S[/]  [dim]1 unknown[/]      [faint]│[/]  [dim]CHAIN[/]
+  [acc]○[/] [dim]DIPO-523[/]  One standing chat in threads  [dim]L[/]  [dim]needs 522[/]      [faint]│[/]  [err]522✗[/] → 523 → 524 · 525 · 526 → 529
+  [acc]○[/] [dim]DIPO-524[/]  Context with every message    [dim]M[/]  [dim]needs 523[/]      [faint]│[/]
+  [acc]○[/] [dim]DIPO-525[/]  Action cards                  [dim]M[/]  [dim]needs 523[/]      [faint]│[/]  [dim]Everything in M5 waits on DIPO-522's open[/]
 [dim]    + 2 more · ⏎ unfolds[/]                                      [faint]│[/]  [dim]unknown. [/][acc]⏎[/][dim] on it, or [/][acc]`[/][dim] to ask about it.[/]
                                                               [faint]│[/]
   [hi]**M6 TUI v2**[/]                             [ok]━━━━━━━━━━━[/][faint]━━━[/][dim] 16/21  [/][faint]│[/]
-  [err]✗[/] [dim]DIPO-900[/]  Screens cell for cell         [dim]M[/]  [dim]1 unknown[/]      [faint]│[/]
-  [acc]○[/] [dim]DIPO-910[/]  Close the gaps to the mocks   [dim]M[/]  [dim]needs 900[/]      [faint]│[/]
+  [err]✗[/] [dim]DIPO-520[/]  Screens cell for cell         [dim]M[/]  [dim]1 unknown[/]      [faint]│[/]
+  [acc]○[/] [dim]DIPO-530[/]  Close the gaps to the mocks   [dim]M[/]  [dim]needs 520[/]      [faint]│[/]
 [dim]    + 3 more · ⏎ unfolds[/]                                      [faint]│[/]
                                                               [faint]│[/]
 [dim]  . show done stories (470)[/]                                   [faint]│[/]

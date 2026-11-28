@@ -1,16 +1,17 @@
 ---
-id: DIPO-903
+id: DIPO-523
 title: >-
-  Chat: one standing conversation per office, in threads, instead of sessions to start and end
-status: Draft
+  Chat: one standing conversation per office, in threads, instead of sessions to
+  start and end
+status: Refined
 assignee: []
-created_date: '2026-11-28 10:00'
+created_date: '2026-11-28 14:11'
 labels:
   - 'tier:L'
   - 'role:developer'
 milestone: m-5
 dependencies:
-  - DIPO-902
+  - DIPO-522
 references:
   - packages/engine/src/run/planning.ts
   - packages/engine/src/run/planning-session.ts
@@ -20,6 +21,7 @@ references:
   - docs/design/chat-and-activity/migration.md
 priority: high
 type: feature
+ordinal: 484000
 ---
 
 ## Description
@@ -29,13 +31,14 @@ Story: As maintainer I want to just write to dipo, whenever, and have it remembe
 
 P2. `chat.message { office, thread?, text, context }` sends to the open thread or opens one titled by the message; `/new` opens one, `/end` closes it with today's Ready step, a day idle closes it. The planning record becomes the thread record; an open planning session migrates to an open thread with its goal as title. One Claude session answers per office; a message sent meanwhile is held and sent after (`queued · sends when the answer ends`). planning.start, planning.message and planning.end stay for one release as aliases. Split before Ready if it does not fit: threads and chat.message first, the queue and the aliases second.
 
-Design: docs/design/chat-and-activity/ (spec.md, P2; screens/02-chat-room.txt head lines; screens/07-states.txt C5 queued input and closed thread). The mocks win; a cell difference is a bug (DIPO-900).
+Design: docs/design/chat-and-activity/ (spec.md, P2; screens/02-chat-room.txt head lines; screens/07-states.txt C5 queued input and closed thread). The mocks win; a cell difference is a bug (DIPO-520).
 
 ```dipo
-branch: "DIPO-903/standing-chat-threads"
+branch: "DIPO-523/standing-chat-threads"
 unknowns:
-  - q: "How open planning sessions migrate: proposed as an open thread titled by its goal"
-    status: "open"
+  - q: "How open planning sessions migrate"
+    status: "resolved"
+    answer: "An open planning session becomes an open thread titled by its goal, with its record (decisions, filed stories, messages) kept; the next message continues it and /end runs its Ready step (maintainer, planning session of 2026-11-28)."
 test_plan:
   entries:
     - kind: "automated"

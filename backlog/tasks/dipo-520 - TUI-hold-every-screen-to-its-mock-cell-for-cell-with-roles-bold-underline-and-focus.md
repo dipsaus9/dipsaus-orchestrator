@@ -1,10 +1,12 @@
 ---
-id: DIPO-900
+id: DIPO-520
 title: >-
-  TUI: hold every screen to its mock cell for cell, with roles, bold, underline and focus
-status: Draft
+  TUI: hold every screen to its mock cell for cell, with roles, bold, underline
+  and focus
+status: Refined
 assignee: []
-created_date: '2026-11-28 10:00'
+created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 14:11'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -22,6 +24,7 @@ references:
   - docs/design/chat-and-activity/spec.md
 priority: high
 type: feature
+ordinal: 481000
 ---
 
 ## Description
@@ -31,15 +34,16 @@ Story: As maintainer I want a test to fail whenever a screen differs from its mo
 
 Today `mockRows` strips `[role]`, `**` and `__` and the three tests that use it (Floor body, Queue list, Plan rows) compare text only, so roles, bold, underline, the sel background, the header, the rooms row, the ticker and the footer are never checked. That is how the footers, the ⏎ hints without a space, two unfaded rules and the plain underline shipped.
 
-Build: `mockCells(file, title?)` parses a mock (any caption in a file, `tui-v2/screens/` or `chat-and-activity/screens/`) into a grid of cells `{ ch, role, bold, underline, sel }` following tui-v2 spec.md "Reading the screen files" (unmarked │ and full-width ─ are faint; `__x__` is underlined in acc). `frameCells(raw)` reads the harness's raw ANSI frame (`FakeTerminal.raw()`) into the same grid, mapping SGR back to roles through colour.tsx's ANSI table for the dark tone. `expectScreen(rendered, file, title)` compares the two and on failure prints each differing cell as `row:col expected <ch role style> got <ch role style>` plus both rows. Fixtures: one `OfficeSnapshot` (and chain, gate, output) per mock that reproduces its data, in `test/support/mock-fixtures.ts`. A guard test lists every caption in both screens folders and fails when one has no `expectScreen` call, unless the caption is listed in `KNOWN_GAPS` with the story that closes it.
+Build: `mockCells(file, title?)` parses a mock (any caption in a file, `tui-v2/screens/` or `chat-and-activity/screens/`) into a grid of cells `{ ch, role, bold, underline, sel }` following tui-v2 spec.md "Reading the screen files" (unmarked │ and full-width ─ are faint; `__x__` is underlined in the text's own colour). `frameCells(raw)` reads the harness's raw ANSI frame (`FakeTerminal.raw()`) into the same grid, mapping SGR back to roles through colour.tsx's ANSI table for the dark tone. `expectScreen(rendered, file, title)` compares the two and on failure prints each differing cell as `row:col expected <ch role style> got <ch role style>` plus both rows. Fixtures: one `OfficeSnapshot` (and chain, gate, output) per mock that reproduces its data, in `test/support/mock-fixtures.ts`. A guard test lists every caption in both screens folders and fails when one has no `expectScreen` call, unless the caption is listed in `KNOWN_GAPS` with the story that closes it.
 
 The mock wins over the code. Where the code is right and the mock is wrong, the fix is a change to the mock in the same PR, named in the PR body.
 
 ```dipo
-branch: "DIPO-900/screens-cell-for-cell"
+branch: "DIPO-520/screens-cell-for-cell"
 unknowns:
-  - q: "Whether Ink can underline in acc while the text is hi (needs SGR 58 for the underline colour); until decided, frameCells reads the underline's colour as the text's and KNOWN_GAPS lists the underlined captions"
-    status: "open"
+  - q: "Whether Ink can underline in acc while the text is hi (needs SGR 58 for the underline colour)"
+    status: "resolved"
+    answer: "No SGR 58: the underline takes the text's own colour, and the reading rule of the mocks says so (maintainer, planning session of 2026-11-28; tui-v2 spec.md and roles.json changed in the backlog PR that filed this story). frameCells reads the underline's colour as the text's."
 test_plan:
   entries:
     - kind: "automated"
