@@ -1,10 +1,10 @@
 ---
 id: DIPO-524
 title: 'Chat: send the facts of the room and the focused item with every message'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 18:14'
+updated_date: '2026-11-28 19:35'
 labels:
   - 'tier:M'
   - 'role:developer'
