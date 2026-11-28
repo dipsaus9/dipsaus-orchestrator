@@ -145,17 +145,22 @@ const ROLE_PROPOSAL_KINDS: readonly string[] = ["role", "role-edit", "role-remov
  * The problem when a session of `sessionKind` may not take `proposal` (DIPO-475): a roles session
  * takes only role proposals, every other kind takes none. None while the session's kind is not known.
  */
-function kindProblems(proposal: PlanningProposal, sessionKind: string | undefined): string[] {
+function kindProblems(
+  proposal: PlanningProposal,
+  sessionKind: string | undefined,
+  place?: string,
+): string[] {
   if (sessionKind === undefined) return [];
   const isRole = ROLE_PROPOSAL_KINDS.includes(proposal.kind);
+  const where = place === undefined ? "" : ` (this message came from ${place})`;
   if (sessionKind === "roles" && !isRole) {
     return [
-      `a roles session takes only role, role-edit and role-remove proposals, not a \`${proposal.kind}\` proposal`,
+      `a roles session takes only role, role-edit and role-remove proposals, not a \`${proposal.kind}\` proposal${where}`,
     ];
   }
   if (sessionKind !== "roles" && isRole) {
     return [
-      `a ${sessionKind} session takes no \`${proposal.kind}\` proposal: role changes are made in a roles session, started from the Roles room`,
+      `a ${sessionKind} session takes no \`${proposal.kind}\` proposal: role changes are made from the Roles room${where}`,
     ];
   }
   return [];
@@ -206,8 +211,9 @@ export function proposalProblems(
   roles?: RoleFacts,
   sessionKind?: string,
   decisions?: DecisionFiles,
+  place?: string,
 ): string[] {
-  const refused = kindProblems(proposal, sessionKind);
+  const refused = kindProblems(proposal, sessionKind, place);
   if (refused.length > 0) return refused;
   switch (proposal.kind) {
     case "role":
@@ -267,6 +273,7 @@ export function checkProposal(
   roles?: RoleFacts,
   sessionKind?: string,
   decisions?: DecisionFiles,
+  place?: string,
 ): ProposalRead {
   if (!doorKeysClean(value)) {
     return { ok: false, problems: ["a key holds characters dipo does not accept"] };
@@ -280,7 +287,7 @@ export function checkProposal(
       ),
     };
   }
-  const problems = proposalProblems(parsed.data, roles, sessionKind, decisions);
+  const problems = proposalProblems(parsed.data, roles, sessionKind, decisions, place);
   return problems.length > 0 ? { ok: false, problems } : { ok: true, proposal: parsed.data };
 }
 
@@ -290,6 +297,7 @@ export function readProposals(
   roles?: RoleFacts,
   sessionKind?: string,
   decisions?: DecisionFiles,
+  place?: string,
 ): ProposalRead[] {
   return proposalBlocks(text).map((block): ProposalRead => {
     if (block === null) return { ok: false, problems: ["the block is not closed with ```"] };
@@ -306,7 +314,7 @@ export function readProposals(
       const why = error instanceof Error ? error.message : String(error);
       return { ok: false, problems: [`the block is not one JSON object: ${cleanText(why)}`] };
     }
-    return checkProposal(value, roles, sessionKind, decisions);
+    return checkProposal(value, roles, sessionKind, decisions, place);
   });
 }
 
