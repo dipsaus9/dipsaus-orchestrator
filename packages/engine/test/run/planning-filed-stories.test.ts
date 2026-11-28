@@ -55,6 +55,13 @@ const lastMessage = (w: ReturnType<typeof planningWorld>): string =>
     ?.flatMap((op) => ("write" in op ? [op.write] : []))
     .join("") ?? "";
 
+/** Waits until the answer to the last message ended: the chat sends the next one then (DIPO-523). */
+const answered = (w: ReturnType<typeof planningWorld>) =>
+  until(() => {
+    w.t.clock.advance(1_000);
+    return w.sessions.view(w.office.officeId as OfficeId)?.state === "waiting";
+  });
+
 async function setup(repo: TempRepoWithRemote, proposals: readonly unknown[]) {
   mkdirSync(join(repo.dir, "backlog", "milestones"), { recursive: true });
   writeFileSync(
@@ -150,6 +157,7 @@ describe("a planning session knows the stories it filed (DIPO-480)", () => {
         expect(w.boxes.made).toHaveLength(commits);
 
         // Nothing changed: the next message carries no list.
+        await answered(w);
         await w.sessions.message(ctx, { text: "Again." });
         expect(lastMessage(w)).not.toContain("The stories this planning session filed");
 
@@ -161,6 +169,7 @@ describe("a planning session knows the stories it filed (DIPO-480)", () => {
           task("TASK-4", { title: STORY_PROPOSAL.title }),
           task("TASK-5", { title: SECOND.title }),
         ]);
+        await answered(w);
         await w.sessions.message(ctx, { text: "Merged?" });
         const merged = lastMessage(w);
         expect(

@@ -219,11 +219,11 @@ const Planning = z
       "Model turns one answer of the planning session may take before Claude Code stops it.",
     ),
     idleHours: count().describe(
-      "Hours a planning session waits for the maintainer's next message before it ends by itself.",
+      "Hours a thread of the office chat waits for the maintainer's next message before it closes by itself.",
     ),
   })
   .describe(
-    "The planning session the maintainer talks to turn by turn (plan, refine or triage): it runs Claude in a read-only box with a copy of the base branch and the backlog, holds no run slot and has no run cap; it ends when the maintainer ends it or after idleHours without a message.",
+    "The planning session the maintainer talks to turn by turn (plan, refine or triage): it runs Claude in a read-only box with a copy of the base branch and the backlog, holds no run slot and has no run cap; it is a thread of the office chat, which closes on /end or after idleHours without a message.",
   );
 
 // DIPO-452: the audit of incoming ideas (0022). Its model is a schema default only, so an office

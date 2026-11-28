@@ -732,21 +732,19 @@ describe("the keys of the planning view (DIPO-479)", () => {
     const { ui } = await open({ columns: 100, rows: 30, snapshots, output });
     await ui.press("5");
     const frame = await ui.waitFor("I read the code.");
-    expect(frame).toContain("2 thoughts · 0.8k tokens");
-    expect(frame).toContain("⏎ full");
+    // The answer's tool and thinking lines are one fold line (DIPO-521).
+    expect(frame).toContain("read 1 · 2 thoughts · 3.0s · 0.8k tokens");
+    expect(frame).not.toContain("export-command.ts");
     expect(frame).not.toContain("dipo-questions");
     expect(frame).not.toContain('"questions"');
     expect(frame).not.toContain("**");
 
-    // Shift+Tab focuses the first fold, again the second (Tab opens the stories fold-out);
-    // Enter opens it and Enter shuts it again.
-    await ui.press("\u001b[Z");
+    // Shift+Tab focuses the fold; Enter opens it, its lines in full, and Enter shuts it again.
     await ui.press("\u001b[Z");
     await ui.press("enter");
-    const open1 = await ui.waitFor("port-command.ts");
-    expect(open1).not.toContain("⏎ full");
+    expect(await ui.waitFor("port-command.ts")).toContain("port-command.ts");
     await ui.press("enter");
-    expect(await ui.waitFor("⏎ full")).toContain("⏎ full");
+    expect(await ui.waitFor("read 1 · 2 thoughts")).not.toContain("port-command.ts");
   });
 });
 

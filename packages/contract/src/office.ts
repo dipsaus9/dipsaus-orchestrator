@@ -422,10 +422,71 @@ export const testRecord = defineCommand({
   irreversible: false,
 });
 
-// The maintainer's planning session (DIPO-447, 0008): `planning.start` opens it with a kind and a
-// goal, in a read-only box of its own; an office has at most one open, and it holds no run slot. The
-// reply comes once its box is made and its session started (`planning.open` while one is open,
-// `planning.startFailed` when the box or the session cannot start); its answers follow as
+// The office chat (DIPO-523, 0024): one standing chat per office, held in threads. A thread is
+// what a planning session was, and keeps its record (0022). `planning.start`, `planning.continue`,
+// `planning.message` and `planning.end` stay one release as aliases of the chat.
+
+// The room a chat message is written from; with the focused item it is the message's place (0024).
+export const KNOWN_CHAT_ROOMS = [
+  "desk",
+  "floor",
+  "run",
+  "queue",
+  "story",
+  "retro",
+  "roles",
+  "background",
+  "chat",
+] as const;
+export const ChatRoom = openEnum(KNOWN_CHAT_ROOMS);
+export type ChatRoom = z.infer<typeof ChatRoom>;
+
+export const ChatContext = z.object({ room: ChatRoom, item: z.string().min(1).optional() });
+export type ChatContext = z.infer<typeof ChatContext>;
+
+// What the chat did with a message: `sent` it to the thread's model session as its next turn,
+// `queued` it until the answer in progress ends or the model session starts, `opened` a thread
+// titled by it, `new` (a bare `/new`: the next message opens a thread) or `closed` the thread
+// (`/end`).
+export const KNOWN_CHAT_OUTCOMES = ["sent", "queued", "opened", "new", "closed"] as const;
+export const ChatOutcome = openEnum(KNOWN_CHAT_OUTCOMES);
+export type ChatOutcome = z.infer<typeof ChatOutcome>;
+
+// The Ready step of a closed thread (0022): each story it filed or edited that stayed Refined, with
+// the gate's first message. Such a story is set Ready later with `story.ready`.
+export const StayedRefined = z.object({ story: z.string(), message: z.string() });
+export type StayedRefined = z.infer<typeof StayedRefined>;
+
+// One message to the office chat. It goes to `thread`, or else to the open thread (the newest open
+// one when no model session runs), or opens a thread titled by it when none is open; nothing is
+// refused because another thread is open. `/new` opens a thread (titled by the text after it, or
+// by the next message), `/end` closes the thread with its Ready step; a thread idle
+// `planning.idleHours` closes by itself. One model session answers per office: a message sent
+// while it answers, starts or goes to another thread waits as `queued` and is sent when the
+// answer ends. Errors: `chat.threadUnknown` (`thread` names no open thread), `planning.notOpen`
+// (`/end` with no open thread) and `planning.startFailed`.
+export const chatMessage = defineCommand({
+  name: "chat.message",
+  level: "office",
+  args: z.object({
+    thread: RunId.optional(),
+    text: z.string().trim().min(1),
+    context: ChatContext,
+  }),
+  result: z.object({
+    thread: RunId.optional(),
+    outcome: ChatOutcome,
+    refined: z.array(StayedRefined).optional(),
+  }),
+  confirm: false,
+  irreversible: false,
+});
+
+// The maintainer's planning session (DIPO-447, 0008), a thread of the chat: `planning.start` is
+// `/new` with a kind and a goal (DIPO-523), an alias for one release. The thread runs in a read-only
+// box of its own and holds no run slot. The model session of another thread ends first (`switched`),
+// after the answer it works on. The reply comes once its box is made and its session started
+// (`planning.startFailed` when the box or the session cannot start); its answers follow as
 // `planning.output` and `planning.updated` events.
 export const planningStart = defineCommand({
   name: "planning.start",
@@ -436,10 +497,11 @@ export const planningStart = defineCommand({
   irreversible: false,
 });
 
-// Continues the newest planning session whose model session ended and that the maintainer did not
-// end, after an idle end or a daemon restart, in a fresh model session whose first message code
-// builds from the session's record (DIPO-448, 0007). `planning.open` while a session is open;
-// `planning.notContinuable` when there is none to continue.
+// Continues the newest open thread whose model session ended, after a daemon restart or its exit,
+// in a fresh model session whose first message code builds from the thread's record (DIPO-448,
+// 0007); a thread the maintainer ended or that was idle a day is closed (DIPO-523). An alias for
+// one release: `chat.message` continues a thread by itself. `planning.open` while a model session
+// runs; `planning.notContinuable` when there is none to continue.
 export const planningContinue = defineCommand({
   name: "planning.continue",
   level: "office",
@@ -449,8 +511,9 @@ export const planningContinue = defineCommand({
   irreversible: false,
 });
 
-// One maintainer message to the open planning session: its next turn, read once the answer it
-// works on is done (`planning.notOpen` without one).
+// One maintainer message to the thread whose model session runs: its next turn, held by the chat
+// until the answer it works on is done (DIPO-523). An alias of `chat.message` for one release
+// (`planning.notOpen` without a model session).
 export const planningMessage = defineCommand({
   name: "planning.message",
   level: "office",
@@ -506,13 +569,18 @@ export const planningRecord = defineCommand({
   irreversible: false,
 });
 
-// Ends the open planning session: its worker stops and its box goes (`planning.notOpen` without
-// one). A session that waits for a message longer than `planning.idleHours` ends by itself.
+// `/end` of the open thread, an alias for one release (DIPO-523): its worker stops, its box goes
+// and the thread closes; `refined` is its Ready step (`planning.notOpen` without an open thread).
+// A thread that waits for a message longer than `planning.idleHours` closes by itself.
 export const planningEnd = defineCommand({
   name: "planning.end",
   level: "office",
   args: z.object({}),
-  result: z.object({ run: RunId, ended: PlanningEndReason }),
+  result: z.object({
+    run: RunId,
+    ended: PlanningEndReason,
+    refined: z.array(StayedRefined).optional(),
+  }),
   confirm: false,
   irreversible: false,
 });
@@ -1589,6 +1657,7 @@ export const officeCommands = [
   nextUpDecline,
   testStart,
   testRecord,
+  chatMessage,
   planningStart,
   planningMessage,
   planningContinue,

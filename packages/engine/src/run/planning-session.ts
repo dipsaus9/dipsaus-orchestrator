@@ -62,12 +62,38 @@
 //
 // What the maintainer decided reaches the session with their next message, as `[dipo]` lines
 // before it, so it never proposes a filed or declined story again.
+//
+// The office chat (DIPO-523, 0024): each office has one standing chat, held in threads, and a
+// planning session is a thread, its record the thread's record. `chat.message` never refuses a
+// message because a thread is open:
+//
+// - It goes to the thread it names, or else the current one: the thread a held message waits for,
+//   the one whose model session runs, or the newest open thread of the record. With none, or after
+//   a bare `/new`, it opens a thread titled by it (its goal), of kind `roles` from the Roles room
+//   and `plan` from any other. `/new <text>` opens one titled by the text.
+// - One model session answers per office. A message goes to it at once only while it waits for
+//   the maintainer; while it answers or starts, the message is held (`queued` in the view) and sent
+//   at the turn end, the held ones of a thread together as one message, each kept in the record.
+//   A message to another thread waits for the answer too; then the model session ends `switched`
+//   and a fresh one continues the other thread from its record, whose first message carries the
+//   held messages. `#pump` is the one place that decides what is sent and what starts.
+// - `/end` closes the thread with its Ready step (`refined`: each story it filed or edited that
+//   stayed Refined, with the gate's first message) and stops its model session; a thread that
+//   waits `planning.idleHours` closes by itself, whether its model session waits (the idle end) or
+//   none runs (closed when the chat next looks for the current thread). A closed thread keeps its
+//   record and never continues. A thread whose model session ended otherwise stays open, and the
+//   next message to it continues it.
+// - `planning.start`, `planning.continue`, `planning.message` and `planning.end` stay one release
+//   as aliases: `/new` with a kind and a goal, the newest open thread continued, a message to the
+//   running thread, and `/end`.
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   AgentId,
+  type ChatContext,
+  chatMessage,
   type Clock,
   ideaOriginWords,
   type DeskItem,
@@ -94,6 +120,7 @@ import {
   type PlanningModelSession,
   type PlanningView,
   RunId,
+  type StayedRefined,
   type StoryKey,
   type UsageTotals,
 } from "@dipsaus-orchestrator/contract";
@@ -127,7 +154,10 @@ import {
 import { recordAgent } from "../records/agents";
 import {
   addPlanningEntry,
-  continuableSession,
+  CLOSING_REASONS,
+  closeThread,
+  type OpenThread,
+  openThreads,
   type NewPlanningEntry,
   type FiledStory,
   filedStoriesText,
@@ -204,6 +234,8 @@ type EditArgs = z.output<typeof planningEdit.args>;
 type EditResult = z.input<typeof planningEdit.result>;
 type DeclineArgs = z.output<typeof planningDecline.args>;
 type DeclineResult = z.input<typeof planningDecline.result>;
+type ChatArgs = z.output<typeof chatMessage.args>;
+type ChatResult = z.input<typeof chatMessage.result>;
 
 /** The session's system file in its run directory. */
 export const PLANNING_SYSTEM_FILE = "system-planning.md";
@@ -280,6 +312,32 @@ const listOr = (lines: readonly string[], none: string): string =>
   lines.length === 0 ? none : lines.join("\n");
 
 const day = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+
+/** The most characters of a thread's title (DIPO-523). */
+export const THREAD_TITLE_MAX = 72;
+
+/** Pure: the title of a thread from its goal: its first line, cut at `THREAD_TITLE_MAX`. */
+export function threadTitle(goal: string): string {
+  const first = goal.trim().split("\n")[0]?.trim() ?? "";
+  return first.length <= THREAD_TITLE_MAX ? first : `${first.slice(0, THREAD_TITLE_MAX - 1)}…`;
+}
+
+/** Pure: the chat command a message is (`/new`, `/end`) and the text after it; none for any other. */
+export function chatCommandOf(text: string): {
+  readonly name: "new" | "end" | null;
+  readonly rest: string;
+} {
+  const found = /^\/(new|end)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (found === null) return { name: null, rest: text.trim() };
+  return { name: found[1] === "new" ? "new" : "end", rest: (found[2] ?? "").trim() };
+}
+
+/** Pure: the kind the record keeps for a thread opened from `context` (0024): `roles` or `plan`. */
+export const threadKindOf = (context: ChatContext): PlanningKind =>
+  context.room === "roles" ? "roles" : "plan";
+
+/** The marker of a gate line whose story stayed Refined: `<ID> is Refined: <messages>`. */
+const STAYED_REFINED = " is Refined: ";
 
 /** Pure: the schema of the role proposals only, from the schema of every proposal (DIPO-475). */
 export function roleProposalSchema(
@@ -521,6 +579,21 @@ interface Open {
   readonly mergedSince: Map<string, string>;
 }
 
+/**
+ * A message the chat holds until the office's one model session takes it (DIPO-523): for
+ * `thread`, or opening it (`opens`, its first run named ahead). `state` says what became of it.
+ */
+interface Held {
+  readonly thread: RunId;
+  readonly opens?: { readonly kind: PlanningKind };
+  readonly text: string;
+  readonly at: number;
+  state: "held" | "sent" | "opened" | "failed";
+  error?: unknown;
+  /** Settles once it was sent or opened its thread, or failed. */
+  readonly done: PromiseWithResolvers<void>;
+}
+
 /** A story of the session's record with the filing the lane journaled for it (DIPO-480). */
 interface SessionStory {
   readonly story: string;
@@ -611,6 +684,18 @@ function notOpen(why: string): CommandError {
   return new CommandError("planning.notOpen", `There is no open planning session: ${why}.`);
 }
 
+function threadUnknown(thread: string): CommandError {
+  return new CommandError(
+    "chat.threadUnknown",
+    `The chat has no open thread ${thread}: it was ended or idle a day, or never opened.`,
+    { thread },
+  );
+}
+
+/** True when the model session ends for a reason that closes its thread (DIPO-523). */
+const closing = (open: Open): boolean =>
+  open.ending !== null && CLOSING_REASONS.includes(open.ending.reason);
+
 function proposalClosed(item: { readonly n: number }, why: string): CommandError {
   return new CommandError("planning.proposalClosed", `Proposal ${item.n} is closed: ${why}.`, {
     proposal: item.n,
@@ -646,13 +731,22 @@ function newStoryTitle(proposal: PlanningProposal): string | null {
   return proposal.kind === "split" ? proposal.story.title : null;
 }
 
-/** The planning sessions of every office: at most one open per office. */
+/** The chat of every office, in threads: at most one model session runs per office. */
 export class PlanningSessions {
   readonly #deps: PlanningSessionsDeps;
-  /** The open session of each office, from its start until it ended. */
+  /** The model session of each office, from its start until it ended. */
   readonly #open = new Map<OfficeId, Open>();
-  /** The offices whose session start is under way. */
-  readonly #starting = new Set<OfficeId>();
+  /** The offices whose fresh model session of a full context starts, with its thread. */
+  readonly #starting = new Map<OfficeId, RunId>();
+  /** The messages each office's chat holds, in the order they came (DIPO-523). */
+  readonly #held = new Map<OfficeId, Held[]>();
+  /** The offices whose next message opens a thread: a bare `/new` was sent. */
+  readonly #fresh = new Set<OfficeId>();
+  /** The `#pump` running for each office, and the offices it goes round again for. */
+  readonly #pumps = new Map<OfficeId, Promise<void>>();
+  readonly #pumpAgain = new Set<OfficeId>();
+  /** True once the daemon stops: nothing more starts. */
+  #stopped = false;
   readonly #watchdog: Watchdog;
 
   constructor(deps: PlanningSessionsDeps) {
@@ -669,11 +763,15 @@ export class PlanningSessions {
     });
   }
 
-  /** `planning.start`, `planning.message` and `planning.end` on the waiting command path. */
+  /** `chat.message` and the planning commands on the waiting command path. */
   get feature(): FeatureModule {
     return {
       name: "run",
       register: (registry) => {
+        registry.addAsyncOfficeCommand({
+          definition: chatMessage,
+          handle: (ctx, args) => this.chat(ctx, args),
+        });
         registry.addAsyncOfficeCommand({
           definition: planningStart,
           handle: (ctx, args) => this.start(ctx, args),
@@ -725,45 +823,83 @@ export class PlanningSessions {
     return [...this.#open.values()].map((open) => open.run);
   }
 
-  async start(ctx: AsyncCommandContext, args: StartArgs): Promise<CommandOutcome<StartResult>> {
+  /** `chat.message`: see the file comment. */
+  async chat(ctx: AsyncCommandContext, args: ChatArgs): Promise<CommandOutcome<ChatResult>> {
     const office = ctx.office.officeId as OfficeId;
-    this.#refuseWhenOpen(office);
-    this.#starting.add(office);
-    try {
-      const view = await this.#begin(ctx.office, office, {
-        ...args,
-        session: null,
-        continued: null,
-      });
-      return { result: { run: view.run, view }, changed: true };
-    } finally {
-      this.#starting.delete(office);
+    const handle = ctx.office;
+    const command = chatCommandOf(args.text);
+    if (command.name === "end") {
+      const ended = await this.#endThread(office, handle, args.thread ?? null);
+      return {
+        result: {
+          thread: ended.thread,
+          outcome: "closed",
+          ...(ended.refined.length === 0 ? {} : { refined: ended.refined }),
+        },
+        changed: true,
+      };
     }
+    if (command.name === "new" && command.rest === "") {
+      this.#fresh.add(office);
+      return { result: { outcome: "new" }, changed: true };
+    }
+    const thread =
+      command.name === "new"
+        ? null
+        : args.thread !== undefined
+          ? this.#openThread(office, handle, args.thread)
+          : this.#current(office, handle, { fresh: true });
+    const held =
+      thread === null
+        ? this.#hold(office, {
+            thread: RunId.parse(this.#deps.ids.next("run")),
+            opens: { kind: threadKindOf(args.context) },
+            text: command.rest,
+          })
+        : this.#hold(office, { thread, text: command.rest });
+    if (thread === null) this.#fresh.delete(office);
+    await this.#post(office, held);
+    if (held.state === "failed") throw held.error;
+    return {
+      result: { thread: held.thread, outcome: held.state === "held" ? "queued" : held.state },
+      changed: true,
+    };
   }
 
-  /** `planning.continue`: see the file comment. */
+  /** `planning.start`, the alias of `/new` with a kind and a goal: its reply waits for the start. */
+  async start(ctx: AsyncCommandContext, args: StartArgs): Promise<CommandOutcome<StartResult>> {
+    const office = ctx.office.officeId as OfficeId;
+    const held = this.#hold(office, {
+      thread: RunId.parse(this.#deps.ids.next("run")),
+      opens: { kind: args.kind },
+      text: args.goal,
+    });
+    this.#fresh.delete(office);
+    await this.#post(office, held);
+    await held.done.promise;
+    const view = this.view(office);
+    if (view === null) throw notOpen(`${held.thread} ended as it started`);
+    return { result: { run: view.run, view }, changed: true };
+  }
+
+  /** `planning.continue`, an alias: the newest open thread continues in a fresh model session. */
   async continue(ctx: AsyncCommandContext): Promise<CommandOutcome<StartResult>> {
     const office = ctx.office.officeId as OfficeId;
     this.#refuseWhenOpen(office);
-    const found = ctx.office.deferred(() => continuableSession(ctx.office));
-    if (found === null) {
+    const found = this.#openThreadsNow(office, ctx.office)[0];
+    if (found === undefined || found.previous === null || found.reason === null) {
       throw new CommandError(
         "planning.notContinuable",
-        "No planning session can continue: start one with planning.start. A session the maintainer ended does not continue.",
+        "No planning session can continue: start one with planning.start. A thread the maintainer ended or that was idle a day does not continue.",
       );
     }
-    this.#starting.add(office);
-    try {
-      const view = await this.#begin(ctx.office, office, {
-        kind: found.kind,
-        goal: found.goal,
-        session: RunId.parse(found.session),
-        continued: { previous: RunId.parse(found.previous), reason: found.reason },
-      });
-      return { result: { run: view.run, view }, changed: true };
-    } finally {
-      this.#starting.delete(office);
-    }
+    const view = await this.#begin(ctx.office, office, {
+      kind: found.kind,
+      goal: found.goal,
+      session: RunId.parse(found.session),
+      continued: { previous: RunId.parse(found.previous), reason: found.reason },
+    });
+    return { result: { run: view.run, view }, changed: true };
   }
 
   /**
@@ -794,46 +930,394 @@ export class PlanningSessions {
     if (open !== undefined || this.#starting.has(office)) {
       throw new CommandError(
         "planning.open",
-        `The office has an open planning session${open === undefined ? "" : ` (${open.run})`}: end it with planning.end first.`,
+        `The office has a running planning session${open === undefined ? "" : ` (${open.run})`}: write to it instead.`,
         open === undefined ? {} : { run: open.run },
       );
     }
   }
 
+  /** `planning.message`, an alias: a message to the thread whose model session runs. */
   async message(
     ctx: AsyncCommandContext,
     args: MessageArgs,
   ): Promise<CommandOutcome<MessageResult>> {
     const office = ctx.office.officeId as OfficeId;
     const open = this.#open.get(office);
-    if (open === undefined) {
-      throw notOpen(
-        this.#starting.has(office)
-          ? "it is continuing in a fresh model session; send the message again in a moment"
-          : "start one with planning.start",
-      );
+    const thread =
+      open !== undefined && !open.settled && !closing(open)
+        ? open.session
+        : this.#starting.get(office);
+    if (thread === undefined) throw notOpen("start one with planning.start");
+    const held = this.#hold(office, { thread, text: args.text });
+    await this.#post(office, held);
+    if (held.state === "failed") throw held.error;
+    const run = this.#open.get(office)?.run ?? open?.run ?? thread;
+    return { result: { run, delivered: "next-turn" }, changed: true };
+  }
+
+  // ---- the chat's threads (DIPO-523) -----------------------------------------------------------
+
+  /** Holds `item` for the office's chat; `#post` or a turn end sends it. */
+  #hold(office: OfficeId, item: Pick<Held, "thread" | "opens" | "text">): Held {
+    const done = Promise.withResolvers<void>();
+    // A failure is read from `state` and `error`; a caller that waits reads it from `done`.
+    done.promise.catch(() => undefined);
+    const held: Held = { ...item, at: this.#deps.clock.now(), state: "held", done };
+    const list = this.#held.get(office) ?? [];
+    list.push(held);
+    this.#held.set(office, list);
+    return held;
+  }
+
+  /** Sends what the chat holds as far as it can now; a held message shows in its thread's view. */
+  async #post(office: OfficeId, held: Held): Promise<void> {
+    await this.#pump(office);
+    const open = this.#open.get(office);
+    if (held.state === "held" && open?.session === held.thread) {
+      this.#append(open, () => [this.#updated(open)]);
     }
-    await this.#deliver(open, args.text);
-    return { result: { run: open.run, delivered: "next-turn" }, changed: true };
+  }
+
+  /** Settles the held messages `items` as `state`, or as failed with `error`. */
+  #settle(items: readonly Held[], state: "sent" | "opened" | { readonly error: unknown }): void {
+    for (const item of items) {
+      if (typeof state === "string") {
+        item.state = state;
+        item.done.resolve();
+      } else {
+        item.state = "failed";
+        item.error = state.error;
+        item.done.reject(state.error);
+      }
+    }
+  }
+
+  /** Takes the held messages of `thread` from the front of the office's list. */
+  #take(office: OfficeId, thread: RunId): Held[] {
+    const list = this.#held.get(office) ?? [];
+    const end = list.findIndex((item) => item.thread !== thread || item.opens !== undefined);
+    const taken = list.splice(0, end === -1 ? list.length : end);
+    return taken;
   }
 
   /**
-   * The maintainer's text is the next user message: read after the answer in progress, if any. What
-   * the maintainer decided since their last message goes first, as `[dipo]` lines.
+   * Runs `#pumpOnce` for the office, once at a time: a call while it runs makes it go round again,
+   * and resolves when it is done.
    */
-  async #deliver(open: Open, text: string): Promise<void> {
+  #pump(office: OfficeId): Promise<void> {
+    const running = this.#pumps.get(office);
+    if (running !== undefined) {
+      this.#pumpAgain.add(office);
+      return running;
+    }
+    const pumping = Promise.withResolvers<void>();
+    this.#pumps.set(office, pumping.promise);
+    void (async () => {
+      try {
+        do {
+          this.#pumpAgain.delete(office);
+          await this.#pumpOnce(office);
+        } while (this.#pumpAgain.has(office));
+      } catch (error) {
+        this.#deps.warn?.("sending the chat's held messages failed", {
+          office,
+          reason: messageOf(error),
+        });
+      } finally {
+        this.#pumps.delete(office);
+        pumping.resolve();
+      }
+    })();
+    return pumping.promise;
+  }
+
+  /**
+   * The one step that sends what the chat holds (see the file comment): to the model session that
+   * waits, by ending it for another thread, or by starting one for the first held message's
+   * thread. Nothing while the model session answers, starts or ends: its turn end or its release
+   * comes back here.
+   */
+  async #pumpOnce(office: OfficeId): Promise<void> {
+    const first = this.#held.get(office)?.[0];
+    if (first === undefined || this.#starting.has(office) || this.#stopped) return;
+    const open = this.#open.get(office);
+    if (open !== undefined) {
+      await this.#pumpTo(open, first);
+      return;
+    }
+    const handle = this.#deps.offices.get(office);
+    if (handle === undefined) {
+      this.#settle(this.#held.get(office)?.splice(0) ?? [], {
+        error: new CommandError("planning.startFailed", `Office ${office} is not loaded.`),
+      });
+      return;
+    }
+    if (first.opens !== undefined) {
+      const opening = this.#held.get(office)?.splice(0, 1) ?? [];
+      await this.#settleWhen(opening, "opened", () =>
+        this.#begin(handle, office, {
+          run: first.thread,
+          kind: first.opens?.kind ?? "plan",
+          goal: first.text,
+          session: null,
+          continued: null,
+        }),
+      );
+      return;
+    }
+    await this.#continueFor(office, handle, first.thread);
+  }
+
+  /** The model session of `open` takes the held messages of its thread, or ends for another's. */
+  async #pumpTo(open: Open, first: Held): Promise<void> {
+    if (open.settled || open.ending !== null || open.state !== "waiting") return;
+    if (first.thread !== open.session) {
+      await this.#stop(open, { reason: "switched" });
+      return;
+    }
+    const batch = this.#take(open.office, open.session);
+    await this.#settleWhen(batch, "sent", () =>
+      this.#deliver(
+        open,
+        batch.map((item) => item.text),
+        batch.map((item) => item.at),
+      ),
+    );
+  }
+
+  /**
+   * A fresh model session continues the open thread `session` from its record, with its held
+   * messages kept in the record first, so its first message carries them.
+   */
+  async #continueFor(office: OfficeId, handle: OfficeHandle, session: RunId): Promise<void> {
+    const thread = this.#openThreadsNow(office, handle).find(
+      (candidate) => candidate.session === session,
+    );
+    const batch = this.#take(office, session);
+    if (thread === undefined || thread.previous === null || thread.reason === null) {
+      this.#settle(batch, { error: threadUnknown(session) });
+      return;
+    }
+    const { previous, reason } = thread;
+    const run = RunId.parse(this.#deps.ids.next("run"));
+    handle.immediate(() => {
+      for (const item of batch) {
+        addPlanningEntry(handle, session, {
+          kind: "message",
+          run,
+          text: item.text,
+          outputOffset: 0,
+          at: item.at,
+        });
+      }
+    });
+    await this.#settleWhen(batch, "sent", () =>
+      this.#begin(handle, office, {
+        run,
+        kind: thread.kind,
+        goal: thread.goal,
+        session,
+        continued: { previous: RunId.parse(previous), reason },
+      }),
+    );
+  }
+
+  /** Settles `items` as `state` once `work` is done, or as failed with its error. */
+  async #settleWhen(
+    items: readonly Held[],
+    state: "sent" | "opened",
+    work: () => Promise<unknown>,
+  ): Promise<void> {
+    try {
+      await work();
+      this.#settle(items, state);
+    } catch (error) {
+      this.#settle(items, { error });
+    }
+  }
+
+  /**
+   * The thread a message without one goes to: the thread the last held message waits for, the
+   * one whose model session runs and is not closing, the one a full context continues, or the
+   * newest open thread; null when none is open, or (`fresh`) after a bare `/new`.
+   */
+  #current(
+    office: OfficeId,
+    handle: OfficeHandle,
+    options: { readonly fresh: boolean },
+  ): RunId | null {
+    if (options.fresh && this.#fresh.has(office)) return null;
+    const held = this.#held.get(office)?.at(-1);
+    if (held !== undefined) return held.thread;
+    const open = this.#open.get(office);
+    if (open !== undefined && !open.settled && !closing(open)) return open.session;
+    const starting = this.#starting.get(office);
+    if (starting !== undefined) return starting;
+    // A thread whose model session ends for `/end` or idle is closing, though its record does not
+    // say so yet.
+    const newest = this.#openThreadsNow(office, handle).find(
+      (thread) => open === undefined || !closing(open) || thread.session !== open.session,
+    );
+    return newest === undefined ? null : RunId.parse(newest.session);
+  }
+
+  /** The open thread `thread` names; `chat.threadUnknown` for any other. */
+  #openThread(office: OfficeId, handle: OfficeHandle, thread: RunId): RunId {
+    const open = this.#open.get(office);
+    const live =
+      (open !== undefined && !open.settled && !closing(open) && open.session === thread) ||
+      this.#starting.get(office) === thread ||
+      (this.#held.get(office) ?? []).some((item) => item.thread === thread);
+    if (live || this.#openThreadsNow(office, handle).some((found) => found.session === thread)) {
+      return thread;
+    }
+    throw threadUnknown(thread);
+  }
+
+  /**
+   * The open threads of the record, the newest first. One that waited `planning.idleHours` with
+   * no model session of this daemon on it is closed here first (`idle`), keeping its record.
+   */
+  #openThreadsNow(office: OfficeId, handle: OfficeHandle): OpenThread[] {
+    const now = this.#deps.clock.now();
+    const idleMs = (this.#deps.offices.config(office)?.planning.idleHours ?? 24) * HOUR_MS;
+    const live = new Set<string>([
+      ...[this.#open.get(office)?.session, this.#starting.get(office)].filter(
+        (session): session is RunId => session !== undefined,
+      ),
+      ...(this.#held.get(office) ?? []).map((item) => item.thread),
+    ]);
+    const threads = handle.deferred(() => openThreads(handle));
+    const idle = threads.filter(
+      (thread) => !live.has(thread.session) && now - thread.lastAt >= idleMs,
+    );
+    if (idle.length > 0) {
+      handle.immediate(() => {
+        for (const thread of idle) {
+          closeThread(handle, thread.session, {
+            run: thread.previous ?? thread.session,
+            reason: "idle",
+            at: now,
+          });
+        }
+      });
+      this.#deps.onChanged?.(office);
+    }
+    return threads.filter((thread) => !idle.includes(thread));
+  }
+
+  /**
+   * `/end`: closes `thread`, or the current one, with its Ready step. Its model session stops and
+   * ends `maintainer`; a thread with no model session gets its closing entry. The messages held for
+   * it go nowhere.
+   */
+  async #endThread(
+    office: OfficeId,
+    handle: OfficeHandle,
+    thread: RunId | null,
+  ): Promise<{
+    readonly thread: RunId;
+    readonly run: RunId;
+    readonly reason: PlanningEndReason;
+    readonly refined: StayedRefined[];
+  }> {
+    const live = this.#open.get(office);
+    if (
+      thread === null &&
+      live !== undefined &&
+      live.ending !== null &&
+      !live.settled &&
+      closing(live)
+    ) {
+      // An `/end` sent again while the thread closes changes nothing.
+      return {
+        thread: live.session,
+        run: live.run,
+        reason: live.ending.reason,
+        refined: this.#readyStep(office, handle, live.session),
+      };
+    }
+    const target =
+      thread === null
+        ? this.#current(office, handle, { fresh: false })
+        : this.#openThread(office, handle, thread);
+    if (target === null) throw notOpen("none was started");
+    const refined = this.#readyStep(office, handle, target);
+    const list = this.#held.get(office) ?? [];
+    const dropped = list.filter((item) => item.thread === target);
+    this.#held.set(
+      office,
+      list.filter((item) => item.thread !== target),
+    );
+    this.#settle(dropped, { error: notOpen(`the thread ${target} was ended`) });
+    const open = this.#open.get(office);
+    const now = this.#deps.clock.now();
+    if (open !== undefined && !open.settled && open.session === target) {
+      if (open.ending === null) {
+        await this.#stop(open, { reason: "maintainer" });
+        return { thread: target, run: open.run, reason: "maintainer", refined };
+      }
+      // Its model session ends already, for another reason: the thread does not continue.
+      if (!closing(open)) {
+        handle.immediate(() =>
+          closeThread(handle, target, { run: open.run, reason: "maintainer", at: now }),
+        );
+      }
+      return { thread: target, run: open.run, reason: open.ending.reason, refined };
+    }
+    const found = handle.deferred(() => openThreads(handle)).find((t) => t.session === target);
+    const run = RunId.parse(found?.previous ?? target);
+    handle.immediate(() => closeThread(handle, target, { run, reason: "maintainer", at: now }));
+    this.#deps.onChanged?.(office);
+    return { thread: target, run, reason: "maintainer", refined };
+  }
+
+  /**
+   * The Ready step of `thread` (0022): each story it filed or edited that stayed Refined, with the
+   * gate's first message, from the gate line the lane wrote when it applied the filing. A story it
+   * filed whose filing the lane no longer has is read from the base: Refined, with the stored
+   * gate's first message.
+   */
+  #readyStep(office: OfficeId, handle: OfficeHandle, thread: RunId): StayedRefined[] {
+    const listed = new Map<string, string>();
+    for (const entry of this.#threadStories(office, handle, thread)) {
+      const line = entry.filing?.gate;
+      const at = line?.indexOf(STAYED_REFINED) ?? -1;
+      if (line !== undefined && at >= 0) {
+        const story = line.slice(0, at);
+        if (!listed.has(story)) {
+          listed.set(story, line.slice(at + STAYED_REFINED.length).split("; ")[0] ?? "");
+        }
+        continue;
+      }
+      if (entry.filing !== undefined || entry.key === null || entry.kind !== "filed") continue;
+      const key = entry.key;
+      const view = handle.deferred(() => storyView(handle, key));
+      if (view?.lifecycle === "Refined" && !listed.has(entry.story)) {
+        listed.set(entry.story, view.gateMessages?.[0] ?? "the Ready gate has not decided it");
+      }
+    }
+    return [...listed].map(([story, message]) => ({ story, message }));
+  }
+
+  /**
+   * The maintainer's texts are the next user message, as one: `#pump` sends them once the model
+   * session waits. What the maintainer decided since their last message goes first, as `[dipo]`
+   * lines. Each text is kept in the record with the time it was written (`ats`).
+   */
+  async #deliver(open: Open, texts: readonly string[], ats: readonly number[]): Promise<void> {
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
     const notes = open.notes;
     const filing = await this.#filingNote(open);
     if (
       !(await this.#sendText(
         open,
-        [...notes, ...(filing === null ? [] : [filing.note]), text].join("\n\n"),
+        [...notes, ...(filing === null ? [] : [filing.note]), ...texts].join("\n\n"),
       ))
     ) {
       throw notOpen(`${open.run} could not be reached`);
     }
-    this.#recordMessage(open, text);
+    for (const [index, text] of texts.entries()) this.#recordMessage(open, text, ats[index]);
     // The view lists the message the moment it was kept (DIPO-490).
     this.#append(open, () => [this.#updated(open)]);
     if (filing !== null) open.filedSeen = filing.signature;
@@ -842,9 +1326,9 @@ export class PlanningSessions {
   }
 
   /** Keeps the maintainer's message in the record, with the model session's output offset (DIPO-489). */
-  #recordMessage(open: Open, text: string): void {
+  #recordMessage(open: Open, text: string, written?: number): void {
     const { handle } = open;
-    const at = this.#deps.clock.now();
+    const at = written ?? this.#deps.clock.now();
     try {
       handle.immediate(() =>
         addPlanningEntry(handle, open.session, {
@@ -880,7 +1364,12 @@ export class PlanningSessions {
     if (!read.ok) {
       throw new CommandError("planning.answerInvalid", `${read.problem}.`, { block: args.block });
     }
-    await this.#deliver(open, answersMessage(block.questions, read.answers));
+    const held = this.#hold(office, {
+      thread: open.session,
+      text: answersMessage(block.questions, read.answers),
+    });
+    await this.#post(office, held);
+    if (held.state === "failed") throw held.error;
     block.answered = true;
     const at = this.#deps.clock.now();
     open.handle.immediate(() => {
@@ -1261,10 +1750,14 @@ export class PlanningSessions {
    * whose filing PR has not merged has an id but no key yet: it is in the record only (DIPO-451).
    */
   #sessionStories(open: Open): SessionStory[] {
-    const { handle } = open;
-    const lane = this.#deps.lane?.(open.office);
+    return this.#threadStories(open.office, open.handle, open.session);
+  }
+
+  /** The stories of the record of `thread`, each with its filing, as `#sessionStories` says. */
+  #threadStories(office: OfficeId, handle: OfficeHandle, thread: string): SessionStory[] {
+    const lane = this.#deps.lane?.(office);
     return handle
-      .deferred(() => readPlanningRecord(handle, open.session))
+      .deferred(() => readPlanningRecord(handle, thread))
       .flatMap((entry): SessionStory[] => {
         if (entry.kind !== "story" || entry.subject === null) return [];
         const subject = entry.subject;
@@ -1374,11 +1867,14 @@ export class PlanningSessions {
     return { key: found.key, story: found.story };
   }
 
-  /** Reads the proposal blocks of the answer that ended; refuses the invalid ones (DIPO-450). */
-  #readAnswer(open: Open): void {
+  /**
+   * Reads the proposal blocks of the answer that ended; refuses the invalid ones (DIPO-450). True
+   * when the refusal went to the session at once, as its next turn.
+   */
+  #readAnswer(open: Open): boolean {
     const text = open.answer.join("\n");
     open.answer = [];
-    if (text === "") return;
+    if (text === "") return false;
     const at = this.#deps.clock.now();
     try {
       open.handle.immediate(() =>
@@ -1437,7 +1933,7 @@ export class PlanningSessions {
       }
     }
     open.refusals = open.refusals.slice(-PLANNING_REFUSALS_SHOWN);
-    if (refused.length === 0 && refusedQuestions.length === 0) return;
+    if (refused.length === 0 && refusedQuestions.length === 0) return false;
     const message = [
       ...(refused.length === 0 ? [] : [refusalMessage(refused)]),
       ...(refusedQuestions.length === 0 ? [] : [questionsRefusalMessage(refusedQuestions)]),
@@ -1446,11 +1942,15 @@ export class PlanningSessions {
     if (open.autoRefusals < AUTO_REFUSALS_MAX && open.ending === null) {
       open.autoRefusals += 1;
       void this.#sendText(open, message).then((sent) => {
-        if (!sent) open.notes.push(message);
+        if (sent) return;
+        open.notes.push(message);
+        // No turn comes of it, so the held messages go now.
+        void this.#pump(open.office);
       });
-    } else {
-      open.notes.push(message);
+      return true;
     }
+    open.notes.push(message);
+    return false;
   }
 
   /** The view of one proposal: its state from the lane, its stories from the session's record. */
@@ -1491,13 +1991,18 @@ export class PlanningSessions {
     };
   }
 
+  /** `planning.end`, the alias of `/end`: the current thread closes with its Ready step. */
   async end(ctx: AsyncCommandContext): Promise<CommandOutcome<EndResult>> {
     const office = ctx.office.officeId as OfficeId;
-    const open = this.#open.get(office);
-    if (open === undefined) throw notOpen("none was started");
-    const reason = open.ending?.reason ?? "maintainer";
-    await this.#stop(open, { reason });
-    return { result: { run: open.run, ended: reason }, changed: true };
+    const ended = await this.#endThread(office, ctx.office, null);
+    return {
+      result: {
+        run: ended.run,
+        ended: ended.reason,
+        ...(ended.refined.length === 0 ? {} : { refined: ended.refined }),
+      },
+      changed: true,
+    };
   }
 
   /**
@@ -1505,6 +2010,11 @@ export class PlanningSessions {
    * daemon reads its exit after the stop. Never rejects.
    */
   async stopAll(): Promise<void> {
+    // Nothing starts once the daemon stops: what the chat holds goes with it.
+    this.#stopped = true;
+    for (const held of this.#held.values()) {
+      this.#settle(held.splice(0), { error: notOpen("the daemon stopped") });
+    }
     await Promise.all(
       [...this.#open.values()].map(async (open) => {
         await this.#stop(open, { reason: "daemon-stopped" });
@@ -1558,6 +2068,8 @@ export class PlanningSessions {
     handle: OfficeHandle,
     office: OfficeId,
     args: {
+      /** The run of the model session, when the caller named it ahead (a new thread's id). */
+      readonly run?: RunId;
       readonly kind: PlanningKind;
       readonly goal: string;
       /** The planning session this model session continues; null for a new one. */
@@ -1578,7 +2090,7 @@ export class PlanningSessions {
         "This daemon has no box backend, and a planning session runs only in a read-only box of its own (0008).",
       );
     }
-    const run = RunId.parse(deps.ids.next("run"));
+    const run = args.run ?? RunId.parse(deps.ids.next("run"));
     const agent = AgentId.parse(deps.ids.next("agt"));
     const settings = config.planning;
     const startedAt = deps.clock.now();
@@ -1970,7 +2482,7 @@ export class PlanningSessions {
     if (open.settled) return;
     open.turns += 1;
     if (open.ending !== null) return;
-    this.#readAnswer(open);
+    const refusing = this.#readAnswer(open);
     if (
       open.compacted ||
       (open.contextTokens ?? 0) >= (this.#deps.contextTokens ?? PLANNING_CONTEXT_TOKENS)
@@ -1990,6 +2502,8 @@ export class PlanningSessions {
       void this.#stop(open, { reason: "idle" });
     }, hours * HOUR_MS);
     this.#append(open, () => [this.#updated(open)]);
+    // The held messages go now, unless a refusal went first: its answer's end sends them.
+    if (!refusing) void this.#pump(open.office);
   }
 
   /**
@@ -2064,6 +2578,7 @@ export class PlanningSessions {
     const done =
       ending.reason === "maintainer" ||
       ending.reason === "context-full" ||
+      ending.reason === "switched" ||
       ending.reason === "idle" ||
       (ending.reason === "exited" && clean);
     this.#endRecords(open, ending.reason, done ? "done" : "dropped");
@@ -2076,12 +2591,18 @@ export class PlanningSessions {
    */
   async #release(open: Open, reason: PlanningEndReason): Promise<void> {
     const continuing = reason === "context-full";
-    if (continuing) this.#starting.add(open.office);
+    if (continuing) this.#starting.set(open.office, open.session);
     if (this.#open.get(open.office) === open) this.#open.delete(open.office);
     this.#deps.onChanged?.(open.office);
     try {
       await this.#deps.boxes?.endPlanning(open.agent);
-      if (continuing) await this.#continueFresh(open, reason);
+      // A thread the maintainer ended meanwhile does not continue (DIPO-523).
+      const stillOpen =
+        continuing &&
+        open.handle.deferred(() =>
+          openThreads(open.handle).some((thread) => thread.session === open.session),
+        );
+      if (stillOpen) await this.#continueFresh(open, reason);
     } catch (error) {
       this.#deps.warn?.("continuing a planning session failed", {
         run: open.run,
@@ -2089,6 +2610,8 @@ export class PlanningSessions {
       });
     } finally {
       if (continuing) this.#starting.delete(open.office);
+      // What the chat holds goes on: to the fresh model session, or to the thread it waits for.
+      void this.#pump(open.office);
     }
   }
 
@@ -2243,12 +2766,16 @@ export class PlanningSessions {
           }).run;
     const noOutput = activeSignals(handle, open.run).find((fact) => fact.signal === "no-output");
     const { sessions, messages } = this.#conversationOf(open, endedAt);
+    const queued = (this.#held.get(open.office) ?? []).filter(
+      (item) => item.thread === open.session,
+    );
     return {
       run: open.run,
       session: open.session,
       ...(open.state === "starting" ? {} : { agent: open.agent }),
       kind: open.kind,
       goal: open.goal,
+      title: threadTitle(open.goal),
       model: open.model,
       state: open.state,
       // Quiet or stuck only while it works on an answer, never while it waits (DIPO-447).
@@ -2287,6 +2814,9 @@ export class PlanningSessions {
               .filter((block) => !block.answered)
               .map((block) => ({ n: block.n, questions: [...block.questions], at: iso(block.at) })),
           }),
+      ...(queued.length === 0
+        ? {}
+        : { queued: queued.map((item) => ({ text: item.text, at: iso(item.at) })) }),
     };
   }
 }

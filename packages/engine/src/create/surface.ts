@@ -44,6 +44,7 @@ const START_COMMANDS: ReadonlySet<string> = new Set([
   "work.run",
   "work.resume",
   "nextUp.confirm",
+  "chat.message",
   "planning.start",
   "planning.continue",
 ]);

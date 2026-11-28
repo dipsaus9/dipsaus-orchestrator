@@ -1356,6 +1356,87 @@
       },
       "required": ["test", "result"]
     },
+    "chat.message.args": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "room": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "desk",
+                    "floor",
+                    "run",
+                    "queue",
+                    "story",
+                    "retro",
+                    "roles",
+                    "background",
+                    "chat"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "item": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["room"]
+        }
+      },
+      "required": ["text", "context"]
+    },
+    "chat.message.result": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["sent", "queued", "opened", "new", "closed"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "refined": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["story", "message"]
+          }
+        }
+      },
+      "required": ["outcome"]
+    },
     "planning.start.args": {
       "type": "object",
       "properties": {
@@ -1404,6 +1485,9 @@
               ]
             },
             "goal": {
+              "type": "string"
+            },
+            "title": {
               "type": "string"
             },
             "model": {
@@ -1508,7 +1592,8 @@
                     "exited",
                     "start-failed",
                     "daemon-stopped",
-                    "context-full"
+                    "context-full",
+                    "switched"
                   ]
                 },
                 {
@@ -1553,7 +1638,8 @@
                           "exited",
                           "start-failed",
                           "daemon-stopped",
-                          "context-full"
+                          "context-full",
+                          "switched"
                         ]
                       },
                       {
@@ -3036,6 +3122,23 @@
                   }
                 },
                 "required": ["n", "questions", "at"]
+              }
+            },
+            "queued": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["text", "at"]
               }
             }
           },
@@ -3108,6 +3211,9 @@
             "goal": {
               "type": "string"
             },
+            "title": {
+              "type": "string"
+            },
             "model": {
               "type": "string"
             },
@@ -3210,7 +3316,8 @@
                     "exited",
                     "start-failed",
                     "daemon-stopped",
-                    "context-full"
+                    "context-full",
+                    "switched"
                   ]
                 },
                 {
@@ -3255,7 +3362,8 @@
                           "exited",
                           "start-failed",
                           "daemon-stopped",
-                          "context-full"
+                          "context-full",
+                          "switched"
                         ]
                       },
                       {
@@ -4738,6 +4846,23 @@
                   }
                 },
                 "required": ["n", "questions", "at"]
+              }
+            },
+            "queued": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["text", "at"]
               }
             }
           },
@@ -4898,13 +5023,29 @@
                 "exited",
                 "start-failed",
                 "daemon-stopped",
-                "context-full"
+                "context-full",
+                "switched"
               ]
             },
             {
               "type": "string"
             }
           ]
+        },
+        "refined": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["story", "message"]
+          }
         }
       },
       "required": ["run", "ended"]

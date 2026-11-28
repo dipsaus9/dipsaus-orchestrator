@@ -6,6 +6,10 @@
 // its first model session. A fresh model session's first message is built from the record
 // (`planningRecordText`), so no decision lives only in a model context.
 //
+// A planning session is a thread of the office chat (DIPO-523, 0024), and its record is the
+// thread's record: its goal is the thread's title, and an `ended` entry of `maintainer` (`/end`)
+// or `idle` closes it for good (`openThreads`, `closeThread`).
+//
 // Every function here runs inside the caller's transaction.
 
 import type { OfficeHandle } from "../db/office";
@@ -156,6 +160,62 @@ export function planningSessionOfRun(office: OfficeHandle, run: string): string 
   );
 }
 
+/** The record's `ended` reasons that close a thread for good (DIPO-523): `/end` and a day idle. */
+export const CLOSING_REASONS: readonly string[] = ["maintainer", "idle"];
+
+/** An open thread of the office chat (DIPO-523): a planning session that was not closed. */
+export interface OpenThread {
+  readonly session: string;
+  readonly kind: string;
+  readonly goal: string;
+  /** The model session that ended last, and why; null while a model session of it runs. */
+  readonly previous: string | null;
+  readonly reason: string | null;
+  /** The time of its newest entry, from which it counts as idle. */
+  readonly lastAt: number;
+}
+
+/**
+ * The open threads of the office, the newest first: each planning session with a goal that no
+ * `ended` entry of a closing reason closed, leaving out one whose only model session failed to
+ * start. A planning session open before the chat (DIPO-523) is an open thread titled by its goal.
+ */
+export function openThreads(office: OfficeHandle): OpenThread[] {
+  const rows = office.all<{ session_id: string; last_at: number }>(
+    `select p.session_id, max(p.at) as last_at from planning_records p
+      where p.office_id = $office_id
+        and exists (select 1 from planning_records g
+                     where g.office_id = p.office_id and g.session_id = p.session_id
+                       and g.kind = 'goal')
+        and not exists (select 1 from planning_records c
+                         where c.office_id = p.office_id and c.session_id = p.session_id
+                           and c.kind = 'ended' and c.text in ('maintainer', 'idle'))
+      group by p.session_id
+      order by last_at desc, max(p.rowid) desc`,
+  );
+  return rows.flatMap((row): OpenThread[] => {
+    const entries = readPlanningRecord(office, row.session_id);
+    const goal = entries.find((entry) => entry.kind === "goal");
+    if (goal === undefined) return [];
+    const last = entries.findLast((entry) => entry.kind === "ended");
+    const running =
+      last === undefined ||
+      entries.some((entry) => entry.kind === "started" && entry.seq > last.seq);
+    const started = entries.filter((entry) => entry.kind === "started").length;
+    if (!running && last?.text === "start-failed" && started <= 1) return [];
+    return [
+      {
+        session: row.session_id,
+        kind: goal.subject ?? "plan",
+        goal: goal.text,
+        previous: running ? null : (last?.run ?? null),
+        reason: running ? null : (last?.text ?? null),
+        lastAt: row.last_at,
+      },
+    ];
+  });
+}
+
 /** A planning session that can continue in a fresh model session. */
 export interface ContinuableSession {
   readonly session: string;
@@ -167,32 +227,34 @@ export interface ContinuableSession {
 }
 
 /**
- * The newest planning session of the office whose model session ended and that the maintainer
- * did not end: it ended by idle, a daemon stop, the model session's exit or a full context, or
- * the start of a fresh one failed after an earlier model session ran. Null otherwise.
+ * The newest open thread of the office whose model session ended: by a daemon stop, its exit, a
+ * full context or a switch to another thread, or the start of a fresh one failed after an earlier
+ * model session ran. Null when the newest open thread runs, or none is open.
  */
 export function continuableSession(office: OfficeHandle): ContinuableSession | null {
-  const newest = office.get<{ session_id: string }>(
-    `select session_id from planning_records
-      where office_id = $office_id and kind = 'goal' order by at desc, rowid desc limit 1`,
-  );
-  if (newest === null) return null;
-  const entries = readPlanningRecord(office, newest.session_id);
-  const goal = entries.find((entry) => entry.kind === "goal");
-  const last = entries.findLast((entry) => entry.kind === "ended");
-  if (goal === undefined || last === undefined || last.run === null) return null;
-  // A model session started after the last end still runs.
-  if (entries.some((entry) => entry.kind === "started" && entry.seq > last.seq)) return null;
-  if (last.text === "maintainer") return null;
-  const started = entries.filter((entry) => entry.kind === "started").length;
-  if (last.text === "start-failed" && started <= 1) return null;
+  const newest = openThreads(office)[0];
+  if (newest === undefined || newest.previous === null || newest.reason === null) return null;
   return {
-    session: newest.session_id,
-    kind: goal.subject ?? "plan",
-    goal: goal.text,
-    previous: last.run,
-    reason: last.text,
+    session: newest.session,
+    kind: newest.kind,
+    goal: newest.goal,
+    previous: newest.previous,
+    reason: newest.reason,
   };
+}
+
+/** Closes the thread `session` whose model session `run` ended last, for `reason` (DIPO-523). */
+export function closeThread(
+  office: OfficeHandle,
+  session: string,
+  entry: { readonly run: string; readonly reason: string; readonly at: number },
+): void {
+  addPlanningEntry(office, session, {
+    kind: "ended",
+    run: entry.run,
+    text: entry.reason,
+    at: entry.at,
+  });
 }
 
 /** The open questions: those no later choice answered. */
@@ -288,6 +350,23 @@ export function planningRecordText(
   const continued = entries.filter((entry) => entry.kind === "started").length > 1;
   const message = entries.findLast((entry) => entry.kind === "message");
   const answer = entries.findLast((entry) => entry.kind === "answer");
+  // The messages the chat sent after the last answer, which no model session read yet (DIPO-523):
+  // they follow the answer, and the fresh model session answers them.
+  const unread =
+    answer === undefined
+      ? []
+      : entries.filter((entry) => entry.kind === "message" && entry.seq > answer.seq);
+  const last = unread.length > 0 ? unread : message === undefined ? [] : [message];
+  const messages = last.map(
+    (entry) =>
+      `The maintainer's ${last.length === 1 ? "last message" : "message"} (${new Date(entry.at).toISOString()}):\n${entry.text}`,
+  );
+  const answered =
+    answer === undefined
+      ? []
+      : [
+          `The previous model session's last answer (${new Date(answer.at).toISOString()}):\n${answer.text}`,
+        ];
   return [
     section("Decisions the maintainer confirmed", decisions, "None yet."),
     section("Stories filed or edited", stories, "None yet."),
@@ -296,16 +375,7 @@ export function planningRecordText(
       ? [
           [
             "This continues the planning session: the model session before this one ended, and you do not remember it. Pick up the conversation where it stopped.",
-            ...(message === undefined
-              ? []
-              : [
-                  `The maintainer's last message (${new Date(message.at).toISOString()}):\n${message.text}`,
-                ]),
-            ...(answer === undefined
-              ? []
-              : [
-                  `The previous model session's last answer (${new Date(answer.at).toISOString()}):\n${answer.text}`,
-                ]),
+            ...(unread.length > 0 ? [...answered, ...messages] : [...messages, ...answered]),
           ].join("\n\n"),
         ]
       : []),

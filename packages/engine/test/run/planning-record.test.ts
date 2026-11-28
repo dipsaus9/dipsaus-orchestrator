@@ -54,6 +54,22 @@ function fill(w: PlanningWorld) {
   send({ kind: "story", subject: StoryId.parse("DIPO-501"), text: "edited" });
 }
 
+/** A planning session a stopped daemon left open, from before the chat: its record only. */
+function leftOpen(w: PlanningWorld, at: number): string {
+  const session = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E";
+  w.office.immediate(() => {
+    for (const entry of [
+      { kind: "goal", subject: "plan", text: "Plan the retro stories" },
+      { kind: "started", run: session, subject: "start", text: "" },
+      { kind: "choice", subject: "Which tier?", text: "M" },
+      { kind: "ended", run: session, text: "daemon-stopped" },
+    ] as const) {
+      addPlanningEntry(w.office, session, { ...entry, at });
+    }
+  });
+  return session;
+}
+
 const planningEvents = (w: PlanningWorld, type: string) =>
   entriesAfter(w.office).filter((entry) => entry.type === type);
 
@@ -267,29 +283,63 @@ describe("the record of a planning session (DIPO-448)", () => {
       expect(third?.messages?.every((item) => item.outputOffset > 0)).toBe(true);
     }));
 
-  it("continues after an idle end in a fresh model session built from the record", () =>
+  it("closes a thread idle a day and keeps its record; the next message opens a new thread (DIPO-523)", () =>
     withWorld(async (w) => {
       const { run } = await started(w);
       fill(w);
+      const before = readPlanningRecord(w.office, run).length;
       w.t.clock.advance(24 * HOUR);
       await until(() => w.sent.length === 1);
       w.t.clock.advance(1_000);
       await until(() => w.sessions.view(officeOf(w)) === null);
-      expect(continuableSession(w.office)).toMatchObject({
-        session: run,
-        previous: run,
-        reason: "idle",
-        goal: "Plan the retro stories",
+      expect(continuableSession(w.office)).toBeNull();
+      const refused = await w.sessions.continue(commandContext(w)).catch((error: unknown) => error);
+      expect((refused as CommandError).error.code).toBe("planning.notContinuable");
+      // The record stays, with the idle end as its last entry.
+      const record = readPlanningRecord(w.office, run);
+      expect(record.length).toBe(before + 1);
+      expect(record.at(-1)).toMatchObject({ kind: "ended", run, text: "idle" });
+      const next = await w.sessions.chat(commandContext(w), {
+        text: "Something new",
+        context: { room: "desk" },
       });
-      const outcome = await w.sessions.continue(commandContext(w));
-      expect(outcome.result.run).not.toBe(run);
-      expect(w.plans).toHaveLength(2);
-      expect(firstMessage(w, 1)).toContain(
-        `<record>\n${EXPECTED_RECORD}\n\nThis continues the planning session`,
-      );
-      expect(planningEvents(w, "planning.continued").map((entry) => entry.delta)).toMatchObject([
-        { run: outcome.result.run, previous: run, reason: "idle" },
-      ]);
+      expect(next.result.outcome).toBe("opened");
+      expect(next.result.thread).not.toBe(run);
+      expect(w.sessions.view(officeOf(w))?.goal).toBe("Something new");
+      expect(readPlanningRecord(w.office, run)).toEqual(record);
+    }));
+
+  it("closes a thread with no model session once it was idle a day, when the chat next looks for it (DIPO-523)", () =>
+    withWorld(async (w) => {
+      const session = leftOpen(w, w.t.clock.now());
+      w.t.clock.advance(24 * HOUR);
+      const next = await w.sessions.chat(commandContext(w), {
+        text: "Hello again",
+        context: { room: "desk" },
+      });
+      expect(next.result.outcome).toBe("opened");
+      expect(next.result.thread).not.toBe(session);
+      const record = readPlanningRecord(w.office, session);
+      expect(record.at(-1)).toMatchObject({ kind: "ended", text: "idle" });
+      expect(record.filter((entry) => entry.kind === "choice")).toHaveLength(1);
+    }));
+
+  it("continues a planning session a daemon before the chat left open as an open thread titled by its goal (DIPO-523)", () =>
+    withWorld(async (w) => {
+      const session = leftOpen(w, w.t.clock.now());
+      w.t.clock.advance(HOUR);
+      const next = await w.sessions.chat(commandContext(w), {
+        text: "Where were we?",
+        context: { room: "desk" },
+      });
+      expect(next.result).toEqual({ thread: session, outcome: "sent" });
+      const view = w.sessions.view(officeOf(w));
+      expect(view).toMatchObject({ session, title: "Plan the retro stories", kind: "plan" });
+      const text = firstMessage(w, 0);
+      expect(text).toContain("- Which tier?: M");
+      expect(text).toContain("This continues the planning session");
+      expect(text).toContain("Where were we?");
+      expect(view?.messages?.map((message) => message.text)).toEqual(["Where were we?"]);
     }));
 
   it("continues after a daemon restart, whether it stopped cleanly or left its run open", () =>
