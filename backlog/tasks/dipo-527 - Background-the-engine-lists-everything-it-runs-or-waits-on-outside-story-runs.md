@@ -1,10 +1,10 @@
 ---
 id: DIPO-527
 title: 'Background: the engine lists everything it runs or waits on outside story runs'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 17:09'
+updated_date: '2026-11-28 17:15'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -48,8 +48,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 OfficeSnapshot.background lists the six kinds with state, next, since and url where there is one
-- [ ] #2 The engine sets the order and drops done items after 10 minutes
-- [ ] #3 background.changed fires on every state change with its ticker line
-- [ ] #4 Nothing in next is an estimate
+- [x] #1 OfficeSnapshot.background lists the six kinds with state, next, since and url where there is one
+- [x] #2 The engine sets the order and drops done items after 10 minutes
+- [x] #3 background.changed fires on every state change with its ticker line
+- [x] #4 Nothing in next is an estimate
 <!-- AC:END -->
