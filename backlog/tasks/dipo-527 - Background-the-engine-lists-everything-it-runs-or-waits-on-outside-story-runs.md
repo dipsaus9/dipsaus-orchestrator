@@ -1,9 +1,10 @@
 ---
 id: DIPO-527
 title: 'Background: the engine lists everything it runs or waits on outside story runs'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 16:50'
 labels:
   - 'tier:M'
   - 'role:developer'
