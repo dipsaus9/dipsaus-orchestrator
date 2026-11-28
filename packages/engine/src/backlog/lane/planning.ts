@@ -5,6 +5,7 @@
 // idea (DIPO-166, DIPO-454) and the stories a planning session files and edits (DIPO-450) reach the lane
 // only through it.
 
+import { progressEntriesWithBackground } from "./progress";
 import type { LaneFlush, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries } from "../../changelog/log";
@@ -44,7 +45,6 @@ import {
   updateEntry,
 } from "./journal";
 import { ALREADY_ON_BRANCH, type FlushReport, LaneFlushError, type OfficeLane } from "./lane";
-import { progressEntries } from "./progress";
 import { proposeTarget } from "./propose";
 
 /** The Backlog.md statuses a hold applies from; `To Do` is what office init migrates to Refined. */
@@ -249,7 +249,7 @@ function withdrawEntry(lane: OfficeLane, opId: number): void {
   const { office, clock } = lane;
   office.immediate(() => {
     updateEntry(office, opId, { state: "withdrawn" }, clock.now());
-    appendEntries(office, progressEntries(office), { at: clock.now() });
+    appendEntries(office, progressEntriesWithBackground(office, clock.now()), { at: clock.now() });
   });
 }
 

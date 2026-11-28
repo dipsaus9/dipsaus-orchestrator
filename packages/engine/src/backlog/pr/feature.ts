@@ -23,6 +23,7 @@
 // Work for one office runs one piece at a time. Git steps (the check's diff, reading refs) run as
 // items of the office git queue; `gh` calls run outside it.
 
+import { progressEntriesWithBackground } from "../lane/progress";
 import type { Clock, OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../../changelog/log";
@@ -49,7 +50,6 @@ import {
   recordPrRef,
   takenOpIds,
 } from "../lane/journal";
-import { progressEntries } from "../lane/progress";
 import { type FlushReport, LANE_BRANCH_PREFIX, type OfficeLane } from "../lane/lane";
 import type { BacklogCli } from "../runner";
 
@@ -771,7 +771,10 @@ export class BacklogPrs {
     const now = this.#deps.clock.now();
     const count = handle.immediate(() => {
       // A change of an entry or of the PR appends the lane's progress with it (DIPO-481).
-      const entries = [...(fn() ?? []), ...progressEntries(handle)];
+      const entries = [
+        ...(fn() ?? []),
+        ...progressEntriesWithBackground(handle, this.#deps.clock.now()),
+      ];
       appendEntries(handle, entries, { at: now });
       return entries.length;
     });

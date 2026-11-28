@@ -798,6 +798,19 @@ const officeEventFixtures: Record<string, unknown> = {
     view: { ...planningView, state: "working", turns: 0 },
   },
   "roles.changed": {},
+  "background.changed": {
+    item: {
+      kind: "story-pr",
+      ref: "PR #698",
+      subject: "DIPO-512 · CI failed · attempt 2 of 3",
+      state: "failed",
+      ci: "failed",
+      next: "retries at 10:35; after attempt 3 it goes to your Desk",
+      since: "2026-11-10T15:23:00.000Z",
+      url: "https://github.com/acme/widgets/pull/698",
+    },
+    line: "PR #698 CI failed",
+  },
   "lane.progress": {
     lane: {
       ops: [

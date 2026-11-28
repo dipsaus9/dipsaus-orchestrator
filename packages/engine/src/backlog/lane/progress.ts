@@ -7,6 +7,7 @@
 
 import type { LaneCi, LaneOpView, LaneProgress } from "@dipsaus-orchestrator/contract";
 
+import { backgroundEntries, rememberLane } from "../../overview/background";
 import type { NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
 import type { RequiredCheck } from "../../platform/host";
@@ -152,4 +153,14 @@ export function progressEntries(office: OfficeHandle): NewEntry[] {
   const view: LaneProgress = lane.ops.length === 0 ? { ops: [] } : lane;
   if (JSON.stringify(view) === lastSent(office)) return [];
   return [{ type: LANE_PROGRESS_EVENT, delta: { lane: view } }];
+}
+
+/**
+ * What a change of the lane's or of a PR appends: the `lane.progress` entry when the lane's view
+ * changed, and a `background.changed` entry for each background item that changed with it
+ * (DIPO-527).
+ */
+export function progressEntriesWithBackground(office: OfficeHandle, now: number): NewEntry[] {
+  rememberLane(office, laneProgress(office));
+  return [...progressEntries(office), ...backgroundEntries(office, now)];
 }

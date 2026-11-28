@@ -38,7 +38,7 @@ import {
   type RequiredCheck,
 } from "../../platform/host";
 import { openEntries, updateEntry } from "../lane/journal";
-import { ciOf, progressEntries, rememberPr } from "../lane/progress";
+import { ciOf, progressEntriesWithBackground, rememberPr } from "../lane/progress";
 import type { OfficeLane } from "../lane/lane";
 
 import { repoOfUrl } from "./feature";
@@ -194,7 +194,7 @@ export class BacklogMerges implements BacklogAutoMerge {
       autoMerge: view.autoMerge === true && view.state === "open",
       merged: view.state === "merged",
     });
-    if (changed) ctx.write(() => progressEntries(ctx.office));
+    if (changed) ctx.write(() => progressEntriesWithBackground(ctx.office, ctx.now()));
     if (view.state === "merged") {
       return this.#merged(ctx, { record, repo, head, view, checks });
     }
@@ -372,7 +372,7 @@ export class BacklogMerges implements BacklogAutoMerge {
           BACKLOG_MERGE_NOTICES.merged,
           `GitHub merged the backlog PR #${number} at ${head.slice(0, 12)} after its required checks and the structural check passed.`,
         ),
-        ...progressEntries(ctx.office),
+        ...progressEntriesWithBackground(ctx.office, ctx.now()),
       ];
     });
     const problem = await ctx.git.deleteBranch(pr.record.branch).catch(messageOf);

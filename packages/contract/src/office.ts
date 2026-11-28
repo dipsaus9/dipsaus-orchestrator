@@ -624,6 +624,40 @@ export type LanePrView = z.infer<typeof LanePrView>;
 export const LaneProgress = z.object({ ops: z.array(LaneOpView), pr: LanePrView.optional() });
 export type LaneProgress = z.infer<typeof LaneProgress>;
 
+// What dipo is busy with or waits on outside story runs (DIPO-527): one item per story PR after
+// its run, the backlog PR, an open test, the audit, the chat and the daemon's own work. `state` is
+// the engine's: it lists `failed`, `needs-you`, `running`, `waiting`, `done`, in that order, and
+// drops a `done` item after ten minutes. `next` is a line code builds, never an estimate (decision
+// 24): a time dipo itself scheduled, such as `retries at 10:35`, is a fact. `ref` names the item
+// within its kind. `ci` is set where the item has required checks; `since` is when it entered its
+// state; `url` is set where there is a page for it.
+export const KNOWN_BACKGROUND_KINDS = [
+  "story-pr",
+  "backlog-pr",
+  "test",
+  "audit",
+  "chat",
+  "daemon",
+] as const;
+export const BackgroundKind = openEnum(KNOWN_BACKGROUND_KINDS);
+export type BackgroundKind = z.infer<typeof BackgroundKind>;
+
+export const BACKGROUND_STATES = ["failed", "needs-you", "running", "waiting", "done"] as const;
+export const BackgroundState = z.enum(BACKGROUND_STATES);
+export type BackgroundState = z.infer<typeof BackgroundState>;
+
+export const BackgroundItem = z.object({
+  kind: BackgroundKind,
+  ref: z.string(),
+  subject: z.string(),
+  state: BackgroundState,
+  ci: LaneCi.optional(),
+  next: z.string().optional(),
+  since: Timestamp,
+  url: z.string().optional(),
+});
+export type BackgroundItem = z.infer<typeof BackgroundItem>;
+
 // Reads
 
 const OfficeArgs = z.object({ office: OfficeId });
@@ -640,6 +674,9 @@ export const OfficeSnapshot = z.object({
   planning: PlanningView.optional(),
   // The planning lane's open changes and the backlog PR they wait on (DIPO-481); absent when none.
   lane: LaneProgress.optional(),
+  // What the office is busy with outside story runs, in the engine's order (DIPO-527); absent when
+  // none.
+  background: z.array(BackgroundItem).optional(),
 });
 export type OfficeSnapshot = z.infer<typeof OfficeSnapshot>;
 
@@ -1313,6 +1350,15 @@ export const laneProgress = defineEvent({
   data: z.object({ lane: LaneProgress }),
 });
 
+// A background item appeared or changed state (DIPO-527): `item` as it stands, `line` the ticker
+// line for it, built by code.
+export const backgroundChanged = defineEvent({
+  type: "background.changed",
+  stream: "office",
+  derived: false,
+  data: z.object({ item: BackgroundItem, line: z.string() }),
+});
+
 // The role files on the base changed (DIPO-473): one was added, changed or removed. A client that
 // shows the roles reads `office.roles` again.
 export const rolesChanged = defineEvent({
@@ -1602,5 +1648,6 @@ export const officeEvents = [
   planningContinued,
   planningEnded,
   laneProgress,
+  backgroundChanged,
   rolesChanged,
 ] as const;
