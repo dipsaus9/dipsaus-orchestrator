@@ -157,6 +157,14 @@ async function setup() {
   return { client, clock, store, snapshots };
 }
 
+const item = (kind: string, ref: string, state: string) => ({
+  kind,
+  ref,
+  subject: ref,
+  state,
+  since: AT,
+});
+
 describe("OfficeStore", () => {
   it("takes offices and the daemon state from engine.hello and follows the software stream", async () => {
     const { client, store } = await setup();
@@ -370,6 +378,43 @@ describe("OfficeStore", () => {
     // The lane has nothing open: the store has no lane.
     client.emit(stream, event(stream, 7, "lane.progress", { lane: { ops: [] } }));
     expect(store.state.lane).toBeNull();
+  });
+
+  it("keeps the background list from the snapshot and its changes in the engine's order, with their ticker lines (DIPO-528)", async () => {
+    const { client, store, snapshots } = await setup();
+    const stream = `office:${A}`;
+    expect(store.state.background).toEqual([]);
+    snapshots.set(A, {
+      ...(snapshots.get(A) as OfficeSnapshot),
+      background: [item("story-pr", "PR #1", "running"), item("audit", "audit", "waiting")],
+    } as OfficeSnapshot);
+    await store.switchTo(B);
+    await store.switchTo(A);
+    expect(store.state.background.map((entry) => entry.ref)).toEqual(["PR #1", "audit"]);
+    client.emit(
+      stream,
+      event(stream, 6, "background.changed", {
+        item: item("story-pr", "PR #1", "failed"),
+        line: "PR #1 CI failed",
+      }),
+    );
+    client.emit(
+      stream,
+      event(stream, 7, "background.changed", {
+        item: item("test", "tst_1", "running"),
+        line: "test started",
+      }),
+    );
+    // A changed item replaces itself and moves to its state; a new one takes its place by state.
+    expect(store.state.background.map((entry) => `${entry.ref}:${entry.state}`)).toEqual([
+      "PR #1:failed",
+      "tst_1:running",
+      "audit:waiting",
+    ]);
+    expect(store.state.backgroundLines.map((entry) => entry.line)).toEqual([
+      "test started",
+      "PR #1 CI failed",
+    ]);
   });
 
   it("drops events whose cursor it already applied", async () => {

@@ -64,6 +64,8 @@ export interface MountOptions extends RenderSize {
   readonly gates?: ReadonlyMap<string, unknown>;
   /** Stored output by `<run>:<source>`, there before the office opens (a session left open). */
   readonly output?: ReadonlyMap<string, string>;
+  /** The test clock's start in ms; 10:04 on 2026-10-14 (UTC) by default. */
+  readonly now?: number;
 }
 
 export async function mount(options: MountOptions = {}) {
@@ -73,7 +75,7 @@ export async function mount(options: MountOptions = {}) {
   for (const [key, text] of options.output ?? []) session.output.set(key, text);
   if (options.chain !== undefined) session.chain = options.chain;
   for (const [story, gate] of options.gates ?? []) session.gates.set(story, gate);
-  const clock = new TestClock();
+  const clock = new TestClock(options.now);
   const store = new OfficeStore({
     client: session,
     clock,

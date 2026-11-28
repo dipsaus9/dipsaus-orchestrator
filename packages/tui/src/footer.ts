@@ -9,7 +9,7 @@ import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
 import type { RunAction, View } from "./home";
 import { type FooterContext, type FooterView, footerHints, type Hint, hintText } from "./keys";
 import type { Mode } from "./mode";
-import { boardEntries } from "./overview";
+import { floorHasRow } from "./overview";
 
 export type { Hint } from "./keys";
 
@@ -153,8 +153,7 @@ export function footerKeys(
     ...footerHints(shown, {
       offline,
       office: state.office !== null,
-      hasRow:
-        shown === "desk" ? extras.desk : shown === "queue" ? true : boardEntries(state).length > 0,
+      hasRow: shown === "desk" ? extras.desk : shown === "queue" ? true : floorHasRow(state),
       planningOpen: state.planning !== null,
       planning: extras.planning,
       narrow: width < 99,

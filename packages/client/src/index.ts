@@ -36,6 +36,7 @@ export {
   streamRetryDelay,
 } from "./store/index";
 export type {
+  BackgroundLine,
   OfficeEntry,
   OfficeStoreOptions,
   OfficeStoreState,

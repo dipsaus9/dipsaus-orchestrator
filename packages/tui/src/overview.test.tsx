@@ -11,6 +11,7 @@ import type {
   OfficeSnapshot,
   RunRecord,
   StoryView,
+  TestView,
   WorkView,
 } from "@dipsaus-orchestrator/contract";
 
@@ -268,6 +269,120 @@ function floorScenario() {
   return { snapshot, chain, output: new Map([[`${running.work.run}:worker`, "thinking 1.1s\n"]]) };
 }
 
+/** DIPO-506's open test, the one the TEST row names. */
+const testView = {
+  test: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0T06",
+  story: "DIPO-506",
+  key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C06",
+  checkout: "dipo-tst_01J9ZK5Q8W3V4X6Y7Z8A9B0T06",
+  head: "8a1e2f0c2e4f6a8b0d1c3e5f7a9b1d3f5a7c9e1b",
+  steps: [{ check: "Press o", expect: "The office switcher opens" }, { check: "Type slay" }],
+  startedAt: "2026-10-14T09:58:00.000Z",
+} as TestView;
+
+/** An ISO time on the test clock's day (UTC, as the test clock runs). */
+const at = (hhmm: string) => `2026-10-14T${hhmm}:00.000Z`;
+
+/** The mock 03-floor-background.txt's scenario: DIPO-519 building, DIPO-518 waits, five background items. */
+function backgroundScenario() {
+  const { snapshot: floor } = floorScenario();
+  const base = golden();
+  const usage = base.work[0]!.usage;
+  const running = floorWork(base.work[0]!, 19, {
+    phase: "build",
+    model: "sonnet-5.5",
+    progress: { criteriaMet: 0, criteriaTotal: 5, loop: 1, loopCap: 5, reviewRound: 0 },
+    usage: { ...usage, run: { ...usage.run, elapsedMs: 14 * 60_000 }, budgetShare: 0.19 },
+  });
+  const work = { ...running, work: { ...running.work, story: "DIPO-519" } } as WorkView;
+  const background = [
+    {
+      kind: "story-pr",
+      ref: "PR #698",
+      subject: "DIPO-512 · CI failed: test (bun 1.4) · attempt 2 of 3",
+      state: "failed",
+      ci: "failed",
+      next: "retries at 10:35; after attempt 3 it goes to your Desk",
+      since: at("10:30"),
+    },
+    {
+      kind: "backlog-pr",
+      ref: "PR #702",
+      subject: "backlog PR · 3 changes · CI running",
+      state: "running",
+      ci: "running",
+      next: "auto-merges when green",
+      since: at("10:28"),
+    },
+    {
+      kind: "test",
+      ref: testView.test,
+      subject: "DIPO-506 at 8a1e2f0 · box up · step 2 of 4",
+      state: "waiting",
+      next: "waits on you since 09:58",
+      since: at("09:58"),
+    },
+    {
+      kind: "audit",
+      ref: "audit",
+      subject: "3 ideas from DIPO-509",
+      state: "running",
+      next: "audit running since 10:19",
+      since: at("10:19"),
+    },
+    {
+      kind: "daemon",
+      ref: "update",
+      subject: "dipo built f07dd11 and restarted",
+      state: "done",
+      since: at("10:24"),
+    },
+  ] as OfficeSnapshot["background"];
+  const snapshot: OfficeSnapshot = {
+    ...floor,
+    work: [work],
+    stories: [
+      floorStory(
+        work,
+        "Write proposed decision 0023 on granting skills and plugins",
+        "In Progress",
+        "running",
+      ),
+      waiting(518, 519),
+    ],
+    background,
+    tests: [testView],
+  };
+  const { lane } = floor;
+  const withLane = { ...snapshot, ...(lane === undefined ? {} : { lane }) };
+  const chain = { rows: [{ levels: [level(519), level(518)] }], nodes: [] };
+  return {
+    snapshot: withLane,
+    chain,
+    output: new Map([[`${work.work.run}:worker`, "thinking 2.1s\n"]]),
+  };
+}
+
+/** A `background.changed` event of the office stream at `hhmm` on the test clock's day. */
+function changed(
+  view: Awaited<ReturnType<typeof mount>>,
+  seq: number,
+  hhmm: string,
+  line: string,
+  state = "running",
+  item: object = { kind: "story-pr", ref: `PR #${seq}`, subject: line, state, since: at(hhmm) },
+) {
+  view.session.active(STREAM)?.options.onEvent({
+    cursor: { stream: STREAM, seq: 5_000 + seq },
+    at: at(hhmm),
+    type: "background.changed",
+    data: {
+      item,
+      line,
+    },
+  } as Event);
+}
+
 describe("the Floor", () => {
   it("matches the ux-spec's S2: cards, pipeline lines, health-free, budget bar and UP NEXT", async () => {
     const { snapshot, chain, output } = floorScenario();
@@ -293,35 +408,128 @@ describe("the Floor", () => {
     expect(frame).not.toContain("busy");
   });
 
-  it("shows one BACKLOG row while the lane has an open change, and none without one (DIPO-481)", async () => {
-    const { snapshot, chain } = floorScenario();
-    const withLane = await mount({
-      columns: 112,
+  it("matches the mock of the BACKGROUND group, its header chip and its ticker (DIPO-528)", async () => {
+    const { snapshot, chain, output } = backgroundScenario();
+    const view = await mount({
+      columns: 113,
       rows: 30,
       snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
       chain,
+      output,
+      now: Date.parse(at("10:31")),
     });
-    mounted.push(withLane.ui);
-    const shown = lines(await withLane.ui.waitFor("BACKLOG"));
-    expect(shown.filter((line) => line.includes("BACKLOG"))).toHaveLength(1);
-    expect(shown.find((line) => line.includes("BACKLOG"))).toContain(
-      "2 changes wait for backlog PR #656 · CI running",
-    );
-    // The lane has nothing open: the row is gone.
-    const { lane: _lane, ...quiet } = snapshot;
-    const without = await mount({
-      columns: 112,
-      rows: 30,
-      snapshots: new Map([[OFFICES.dipsaus, quiet]]),
-      chain,
+    mounted.push(view.ui);
+    await view.ui.waitFor("daemon live");
+    // The open office has three slots and spent $5.12; no other office needs you.
+    const summary = (seq: number, data: object) =>
+      view.session.active("software")?.options.onEvent({
+        cursor: { stream: "software", seq },
+        at: at("10:31"),
+        type: "office.summary",
+        data,
+      } as Event);
+    summary(90, {
+      ...goldenHello.offices[0],
+      slots: 3,
+      dayUsage: { tokens: 1200, alert: false, estimatedCost: 5.12 },
     });
-    mounted.push(without.ui);
-    await without.ui.waitFor("When DIPO-447 merges");
-    expect(without.ui.frame()).not.toContain("BACKLOG");
+    summary(91, {
+      office: OFFICES.slaydoku,
+      name: "slaydoku",
+      path: "/work/slaydoku",
+      running: 0,
+      parked: 0,
+      waitingOnMaintainer: 0,
+      ready: 0,
+    });
+    await view.ui.waitFor("1 of 3 slots");
+    // The failed PR is the focused row.
+    await view.ui.press("j");
+    // Changes that leave the listed items as they are: only the ticker shows them.
+    const [failed, backlog, , , update] = snapshot.background!;
+    changed(view, 1, "10:24", "dipo restarted on f07dd11", "done", update);
+    changed(view, 2, "10:28", "backlog PR #702 opened", "running", backlog);
+    changed(view, 3, "10:30", "PR #698 CI failed (test, bun 1.4)", "failed", failed);
+    await view.ui.waitFor("10:30 PR #698 CI failed");
+    expectScreen(view.ui, "03-floor-background.txt");
   });
 
-  it("lists the lane's open changes with Enter on the BACKLOG row, and hides them with Enter again (DIPO-481)", async () => {
-    const { snapshot, chain } = floorScenario();
+  it("opens a story PR at its level and matches the mock of its checks (DIPO-528)", async () => {
+    const { snapshot, chain } = backgroundScenario();
+    const line = (hhmm: string | undefined, ...spans: [string, ("err" | "dim")?][]) => ({
+      ...(hhmm === undefined ? {} : { at: at(hhmm) }),
+      spans: spans.map(([text, tone]) => ({ text, ...(tone === undefined ? {} : { tone }) })),
+    });
+    const [failed, ...rest] = snapshot.background!;
+    const detailed = {
+      ...failed!,
+      detail: {
+        status: "attempt 2 of 3 · retries at 10:35",
+        next: ["retries at 10:35", "then on your Desk"],
+        note: "Failed on bun 1.4 in both attempts and passed on bun 1.5.",
+        checks: [
+          { name: "format", state: "passed", log: [] },
+          { name: "lint", state: "passed", log: [] },
+          { name: "typecheck", state: "passed", log: [] },
+          {
+            name: "test (bun 1.4)",
+            state: "failed",
+            at: at("10:30"),
+            seconds: 192,
+            log: [
+              line("10:30", ["bun test packages/daemon"]),
+              line(
+                "10:30",
+                ["✗", "err"],
+                [" lock survives restart  "],
+                ["packages/daemon/test/lock.test.ts:88", "dim"],
+              ),
+              line(undefined, ["expected pid 4121 to equal 4377"]),
+              line(undefined, ["at reacquire  "], ["packages/daemon/src/lock.ts:142", "dim"]),
+              line("10:30", ["412 pass · "], ["1 fail", "err"]),
+            ],
+          },
+          { name: "test (bun 1.5)", state: "passed", log: [] },
+        ],
+      },
+    };
+    const stories = [
+      ...snapshot.stories,
+      {
+        ...waiting(512, 519),
+        title: "Keep the daemon's lock across a restart",
+      },
+    ];
+    const view = await mount({
+      columns: 113,
+      rows: 30,
+      snapshots: new Map([
+        [
+          OFFICES.dipsaus,
+          { ...snapshot, stories, background: [detailed, ...rest] } as OfficeSnapshot,
+        ],
+      ]),
+      chain,
+      now: Date.parse(at("10:32")),
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("daemon live");
+    await view.ui.waitFor("BACKGROUND");
+    await view.ui.press("j");
+    await view.ui.press("enter");
+    await view.ui.waitFor("CHECKS");
+    const [, backlog, , , update] = snapshot.background!;
+    changed(view, 1, "10:24", "dipo restarted on f07dd11", "done", update);
+    changed(view, 3, "10:30", "PR #698 CI failed (test, bun 1.4)", "failed", detailed);
+    await view.ui.waitFor("10:30 PR #698 CI failed");
+    expectScreen(view.ui, "04-background-detail.txt");
+    void backlog;
+    await view.ui.press("escape");
+    await view.ui.waitFor("BACKGROUND");
+  });
+
+  it("lists BACKGROUND from the snapshot in its order, after UP NEXT, and no group without items (DIPO-528)", async () => {
+    const { snapshot, chain } = backgroundScenario();
     const view = await mount({
       columns: 112,
       rows: 30,
@@ -329,10 +537,38 @@ describe("the Floor", () => {
       chain,
     });
     mounted.push(view.ui);
-    await view.ui.waitFor("BACKLOG");
-    // Two story cards come first; the BACKLOG row is the third stop.
-    for (let i = 0; i < 3; i++) await view.ui.press("j");
-    await view.ui.waitFor("▌ ○ BACKLOG");
+    const shown = lines(await view.ui.waitFor("BACKGROUND"));
+    expect(shown.some((line) => line.includes("BACKLOG"))).toBe(false);
+    const rows = shown.filter((line) => /^[▌ ] [✗!◌○✓] /.test(line) && line.includes("PR #"));
+    expect(rows.map((line) => line.slice(4, 14).trim())).toEqual(["PR #698", "PR #702"]);
+    expect(shown.findIndex((line) => line.includes("UP NEXT"))).toBeLessThan(
+      shown.findIndex((line) => line.includes("BACKGROUND")),
+    );
+    const { background: _background, ...quiet } = snapshot;
+    const without = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, quiet]]),
+      chain,
+    });
+    mounted.push(without.ui);
+    await without.ui.waitFor("When DIPO-519 merges");
+    expect(without.ui.frame()).not.toContain("BACKGROUND");
+  });
+
+  it("lists the lane's open changes with Enter on the backlog PR, and hides them with Enter again (DIPO-481, DIPO-528)", async () => {
+    const { snapshot, chain } = backgroundScenario();
+    const view = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
+      chain,
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("BACKGROUND");
+    // The story card is the first stop, the failed PR the second and the backlog PR the third.
+    for (let i = 0; i < 2; i++) await view.ui.press("j");
+    await view.ui.waitFor("▌ ◌ PR #702");
     await view.ui.press("enter");
     const frame = await view.ui.waitFor("a confirmed story filed");
     expect(frame).toContain("an accepted idea filed as a draft · idea 4f2a9c1e · queued");
@@ -341,6 +577,42 @@ describe("the Floor", () => {
     await view.ui.press("enter");
     await Bun.sleep(50);
     expect(view.ui.frame()).not.toContain("a confirmed story filed");
+  });
+
+  it("opens a test's checklist with t on its row (DIPO-528)", async () => {
+    const { snapshot, chain } = backgroundScenario();
+    const view = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
+      chain,
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("BACKGROUND");
+    for (let i = 0; i < 3; i++) await view.ui.press("j");
+    await view.ui.waitFor("▌ ○ TEST");
+    await view.ui.press("t");
+    // The checklist of the open test, as the Desk's `t` shows it, or its absence in words.
+    const frame = await view.ui.waitFor("test");
+    expect(frame).not.toContain("▌ ○ TEST");
+  });
+
+  it("shows a background change in the ticker with its HH:MM, newest first (DIPO-528)", async () => {
+    const { snapshot, chain } = backgroundScenario();
+    const view = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
+      chain,
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("BACKGROUND");
+    changed(view, 91, "10:24", "dipo restarted on f07dd11");
+    changed(view, 92, "10:30", "PR #698 CI failed (test, bun 1.4)");
+    const frame = await view.ui.waitFor("10:30 PR #698 CI failed");
+    expect(frame).toContain(
+      "10:30 PR #698 CI failed (test, bun 1.4)  ·  10:24 dipo restarted on f07dd11",
+    );
   });
 
   it("shows a story under RUNNING or IN REVIEW, never both", async () => {

@@ -42,6 +42,9 @@ import {
   officeSummary,
   laneProgress,
   type LaneProgress,
+  backgroundChanged,
+  BACKGROUND_STATES,
+  type BackgroundItem,
   planningEnded,
   planningOutput,
   planningContinued,
@@ -159,6 +162,10 @@ export interface OfficeStoreState {
   readonly planningContinuing: boolean;
   /** The planning lane's open changes and the backlog PR they wait on (DIPO-481); null when none. */
   readonly lane: LaneProgress | null;
+  /** What the office is busy with outside story runs, in the engine's order (DIPO-527, DIPO-528). */
+  readonly background: readonly BackgroundItem[];
+  /** The latest `background.changed` ticker lines with their times, newest first (DIPO-528). */
+  readonly backgroundLines: readonly BackgroundLine[];
   /**
    * The last stored cursor of the selected office stream the store applied, starting at the
    * snapshot cursor; null without an office. A client compares a command reply cursor with it to
@@ -187,6 +194,34 @@ export interface OfficeStoreState {
    * (DIPO-120).
    */
   readonly database: DatabaseUnavailableDetails | null;
+}
+
+/** One `background.changed` ticker line the engine built, with the time of its event. */
+export interface BackgroundLine {
+  readonly at: number;
+  readonly line: string;
+}
+
+/** How many ticker lines of background changes the store keeps. */
+const BACKGROUND_LINES = 3;
+
+/** The engine's order of background items: by state, then kind and ref. */
+function before(a: BackgroundItem, b: BackgroundItem): number {
+  return (
+    BACKGROUND_STATES.indexOf(a.state) - BACKGROUND_STATES.indexOf(b.state) ||
+    a.kind.localeCompare(b.kind) ||
+    a.ref.localeCompare(b.ref)
+  );
+}
+
+/** The list after a change: the item replaces its kind and ref, and the engine's order holds. */
+function withBackground(
+  list: readonly BackgroundItem[],
+  item: BackgroundItem,
+): readonly BackgroundItem[] {
+  const others = list.filter((entry) => entry.kind !== item.kind || entry.ref !== item.ref);
+  const at = others.findIndex((entry) => before(item, entry) < 0);
+  return at === -1 ? [...others, item] : [...others.slice(0, at), item, ...others.slice(at)];
 }
 
 /**
@@ -233,6 +268,8 @@ const EMPTY_OFFICE = {
   planning: null,
   planningContinuing: false,
   lane: null,
+  background: [],
+  backgroundLines: [],
   cursor: null,
 } as const;
 
@@ -522,6 +559,8 @@ export class OfficeStore {
       planning: snapshot.planning ?? null,
       planningContinuing: false,
       lane: snapshot.lane ?? null,
+      background: snapshot.background ?? [],
+      backgroundLines: [],
       cursor: snapshot.cursor,
       snapshots: this.#state.snapshots + 1,
     });
@@ -780,6 +819,19 @@ export class OfficeStore {
 
   // The office stream
 
+  /** A `background.changed` event: the item into the list, its line into the ticker's. */
+  #applyBackground(event: Event): boolean {
+    if (event.type !== backgroundChanged.type) return false;
+    const data = backgroundChanged.data.safeParse(event.data);
+    if (!data.success) return true;
+    const line = { at: Date.parse(event.at), line: data.data.line };
+    this.#update({
+      background: withBackground(this.#state.background, data.data.item),
+      backgroundLines: [line, ...this.#state.backgroundLines].slice(0, BACKGROUND_LINES),
+    });
+    return true;
+  }
+
   #applyOffice(event: Event): void {
     for (const definition of WORK_EVENTS) {
       if (event.type !== definition.type) continue;
@@ -796,6 +848,7 @@ export class OfficeStore {
         this.#update({ lane: data.data.lane.ops.length === 0 ? null : data.data.lane });
       return;
     }
+    if (this.#applyBackground(event)) return;
     switch (event.type) {
       case runEnded.type: {
         const data = runEnded.data.safeParse(event.data);

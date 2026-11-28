@@ -8,6 +8,7 @@ export {
   streamRetryDelay,
 } from "./office-store";
 export type {
+  BackgroundLine,
   OfficeEntry,
   OfficeStoreOptions,
   OutputChunk,
