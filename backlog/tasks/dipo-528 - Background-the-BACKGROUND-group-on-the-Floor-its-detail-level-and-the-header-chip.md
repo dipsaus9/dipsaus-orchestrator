@@ -3,10 +3,10 @@ id: DIPO-528
 title: >-
   Background: the BACKGROUND group on the Floor, its detail level and the header
   chip
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:38'
+updated_date: '2026-11-28 19:49'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -54,10 +54,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Floor shows BACKGROUND from the snapshot in its order, replacing the BACKLOG row
-- [ ] #2 ⏎ opens the item's level as the mocks show
-- [ ] #3 The header chip follows 07-states.txt C6
-- [ ] #4 The two screens pass expectScreen
+- [x] #1 The Floor shows BACKGROUND from the snapshot in its order, replacing the BACKLOG row
+- [x] #2 ⏎ opens the item's level as the mocks show
+- [x] #3 The header chip follows 07-states.txt C6
+- [x] #4 The two screens pass expectScreen
 <!-- AC:END -->
 
 ## Implementation Notes
