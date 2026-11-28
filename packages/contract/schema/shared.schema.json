@@ -296,7 +296,7 @@
         "args": {},
         "origin": {
           "type": "string",
-          "enum": ["cli", "tui", "conversation", "web", "other"]
+          "enum": ["cli", "tui", "chat", "conversation", "web", "other"]
         },
         "confirmed": {
           "default": false,
@@ -520,7 +520,7 @@
             "args": {},
             "origin": {
               "type": "string",
-              "enum": ["cli", "tui", "conversation", "web", "other"]
+              "enum": ["cli", "tui", "chat", "conversation", "web", "other"]
             },
             "confirmed": {
               "default": false,

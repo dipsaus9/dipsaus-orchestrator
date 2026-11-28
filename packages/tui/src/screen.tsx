@@ -9,6 +9,7 @@ import { useWindowSize } from "ink";
 import type { ReactNode } from "react";
 
 import type { useActions } from "./actions";
+import { dropTarget } from "./chat-cards";
 import { Shaded } from "./colour";
 import { footerKeys, type Hint } from "./footer";
 import { Frame, frameRows } from "./frame";
@@ -70,6 +71,13 @@ function currentRoom(mode: Mode, home: Home): Room | null {
   }
 }
 
+/** The focused chat card, as the footer's keys read it (DIPO-525). */
+function chatCardOf(planning: Planning) {
+  const focused = planning.chatCards.open.find((card) => card.n === planning.focusedCard);
+  if (focused === undefined) return null;
+  return { kind: focused.card.kind, prompt: dropTarget(focused.card)?.action ?? null };
+}
+
 /** The footer keys: a daemon screen's own, else the mode's from the registry. */
 function screenKeys(props: ScreenProps, columns: number): Hint[] {
   const { mode, state, display, home, acts, planning } = props;
@@ -87,11 +95,13 @@ function screenKeys(props: ScreenProps, columns: number): Hint[] {
       session: planning.view !== null,
       sending: planning.sending !== null,
       ending: endingKind(planning),
-      card: planning.focused !== null,
+      card: planning.focused !== null || planning.focusedCard !== null,
       editing: planning.editing,
-      cards: (planning.view?.proposals ?? []).some(
-        (p) => p.state === "open" || p.state === "failed",
-      ),
+      editingCard: planning.editingCard,
+      chatCard: chatCardOf(planning),
+      cards:
+        (planning.view?.proposals ?? []).some((p) => p.state === "open" || p.state === "failed") ||
+        planning.chatCards.open.length > 0,
       dialog:
         planning.dialog === null
           ? null

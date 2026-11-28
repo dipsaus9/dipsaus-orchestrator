@@ -385,6 +385,16 @@ export interface FooterContext {
     readonly card: boolean;
     /** The number of the proposal whose form the input holds (DIPO-450). */
     readonly editing: number | null;
+    /** The number of the chat card whose text the input holds (DIPO-525). */
+    readonly editingCard?: number | null;
+    /**
+     * The focused card is one of the chat's action cards (DIPO-525): its kind, and for a command
+     * card that names a story, the prompt `X` or `D` opens.
+     */
+    readonly chatCard?: {
+      readonly kind: string;
+      readonly prompt: "drop" | "discard" | null;
+    } | null;
     /** The session has cards: proposals that still need a decision. */
     readonly cards: boolean;
     /**
@@ -427,7 +437,9 @@ const choosing = (ctx: FooterContext) => inDialog(ctx) && ctx.planning.dialog?.t
 const inInput = (ctx: FooterContext) =>
   !ended(ctx) && ctx.planning.dialog === null && !ctx.planning.card;
 const free = (ctx: FooterContext) => inInput(ctx) && ctx.planning.editing === null;
-const saving = (ctx: FooterContext) => inInput(ctx) && ctx.planning.editing !== null;
+const saving = (ctx: FooterContext) =>
+  inInput(ctx) && (ctx.planning.editing !== null || (ctx.planning.editingCard ?? null) !== null);
+const chatCard = (ctx: FooterContext) => ctx.planning.chatCard ?? null;
 const carding = (ctx: FooterContext) =>
   !ended(ctx) && ctx.planning.dialog === null && ctx.planning.card;
 const proposing = (ctx: FooterContext) => free(ctx) && ctx.planning.cards;
@@ -497,7 +509,10 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "planningSave",
     key: "⏎",
     label: "save proposal",
-    text: (ctx) => `save proposal ${ctx.planning.editing}`,
+    text: (ctx) =>
+      ctx.planning.editingCard == null
+        ? `save proposal ${ctx.planning.editing}`
+        : `save card ${ctx.planning.editingCard}`,
     views: ["planning"],
     when: saving,
     priority: NEVER,
@@ -554,6 +569,10 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "cardConfirm",
     key: "c",
     label: "confirm",
+    text: (ctx) => {
+      const card = chatCard(ctx);
+      return card === null ? "confirm" : card.kind === "command" ? "copy" : "send";
+    },
     views: ["planning"],
     when: carding,
     priority: NEVER,
@@ -563,15 +582,33 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     key: "e",
     label: "edit",
     views: ["planning"],
-    when: carding,
+    when: (ctx) => carding(ctx) && chatCard(ctx)?.kind !== "command",
     priority: 90,
   },
   {
     id: "cardDecline",
     key: "x",
     label: "decline",
+    text: (ctx) => (chatCard(ctx) === null ? "decline" : "drop"),
     views: ["planning"],
-    when: carding,
+    when: (ctx) =>
+      carding(ctx) && !(chatCard(ctx)?.kind === "command" && chatCard(ctx)?.prompt !== null),
+    priority: 88,
+  },
+  {
+    id: "cardDropStory",
+    key: "X",
+    label: "drop",
+    views: ["planning"],
+    when: (ctx) => carding(ctx) && chatCard(ctx)?.prompt === "drop",
+    priority: 88,
+  },
+  {
+    id: "cardDiscardStory",
+    key: "D",
+    label: "discard",
+    views: ["planning"],
+    when: (ctx) => carding(ctx) && chatCard(ctx)?.prompt === "discard",
     priority: 88,
   },
   {

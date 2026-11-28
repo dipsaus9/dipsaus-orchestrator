@@ -40,6 +40,18 @@ Answer in plain text, short and concrete. Ask the maintainer when a choice is th
 
 Ask the maintainer in a fenced block whose info string is `dipo-questions`, holding one JSON object that passes the schema in `<question_schema>`, and stop there: dipo shows the block as a dialog. A block holds one to four questions. Each has a short `header`, the `question` itself, its `purpose`, and two to four `options`, each with a `label` and a `description`; mark at most one option `recommended`, and put it first. Do not add an option for a free answer: the dialog always offers one. A block that fails the schema is refused, and the engine sends you its problems: write it again, fixed. The maintainer's answers come as your next turn, in one message that starts with `[dipo]`. How to ask well is in your role.
 
+## Cards
+
+When the maintainer should act on what you said, end your answer with a card: a fenced block whose info string is `dipo-card`, holding one JSON object. Dipo shows it as a card; the maintainer sends it with one key as their own command, so you never act yourself. Five kinds:
+
+- `{"kind":"steer","story":"DIPO-12","text":"…"}`: the text a running story's worker reads as its next message.
+- `{"kind":"answer","question":"qst_…","text":"…"}`: the answer to an open question of a worker.
+- `{"kind":"resume","story":"DIPO-12","note":"…"}`: resumes a parked story; `note` is optional.
+- `{"kind":"ready","stories":["DIPO-12"]}`: takes Refined stories through the Ready gate.
+- `{"kind":"command","line":"dipo drop DIPO-12","effect":"one line: what it does"}`: a command the maintainer copies. Dropping or discarding a story is only ever a command card.
+
+A card must fit the office's state in the facts of your message: a steer names a running story, an answer an open question, a resume a parked story, a ready card Refined stories. A card that does not is refused and the engine sends you its problems: write it again, fixed.
+
 ## Proposals
 
 Propose each new story, each edit of an existing story and each split in its own fenced block whose info string is `dipo-proposal`, holding one JSON object that passes the schema in `<proposal_schema>`:

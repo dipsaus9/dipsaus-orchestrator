@@ -50,7 +50,7 @@ import { useKeys, useQuitKey } from "./input";
 import { type MouseEvent, useMouse } from "./mouse";
 import { type ReadDigest } from "./digest";
 import type { ActionId } from "./keys";
-import { initialMode, modeReducer, typesText } from "./mode";
+import { initialMode, type ModeAction, modeReducer, typesText } from "./mode";
 import { useOverlays } from "./overlays";
 import { usePlanning } from "./planning";
 import { type ReadRetro, useRetro } from "./retro";
@@ -247,6 +247,26 @@ function useDeskMouse(state: OfficeStoreState, free: boolean, home: Home): void 
   });
 }
 
+/**
+ * What the planning view needs of the app besides the store: its way home and to itself, and for the
+ * chat's cards the clock and the drop and discard prompts (DIPO-525).
+ */
+function planningArgs(
+  clock: Clock,
+  dispatch: (action: ModeAction) => void,
+  acts: ReturnType<typeof useActions>,
+) {
+  return {
+    leave: () => dispatch({ type: "home" }),
+    open: () => dispatch({ type: "planning" }),
+    clock,
+    startPrompt: (action: "drop" | "discard", story: string) => {
+      dispatch({ type: "home" });
+      return acts.start(action, { story });
+    },
+  };
+}
+
 export function App(props: AppProps) {
   const { store, clock, display, actions } = props;
   const state = useBatchedState(store, clock);
@@ -274,11 +294,7 @@ export function App(props: AppProps) {
   });
   const shared = { store, actions, state, setMessage, refusedOffline };
   useDeskMouse(state, mode.kind === "home" && acts.flow === null, home);
-  const planning = usePlanning({
-    ...shared,
-    leave: goHome,
-    open: () => dispatch({ type: "planning" }),
-  });
+  const planning = usePlanning({ ...shared, ...planningArgs(clock, dispatch, acts) });
   const ro = { store, actions, state, leave: goHome };
   const retro = useRetro({ ...ro, active: mode.kind === "retro", discuss: planning.discuss });
   const roles = useRoles({ ...ro, active: mode.kind === "roles", chat: planning.startRoles });
