@@ -3,10 +3,10 @@ id: DIPO-522
 title: >-
   Decide in ADR 0024 that each office has one standing chat in threads, led by
   context
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 16:50'
+updated_date: '2026-11-28 18:13'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -19,6 +19,10 @@ references:
   - docs/decisions/0009-tui.md
   - docs/design/chat-and-activity/spec.md
   - docs/design/chat-and-activity/migration.md
+modified_files:
+  - docs/decisions/0003-milestones-and-quality-bar.md
+  - docs/decisions/0022-planning-sessions.md
+  - docs/decisions/0024-office-chat.md
 priority: high
 type: spike
 ordinal: 483000
@@ -44,9 +48,24 @@ unknowns:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 0024 opens with the chat's purpose as spec.md "What the chat is for" states it: explain, help decide, help fix, plan, improve the process; never act, never a second dashboard, never a replacement for keys, never a guess
-- [ ] #2 docs/decisions/0024-office-chat.md decides one standing chat per office in threads, closed by /end or a day idle
-- [ ] #3 It replaces the session kind with context and lists the facts code builds per room; it decides the five action cards, their confirm and origin chat, and that drop and discard are never cards that run
-- [ ] #4 0022 is rewritten where it changed and has its Replaced line; the maintainer approved the decision
-- [ ] #5 docs/decisions/0003-milestones-and-quality-bar.md names the chat as the M5 conversation layer and points to 0024
+- [x] #1 0024 opens with the chat's purpose as spec.md "What the chat is for" states it: explain, help decide, help fix, plan, improve the process; never act, never a second dashboard, never a replacement for keys, never a guess
+- [x] #2 docs/decisions/0024-office-chat.md decides one standing chat per office in threads, closed by /end or a day idle
+- [x] #3 It replaces the session kind with context and lists the facts code builds per room; it decides the five action cards, their confirm and origin chat, and that drop and discard are never cards that run
+- [x] #4 0022 is rewritten where it changed and has its Replaced line; the maintainer approved the decision
+- [x] #5 docs/decisions/0003-milestones-and-quality-bar.md names the chat as the M5 conversation layer and points to 0024
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-28 18:13 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 84,639 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
