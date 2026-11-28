@@ -1,6 +1,6 @@
 === C8 Queue · plan: every open story by milestone (chat hidden with \) · 112 cols × 30 rows ===
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                                [ok]●[/] daemon live[dim]    $6.40 today    14:02[/]
-[dim]1 Desk [acc]2[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]2·2[/]__[/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]                                   [dim]now[/]  [hi]__plan__[/]
+[dim]1 Desk [acc]2[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]2·2[/]__[/]    [dim]4 Retro[/]                                                        [dim]now[/]  [hi]__plan__[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   [hi]**M3 Rituals**[/]                            [ok]━━━━━━━━━━━━━━[/][faint][/][dim] 36/36  [/][faint]│[/]  [dim]MILESTONE · M5 Conversation[/]
 [ok]    ✓ all 36 done[/]                                             [faint]│[/]  [hi]**The chat: dipo's voice in every room, mapping**[/]

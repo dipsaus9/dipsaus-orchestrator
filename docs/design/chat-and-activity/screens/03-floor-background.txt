@@ -1,6 +1,6 @@
 === C3 Floor: the BACKGROUND group, the header chip and the chat line (chat hidden with \) · 112 cols × 30 rows ===
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                    [err]✗[/] 1 failed in background    [ok]●[/] daemon live[dim]    $5.12 today    10:31[/]
-[dim]1 Desk [acc]1[/][/]    [hi]__2 Floor [acc]1[/]__[/]    [dim]3 Queue [acc]0·1[/][/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]
+[dim]1 Desk [acc]1[/][/]    [hi]__2 Floor [acc]1[/]__[/]    [dim]3 Queue [acc]0·1[/][/]    [dim]4 Retro[/]                     
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [hi]**RUNNING**[/]                                                                                             [dim]1 of 3 slots[/]
 

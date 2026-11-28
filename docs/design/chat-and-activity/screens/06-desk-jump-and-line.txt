@@ -1,6 +1,6 @@
 === C4 Desk: the attention count, a question and the chat line (chat hidden with \) · 112 cols × 30 rows ===
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator     [acc]![/] 4 for you    [err]✗[/] 1 failed in background    [ok]●[/] daemon live[dim]    $5.40 today    11:05[/]
-[hi]__1 Desk [acc]2[/]__[/]    [dim]2 Floor [acc]1[/][/]    [dim]3 Queue [acc]0·1[/][/]    [dim]4 Retro[/]    [dim]5 Chat [acc]1[/][/]    [dim]6 Roles[/]
+[hi]__1 Desk [acc]2[/]__[/]    [dim]2 Floor [acc]1[/][/]    [dim]3 Queue [acc]0·1[/][/]    [dim]4 Retro[/]                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [hi]**NEEDS YOU**[/]                                  [acc]2  [/][faint]│[/]  [dim]QUESTION · worker waiting 3m · build, loop 3[/]
                                               [faint]│[/]  [hi]**DIPO-512 Should acquire delete a stale pid file?**[/]
@@ -30,6 +30,6 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [acc]↑↓[/] move   [acc]a[/] answer   [acc]`[/] ask dipo   [acc]p[/] park   [acc]⏎[/] open story                             [dim][acc]![/] next   [acc]:[/] commands   [acc]?[/] keys[/]
 --- notes ---
-`! 3 for you` (acc glyph, fg words) is the attention list: Desk items in engine order, then background failures, then chat answers you haven't seen. `!` goes to the first and marks it seen, `!` again to the next; `'` returns to where you were before the first jump. Here, in order: this question, DIPO-506, PR #698 on the Floor, then the answer in Chat (the `1` after `5 Chat`).
+`! 3 for you` (acc glyph, fg words) is the attention list: Desk items in engine order, then background failures, then chat answers you haven't seen. `!` goes to the first and marks it seen, `!` again to the next; `'` returns to where you were before the first jump. Here, in order: this question, DIPO-506, PR #698 on the Floor, then the answer in Chat (counted in the chat line's `◆ 1 new answer in Chat`; the rooms row shows rooms 1 to 4 only, answer of 2026-11-28).
 `Ask dipo first` is a button like the others (faint border, key in acc). It opens the dock with this question as the context; the chat can answer with an answer card (`c` sends `work.answer` as the maintainer, `e` edits it first).
 Everything else on this screen is 01-desk.txt: the NEEDS YOU heading, the group headers, the two-row items, the preview, the cli line.

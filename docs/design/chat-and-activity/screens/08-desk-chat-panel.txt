@@ -1,6 +1,6 @@
 === C7 Desk with the chat panel on (154 columns or wider) · the keyboard in the room · 154 cols × 30 rows ===
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                                      [acc]![/] 2 for you    [acc]◌[/] 2 in background    [ok]●[/] daemon live[dim]    $6.02 today    13:12[/]
-[hi]__1 Desk [acc]2[/]__[/]    [dim]2 Floor [acc]1[/][/]    [dim]3 Queue [acc]1·2[/][/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]
+[hi]__1 Desk [acc]2[/]__[/]    [dim]2 Floor [acc]1[/][/]    [dim]3 Queue [acc]1·2[/][/]    [dim]4 Retro[/]                     
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [hi]**NEEDS YOU**[/]                                  [acc]2  [/][faint]│[/]  [dim]MERGE · waits for you[/]                            [faint]│[/]  [dim]in Desk · on DIPO-446 · MERGE[/]
                                               [faint]│[/]  [hi]**DIPO-446 Planning tools for workers**[/]              [faint]│[/]
