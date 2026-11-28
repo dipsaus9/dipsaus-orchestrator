@@ -90,13 +90,62 @@ describe("the footer registry", () => {
     expect(keys("desk")).toContain("O");
     expect(keys("desk")).not.toContain("o");
     expect(keys("checklist")).toEqual(["↑↓", "space", "y", "n", "esc", "q q"]);
-    expect(keys("detail")).toContain("z");
+    // `z` still expands the stream, but the Run's mock leaves it out of the footer.
+    expect(keys("detail")).not.toContain("z");
+    for (const view of ["desk", "queue", "detail"] as const) expect(keys(view)).toContain("c");
+    for (const view of ["desk", "queue"] as const) expect(keys(view)).toContain("q q");
     for (const view of ["desk", "overview", "queue", "detail", "card"] as const) {
-      expect(keys(view)).toContain("c");
-      expect(keys(view)).toContain("q q");
       // `p` is park now; privacy lives in the settings, and the digits are the rooms band's.
       expect(texts(view)).not.toContain("p privacy");
       expect(keys(view).some((key) => /^[1-6]$/.test(key))).toBe(false);
+    }
+  });
+
+  it("ends the Floor, the Run and the story reader as their mocks do (DIPO-530)", () => {
+    const running = { ...ctx };
+    expect(line("overview", 112, running)).toMatch(
+      /^↑↓ move {3}⏎ watch run +: commands {3}\? keys$/,
+    );
+    expect(texts("detail")).toEqual([
+      "v stream",
+      "↑↓ scroll",
+      "G follow",
+      "c copy id",
+      "esc back",
+      "? keys",
+    ]);
+    expect(texts("card")).toEqual([
+      "←→ section",
+      "↑↓ scroll",
+      "⏎ expand round",
+      "o open on GitHub",
+      "esc back",
+      "? keys",
+    ]);
+    expect(texts("overview", { ...ctx, offline: true })).toContain("q q quit");
+  });
+
+  it("puts one space between the key and the label of every hint, ⏎ and ⌥⏎ included (DIPO-530)", () => {
+    const views = new Set(FOOTER_KEYS.flatMap((entry) => entry.views));
+    const hints = [...views].flatMap((view) =>
+      [false, true].flatMap((planning) =>
+        footerHints(view, {
+          ...ctx,
+          planningOpen: planning,
+          planning: { ...ctx.planning, session: planning, cards: planning },
+        }),
+      ),
+    );
+    hints.push(
+      { key: "⏎", label: "send", priority: 1 },
+      { key: "⌥⏎", label: "new line", priority: 1 },
+    );
+    expect(hints.some((hint) => hint.key.includes("⏎"))).toBe(true);
+    for (const hint of hints) {
+      if (hint.key === "") continue;
+      expect(hintText(hint)).toBe(`${hint.key} ${hint.label}`);
+      expect(hint.label).not.toStartWith(" ");
+      expect(hint.key).not.toEndWith(" ");
     }
   });
 

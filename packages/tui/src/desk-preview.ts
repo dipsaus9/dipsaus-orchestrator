@@ -10,7 +10,7 @@
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 import { KNOWN_PHASES } from "@dipsaus-orchestrator/contract";
 
-import { age, wrapWords } from "./format";
+import { age, shortModel, wrapWords } from "./format";
 import { type BoundAction, rowKeys } from "./keys";
 import { seg, type Seg, type SegLine } from "./segments";
 import { clockTime, glyphs } from "./views";
@@ -232,7 +232,7 @@ function factRows(item: DeskItem, ctx: PreviewContext): SegLine[] {
       const by =
         raiser === undefined
           ? ""
-          : ` by ${raiser.role}${raiser.model === undefined ? "" : ` (${raiser.model})`}`;
+          : ` by ${raiser.role}${raiser.model === undefined ? "" : ` (${shortModel(raiser.model)})`}`;
       rows.push(
         ...labelled("Raised", `${agoWords(ctx.now - Date.parse(item.since))}${by}`, ctx.width),
       );

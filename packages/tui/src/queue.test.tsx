@@ -129,7 +129,7 @@ describe("queue view", () => {
       /^dipo \/ dipsaus-orchestrator {3}\+1 elsewhere · O +● daemon live {4}\d\d:\d\d$/,
     );
     expect(frame.slice(1, 15)).toEqual([
-      "1 Desk 2    2 Floor 3    3 Queue 2·1    4 Retro    5 Plan    6 Roles",
+      "1 Desk 2    2 Floor 3    3 Queue 2·1    4 Retro",
       "─".repeat(119),
       "READY                                                      2  │  READY · tier S · offered as next up",
       "▌ → DIPO-30   Add park reasons to digest      S  next up      │  DIPO-30 Add park reasons to digest",
@@ -305,7 +305,7 @@ describe("queue view", () => {
 });
 
 describe("R runs stories", () => {
-  it("shows a run's started and skipped stories once, on one ticker line, and clears it on the next key", async () => {
+  it("shows a run's started and skipped stories on one ticker line, as an event with its time (DIPO-530)", async () => {
     const { ui, session } = await openQueue();
     session.runReply = () => ({
       ok: true,
@@ -323,13 +323,12 @@ describe("R runs stories", () => {
     const ticker = lines(done).filter((line) => line.includes("skipped"));
     expect(ticker).toHaveLength(1);
     expect(ticker[0]).toStartWith(
-      "run DIPO-30: done  ·  started DIPO-30  ·  skipped DIPO-31: a dependency is not Done (needs DIPO-21)  ·  skipp",
+      "10:04 run DIPO-30: done  ·  started DIPO-30  ·  skipped DIPO-31: a dependency is not Done (needs DIPO-21)  ·  skipp",
     );
-    // The next key clears it: no skipped list stays under the view.
+    // The next key leaves it in the ticker as the newest event, until a newer one comes.
     await ui.press("j");
     await ui.waitFor("▌ → DIPO-32");
-    expect(ui.frame()).not.toContain("skipped");
-    expect(ui.frame()).not.toContain("run DIPO-30");
+    expect(ui.frame()).toContain("10:04 run DIPO-30: done");
   });
 
   it("shows the decision at once and the story in setup from it: the answer's cursor is the decision's own entry (DIPO-456)", async () => {

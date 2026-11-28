@@ -34,7 +34,7 @@ afterEach(async () => {
 const HEADER = expect.stringMatching(
   /^dipo \/ dipsaus-orchestrator .*● daemon live {4}\d\d:\d\d$/,
 ) as unknown as string;
-const ROOMS = expect.stringMatching(/^1 Desk .*6 Roles$/) as unknown as string;
+const ROOMS = expect.stringMatching(/^1 Desk .*4 Retro$/) as unknown as string;
 const RULE = expect.stringMatching(/^─+$/) as unknown as string;
 
 function lines(frame: string): string[] {
@@ -268,6 +268,13 @@ function floorScenario() {
   return { snapshot, chain, output: new Map([[`${running.work.run}:worker`, "thinking 1.1s\n"]]) };
 }
 
+/** An idea a reviewer's finding raised, for the ticker. */
+const idea = (n: number) => ({
+  idea: `ida_01J9ZK5Q8W3V4X6Y7Z8A9B0D0${n}`,
+  origin: "finding",
+  title: "t",
+});
+
 describe("the Floor", () => {
   it("matches the ux-spec's S2: cards, pipeline lines, health-free, budget bar and UP NEXT", async () => {
     const { snapshot, chain, output } = floorScenario();
@@ -278,15 +285,53 @@ describe("the Floor", () => {
       snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
       chain,
       output,
+      now: "2026-10-14T10:42:00.000Z",
     });
     mounted.push(view.ui);
     await view.ui.waitFor("daemon live");
-    view.session.active("software")?.options.onEvent({
-      cursor: { stream: "software", seq: 90 },
-      at: "2026-10-14T10:04:00.000Z",
-      type: "office.summary",
-      data: { ...goldenHello.offices[0], slots: 3 },
-    } as Event);
+    // The office's counts, today's spend and nothing waiting in the other offices (the mock's header).
+    const summary = (office: OfficeId, seq: number, fields: object) =>
+      view.session.active("software")?.options.onEvent({
+        cursor: { stream: "software", seq },
+        at: "2026-10-14T10:04:00.000Z",
+        type: "office.summary",
+        data: { ...goldenHello.offices[0], office, ...fields },
+      } as Event);
+    summary(OFFICES.dipsaus, 90, {
+      slots: 3,
+      waitingOnMaintainer: 3,
+      running: 2,
+      ready: 0,
+      dayUsage: { tokens: 1_200_000, alert: false, estimatedCost: 19.14 },
+    });
+    summary(OFFICES.couchcade, 91, { waitingOnMaintainer: 0 });
+    summary(OFFICES.slaydoku, 92, { waitingOnMaintainer: 0 });
+    // The events of the ticker, oldest first: two proposals, a phase and a merge.
+    const office = view.session.active(STREAM);
+    const stamp = (seq: number, at: string, type: string, data: object) =>
+      office?.options.onEvent({
+        cursor: { stream: STREAM, seq },
+        at: `2026-10-14T${at}:00.000Z`,
+        type,
+        data,
+      } as Event);
+    stamp(100, "10:38", "idea.passed", idea(1));
+    stamp(101, "10:38", "idea.passed", idea(2));
+    const running = floorScenario().snapshot.work[0]!;
+    stamp(102, "10:40", "work.phase", {
+      work: running.work,
+      phase: "merge",
+      progress: running.progress,
+      view: running,
+    });
+    const merged = { ...waiting(444, 1), lifecycle: "Done", column: "done" } as StoryView;
+    stamp(103, "10:41", "story.state", {
+      story: "DIPO-444",
+      key: merged.key,
+      from: "In Review",
+      to: "Done",
+      view: merged,
+    });
     const frame = await view.ui.waitFor("When DIPO-447 merges");
     await view.ui.waitFor("1 of 3 slots");
     expectScreen(view.ui, "02-floor.txt");
@@ -478,17 +523,17 @@ describe("the Floor", () => {
     expect(reads()).toBe(before);
   });
 
-  it("keeps q q quit visible and no line wider than the terminal at every width", async () => {
+  it("keeps ? keys visible and no line wider than the terminal at every width", async () => {
     for (const columns of [120, 100, 80, 79, 70, 60]) {
       for (const rows of [30, 16]) {
         const { ui } = await open(columns, rows, boardSnapshot());
         const shown = lines(ui.frame());
-        expect(shown.at(-1)).toContain("q q quit");
+        expect(shown.at(-1)).toContain("? keys");
         expect(shown.length).toBeLessThanOrEqual(rows);
         for (const line of shown) expect(line.length).toBeLessThanOrEqual(columns);
         await ui.press("3");
         await ui.waitFor("READY");
-        expect(ui.frame()).toContain("q q quit");
+        expect(ui.frame()).toContain("? keys");
       }
     }
   });
@@ -500,7 +545,7 @@ describe("the Floor", () => {
     await ui.press("j");
     const frame = await ui.waitFor("▌ ● DIPO-19");
     expect(lines(frame).length).toBeLessThanOrEqual(16);
-    expect(frame).toContain("q q quit");
+    expect(frame).toContain("? keys");
   });
 
   it("follows a work event with a new view", async () => {
@@ -590,10 +635,10 @@ describe("opening any card (DIPO-81)", () => {
       expect.stringMatching(/^run      ended 2h ago \(completed\)   │ +all   worker/),
       expect.stringMatching(/^role     developer                  │ +says +Reading the story\./),
     ]);
-    expect(frame).toContain("model    claude-haiku");
+    expect(frame).toContain("model    haiku");
     expect(frame).toContain("usage    in 12k out 3k");
     expect(shown.at(-1)).toBe(
-      `v stream   ↑↓ scroll   G follow   z expand   c copy id${" ".repeat(46)}esc back   q q quit`,
+      `v stream   ↑↓ scroll   G follow   c copy id${" ".repeat(59)}esc back   ? keys`,
     );
     expect(session.reads).toContainEqual({
       name: "story.detail",
@@ -626,7 +671,7 @@ describe("opening any card (DIPO-81)", () => {
     await recent.ui.press("enter");
     frame = await recent.ui.waitFor(" no output stored");
     expect(frame).toContain(" run ended 2h ago (completed)  role developer");
-    expect(lines(frame).at(-1)).toContain("q q quit");
+    expect(lines(frame).at(-1)).toContain("? keys");
   });
 
   it("shows a run open at In Review as at In Review, not as ended (DIPO-373)", async () => {
@@ -666,7 +711,7 @@ describe("opening any card (DIPO-81)", () => {
     await shows(undefined, "2026-10-05T08:00:00.000Z", "no output stored");
   });
 
-  it("keeps q q quit visible in an ended run's detail at every width", async () => {
+  it("keeps ? keys visible in an ended run's detail at every width", async () => {
     for (const columns of [120, 80, 70, 60]) {
       const { ui, session } = await open(columns, 24, boardSnapshot());
       session.runs.set(KEY_28, [record28()]);
@@ -674,7 +719,7 @@ describe("opening any card (DIPO-81)", () => {
       await ui.press("enter");
       const frame = await ui.waitFor("run ended");
       const shown = lines(frame);
-      expect(shown.at(-1)).toContain("q q quit");
+      expect(shown.at(-1)).toContain("? keys");
       expect(shown.length).toBeLessThanOrEqual(24);
       for (const line of shown) expect(line.length).toBeLessThanOrEqual(columns);
     }

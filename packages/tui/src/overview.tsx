@@ -23,7 +23,7 @@ import { Box, Text } from "ink";
 import { useEffect, useState } from "react";
 
 import { type Chain, upNextSpans } from "./chain";
-import { elapsed, truncate } from "./format";
+import { elapsed, shortModel, truncate } from "./format";
 import type { LatestLines } from "./latest";
 import { backlogText, opStateWords } from "./lane";
 import { boardNowParts } from "./now";
@@ -186,6 +186,24 @@ interface FloorOptions {
   readonly backlogOpen?: boolean;
 }
 
+/** The criteria line of a running story: met of total, the review round and its verdict, the model. */
+function criteriaSpans(view: WorkView, g: ReturnType<typeof glyphs>): Span[] {
+  const { criteriaMet, criteriaTotal, reviewRound } = view.progress;
+  const complete = criteriaTotal > 0 && criteriaMet === criteriaTotal;
+  // The review passed once the story is past it (spec.md, Floor).
+  const approved = reviewRound > 0 && (view.phase === "test" || view.phase === "merge");
+  return [
+    { text: "criteria ", role: "dim" },
+    {
+      text: `${criteriaMet}/${criteriaTotal}${complete ? ` ${g.met}` : ""}`,
+      role: complete ? "ok" : undefined,
+    },
+    { text: reviewRound > 0 ? ` ${g.dot} review round ${reviewRound}` : "", role: "dim" },
+    ...(approved ? [{ text: " approved", role: "ok" as const }] : []),
+    { text: ` ${g.dot} ${shortModel(view.work.model)}`, role: "dim" },
+  ];
+}
+
 /** The card of one story: four lines for a running story, three for one in review. */
 function cardLines(
   kind: "running" | "review",
@@ -213,7 +231,7 @@ function cardLines(
       kind === "running" ? { text: g.live, role: "ok" } : { text: g.idle, role: "acc" },
       { text: " " },
       { text: String(story.story).padEnd(10), role: "dim" },
-      { text: truncate(story.title, titleRoom, g.ellipsis), role: "hi" },
+      { text: truncate(story.title, titleRoom, g.ellipsis), role: selected ? "hi" : undefined },
     ],
     [{ text: `${time} `, role: "dim" }],
   );
@@ -278,22 +296,7 @@ function cardLines(
         ],
       ),
     );
-    const { criteriaMet, criteriaTotal, reviewRound } = view.progress;
-    const complete = criteriaTotal > 0 && criteriaMet === criteriaTotal;
-    lines.push(
-      line(3, [
-        { text: indent },
-        { text: "criteria ", role: "dim" },
-        {
-          text: `${criteriaMet}/${criteriaTotal}${complete ? ` ${g.met}` : ""}`,
-          role: complete ? "ok" : undefined,
-        },
-        {
-          text: `${reviewRound > 0 ? ` ${g.dot} review round ${reviewRound}` : ""} ${g.dot} ${view.work.model}`,
-          role: "dim",
-        },
-      ]),
-    );
+    lines.push(line(3, [{ text: indent }, ...criteriaSpans(view, g)]));
   }
   return lines;
 }

@@ -42,7 +42,7 @@ import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { composerRows } from "./composer";
-import { budgetBar, elapsed, truncate } from "./format";
+import { budgetBar, elapsed, shortModel, truncate } from "./format";
 import type { Display } from "./options";
 import { endedLine, shortAge } from "./now";
 import { pipelineSpans } from "./pipeline";
@@ -249,7 +249,7 @@ export function factRows(view: WorkView, width: number, ascii: boolean): Span[][
       { text: bar.repeat(BUDGET_BAR_CELLS - filled), role: "faint" },
     ],
     [],
-    row("MODEL", view.work.model),
+    row("MODEL", shortModel(view.work.model)),
     row("RUN", run.length > 12 ? `${g.ellipsis}${run.slice(-10)}` : run),
   ];
   return rows.map((spans) => cutSpans(spans, width));
@@ -721,7 +721,9 @@ export function Detail(props: DetailProps) {
           )}
         />
       )}
-      <Text wrap="truncate-end">{rule.repeat(columns)}</Text>
+      <Colored display={display} role="faint" wrap="truncate-end">
+        {rule.repeat(columns)}
+      </Colored>
       {ended === undefined ? null : (
         <Colored display={display} role="dim" wrap="truncate-end">
           {` ${truncate(endedLine(ended, dot, record), columns - 1, ellipsis)}`}

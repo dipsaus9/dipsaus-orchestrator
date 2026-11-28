@@ -147,7 +147,8 @@ export function footerKeys(
     if (extras.retry || (run?.status === "failed" && run.error?.retryable === true)) {
       hints.push({ key: "^R", label: "retry", priority: 80 });
     }
-    hints.push(...extras.row);
+    // The Floor reads move and open first, then the focused run's verbs (02-floor.txt).
+    if (shown !== "overview") hints.push(...extras.row);
   }
   hints.push(
     ...footerHints(shown, {
@@ -160,6 +161,7 @@ export function footerKeys(
       narrow: width < 99,
     }),
   );
+  if (shown === "overview" && !offline) hints.push(...extras.row);
   if (!offline) return fit(hints);
   // Offline the keys read as one line: `↑↓ move   ⏎ read   q q quit   actions off while offline`.
   const reading = hints.map((hint): Hint => ({

@@ -23,7 +23,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { Box } from "ink";
 
-import { age, wrapWords } from "./format";
+import { age, shortModel, wrapWords } from "./format";
 import type { Display } from "./options";
 import { parkWords } from "./desk";
 import { fitLine, type Seg, type SegLine, SegRow, seg, spread } from "./segments";
@@ -256,7 +256,7 @@ function runsSection(runs: readonly RunRecord[]): SegLine[] {
       ...hanging(
         [seg(`${run.role} `, "hi", true)],
         READER_MEASURE,
-        `${run.model} · tier ${run.tier} · started ${clockTime(Date.parse(run.startedAt))} · ${ended}${run.outcome === undefined ? "" : ` · ${run.outcome}`}`,
+        `${shortModel(run.model)} · tier ${run.tier} · started ${clockTime(Date.parse(run.startedAt))} · ${ended}${run.outcome === undefined ? "" : ` · ${run.outcome}`}`,
         "dim",
       ),
     );

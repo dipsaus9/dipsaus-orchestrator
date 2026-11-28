@@ -195,6 +195,15 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     views: ["desk"],
   },
   {
+    id: "steer",
+    label: "steer",
+    priority: 72,
+    command: "work.steer",
+    when: offered("work.steer"),
+    key: "s",
+    views: ["detail", "overview"],
+  },
+  {
     id: "park",
     button: "Park…",
     why: "nothing to park",
@@ -203,7 +212,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "story.park",
     when: offered("story.park"),
     key: "p",
-    views: ["desk", "detail", "queue"],
+    views: ["desk", "detail", "overview", "queue"],
   },
   {
     id: "drop",
@@ -236,15 +245,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     when: offered("work.discard"),
     key: "D",
     views: ["desk"],
-  },
-  {
-    id: "steer",
-    label: "steer",
-    priority: 72,
-    command: "work.steer",
-    when: offered("work.steer"),
-    key: "s",
-    views: ["detail"],
   },
   // Stopping a run has no key (0009): it is a palette row, which asks first (`actions.ts`).
   {
@@ -340,7 +340,7 @@ export function viewKeys(view: ActionView, ctx?: RowContext): KeyBinding[] {
     (entry) =>
       entry.views.includes(view) &&
       (ctx === undefined || entry.when(ctx)) &&
-      (view !== "detail" || entry.id === "steer" || entry.id === "park") &&
+      ((view !== "detail" && view !== "overview") || entry.id === "steer" || entry.id === "park") &&
       (view !== "queue" || entry.id === "park" || entry.id === "drop" || entry.id === "ready") &&
       (view !== "desk" || entry.id === "idea"),
   );
@@ -412,9 +412,10 @@ export interface FooterKey {
   readonly side?: "left" | "right";
   /** The palette's row for the key on the focused item, such as `Expand stream to full screen`. */
   readonly palette?: string;
+  /** True when the key works but the screen's mock leaves it out of the footer. */
+  readonly hidden?: boolean;
 }
 
-const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
 const NEVER = 100;
 const asking = (ctx: FooterContext) => ctx.planning.ending === "ask";
 const listed = (ctx: FooterContext) => ctx.planning.ending === "listed";
@@ -705,7 +706,6 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "cardScroll", key: "↑↓", label: "scroll", views: ["card"], priority: 30 },
   { id: "cardExpand", key: "⏎", label: "expand round", views: ["card"], priority: 50 },
   { id: "cardOpen", key: "o", label: "open on GitHub", views: ["card"], priority: 40 },
-  { id: "cardCopy", key: "c", label: "copy id", views: ["card"], priority: 20 },
 
   { id: "detailStreams", key: "v", label: "stream", views: ["detail"], priority: 75 },
   { id: "detailScroll", key: "↑↓", label: "scroll", views: ["detail"], priority: 35 },
@@ -717,6 +717,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     views: ["detail"],
     priority: 25,
     palette: "Expand stream to full screen",
+    hidden: true,
   },
   {
     id: "detailCopy",
@@ -769,7 +770,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   {
     id: "deskOpen",
     key: "⏎",
-    label: "open",
+    label: "watch run",
     views: ["overview"],
     when: (ctx) => ctx.hasRow,
     priority: 60,
@@ -787,7 +788,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "deskCopy",
     key: "c",
     label: "copy id",
-    views: ["desk", "overview"],
+    views: ["desk"],
     when: (ctx) => ctx.hasRow,
     priority: 15,
   },
@@ -806,7 +807,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "plan",
     key: "5",
     label: "plan",
-    views: HOME_VIEWS,
+    views: ["desk", "queue", "settings", "checklist"],
     when: (ctx) => ctx.planningOpen,
     priority: 10,
     side: "right",
@@ -823,23 +824,33 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "help",
     key: "?",
     label: "keys",
-    views: ["overview", "desk", "queue"],
-    priority: 32,
+    views: ["overview", "desk", "queue", "detail", "card"],
+    priority: 95,
     side: "right",
   },
   {
     id: "offices",
     key: "O",
     label: "offices",
-    views: ["overview", "desk", "queue"],
+    views: ["desk", "queue"],
     priority: 40,
+    side: "right",
+  },
+  // The mocks of the Floor, the Run and the story reader end in `? keys`; offline `q q quit` stays.
+  {
+    id: "quitOffline",
+    key: "q q",
+    label: "quit",
+    views: ["overview", "detail", "card"],
+    when: (ctx) => ctx.offline,
+    priority: NEVER,
     side: "right",
   },
   {
     id: "quit",
     key: "q q",
     label: "quit",
-    views: ["switcher", "card", "detail", "retro", "roles", ...HOME_VIEWS],
+    views: ["switcher", "retro", "roles", "desk", "queue", "settings", "checklist"],
     priority: NEVER,
     side: "right",
   },
@@ -865,6 +876,7 @@ const OFFLINE_KEYS: ReadonlySet<string> = new Set([
   "rolesScroll",
   "back",
   "quit",
+  "quitOffline",
 ]);
 
 /** A footer hint: the key in acc, its label, and the side it prints on (DIPO-458). */
@@ -884,6 +896,7 @@ export function footerHints(view: FooterView, ctx: FooterContext): Hint[] {
   return FOOTER_KEYS.filter(
     (entry) =>
       entry.views.includes(view) &&
+      entry.hidden !== true &&
       (entry.when?.(ctx) ?? true) &&
       (!ctx.offline || OFFLINE_KEYS.has(entry.id)),
   ).map((entry) => ({

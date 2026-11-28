@@ -37,7 +37,7 @@ afterEach(async () => {
 const HEADER = expect.stringMatching(
   /^dipo \/ dipsaus-orchestrator .*● daemon live {4}\d\d:\d\d$/,
 ) as unknown as string;
-const ROOMS = expect.stringMatching(/^1 Desk .*6 Roles$/) as unknown as string;
+const ROOMS = expect.stringMatching(/^1 Desk .*4 Retro$/) as unknown as string;
 const RULE = expect.stringMatching(/^─+$/) as unknown as string;
 const keys = (pattern: RegExp) => expect.stringMatching(pattern) as unknown as string;
 
@@ -122,10 +122,10 @@ describe("live agent detail", () => {
       "BUDGET    78% of 300k       │                oxlint: ok",
       "━━━━━━━━━━━━━━━━━━━━━━━━━   │                tsc -b: ok",
       "                            │                FAIL test/retry.test.ts > caps at 3 retries",
-      "MODEL     claude-sonnet     │                  expected 3, received 4",
+      "MODEL     sonnet            │                  expected 3, received 4",
       RULE,
       keys(
-        /^p park {3}s steer {3}v stream {3}↑↓ scroll {3}G follow {3}z expand {3}c copy id +esc back {3}q q quit$/,
+        /^s steer {3}p park {3}v stream {3}↑↓ scroll {3}G follow {3}c copy id +esc back {3}\? keys$/,
       ),
     ]);
     // The tail came from work.outputRange reads to the end; the live text came from the stream.
@@ -262,16 +262,16 @@ describe("live agent detail", () => {
     }
     const expanded = ui.frame();
     expect(expanded).not.toContain("dipo / ");
-    expect(expanded).not.toContain("q q quit");
+    expect(expanded).not.toContain("esc back");
     expect(expanded).toContain("following");
     expect(lines(expanded).length).toBeLessThanOrEqual(24);
     await ui.press("escape");
-    await ui.waitFor("q q quit");
+    await ui.waitFor("esc back");
     // Esc closed only the expansion: the detail is still open.
     await ui.waitFor("following");
     await ui.press("z");
     await ui.press("z");
-    await ui.waitFor("q q quit");
+    await ui.waitFor("esc back");
   });
 
   it("reads the gap when a work.output range was missed", async () => {

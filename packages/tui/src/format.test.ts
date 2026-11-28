@@ -2,7 +2,16 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { elapsed, gateLine, shortRole, skipReason, tickerLines, truncate, widthOf } from "./format";
+import {
+  elapsed,
+  gateLine,
+  shortModel,
+  shortRole,
+  skipReason,
+  tickerLines,
+  truncate,
+  widthOf,
+} from "./format";
 
 describe("format", () => {
   it("picks the 0009 width breakpoints", () => {
@@ -61,5 +70,15 @@ describe("tickerLines", () => {
     expect(rows.slice(0, 2).every((row) => row.length <= 20 && !row.endsWith("…"))).toBe(true);
     expect(rows[2]).toHaveLength(20);
     expect(rows[2]?.endsWith("…")).toBe(true);
+  });
+});
+
+describe("shortModel", () => {
+  it("prints the model as the mocks do (DIPO-530)", () => {
+    expect(shortModel("claude-opus-5-5")).toBe("opus-5.5");
+    expect(shortModel("claude-sonnet-5-5")).toBe("sonnet-5.5");
+    expect(shortModel("claude-haiku-4-5-20251001")).toBe("haiku-4.5");
+    expect(shortModel("claude-sonnet")).toBe("sonnet");
+    expect(shortModel("opus-5.5")).toBe("opus-5.5");
   });
 });

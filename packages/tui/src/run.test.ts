@@ -63,7 +63,7 @@ describe("runTui", () => {
   it("opens the office of the current directory and quits on q twice, restoring the terminal", async () => {
     const { terminal, session, deps, waitScreen } = setup();
     const running = runTui([], deps);
-    await waitScreen("dipo / dipsaus-orchestrator");
+    await waitScreen("dipsaus-orchestrator");
     await terminal.press("q");
     await terminal.press("q");
     expect(await running).toBe(0);
@@ -77,7 +77,7 @@ describe("runTui", () => {
   it("restores the terminal on SIGTERM", async () => {
     const { terminal, session, signals, deps, waitScreen } = setup();
     const running = runTui([], deps);
-    await waitScreen("dipo / dipsaus-orchestrator");
+    await waitScreen("dipsaus-orchestrator");
     signals.get("SIGTERM")?.();
     expect(await running).toBe(143);
     expect(terminal.raw()).toContain(LEAVE_ALT);
@@ -89,7 +89,7 @@ describe("runTui", () => {
   it("restores the terminal on Ctrl+C", async () => {
     const { terminal, deps, waitScreen } = setup();
     const running = runTui([], deps);
-    await waitScreen("dipo / dipsaus-orchestrator");
+    await waitScreen("dipsaus-orchestrator");
     await terminal.press("ctrl-c");
     expect(await running).toBe(0);
     expect(terminal.raw()).toContain(LEAVE_ALT);
@@ -99,7 +99,7 @@ describe("runTui", () => {
   it("--inline stays out of the alternate screen", async () => {
     const { terminal, deps, waitScreen } = setup();
     const running = runTui(["--inline", "--ascii"], deps);
-    await waitScreen("dipo / dipsaus-orchestrator");
+    await waitScreen("dipsaus-orchestrator");
     await terminal.press("ctrl-c");
     expect(await running).toBe(0);
     expect(terminal.raw()).not.toContain(ENTER_ALT);
@@ -169,7 +169,7 @@ describe("runTui mouse reporting (DIPO-515)", () => {
   it("turns SGR press and wheel reporting on at start and off after q twice", async () => {
     const { terminal, deps, waitScreen } = setup();
     const running = runTui([], deps);
-    await waitScreen("dipo / dipsaus-orchestrator");
+    await waitScreen("dipsaus-orchestrator");
     expect(terminal.raw()).toContain(ON);
     expect(terminal.raw()).not.toContain(OFF);
     await terminal.press("q");
@@ -181,13 +181,13 @@ describe("runTui mouse reporting (DIPO-515)", () => {
   it("turns it off on Ctrl+C and on SIGTERM", async () => {
     const first = setup();
     const ctrlC = runTui([], first.deps);
-    await first.waitScreen("dipo / dipsaus-orchestrator");
+    await first.waitScreen("dipsaus-orchestrator");
     await first.terminal.press("ctrl-c");
     await ctrlC;
     expect(first.terminal.raw()).toContain(OFF);
     const second = setup();
     const term = runTui([], second.deps);
-    await second.waitScreen("dipo / dipsaus-orchestrator");
+    await second.waitScreen("dipsaus-orchestrator");
     second.signals.get("SIGTERM")?.();
     await term;
     expect(second.terminal.raw()).toContain(OFF);
@@ -203,7 +203,7 @@ describe("runTui mouse reporting (DIPO-515)", () => {
         return () => exits.delete(handler);
       },
     });
-    await waitScreen("dipo / dipsaus-orchestrator");
+    await waitScreen("dipsaus-orchestrator");
     expect(exits.size).toBe(1);
     for (const handler of exits) handler();
     expect(terminal.raw()).toContain(OFF);
@@ -221,7 +221,7 @@ describe("runTui mouse reporting (DIPO-515)", () => {
         suspended += 1;
       },
     });
-    await waitScreen("dipo / dipsaus-orchestrator");
+    await waitScreen("dipsaus-orchestrator");
     const count = (text: string) => terminal.raw().split(text).length - 1;
     expect(count(ON)).toBe(1);
     signals.get("SIGTSTP")?.();
@@ -240,7 +240,7 @@ describe("runTui mouse reporting (DIPO-515)", () => {
     for (const flag of ["--no-mouse", "--inline"]) {
       const { terminal, signals, deps, waitScreen } = setup();
       const running = runTui([flag], deps);
-      await waitScreen("dipo / dipsaus-orchestrator");
+      await waitScreen("dipsaus-orchestrator");
       expect(signals.has("SIGTSTP")).toBe(false);
       await terminal.press("ctrl-c");
       await running;

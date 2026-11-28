@@ -256,10 +256,6 @@ export function screenDiff(expected: Screen, got: Screen): CellDiff[] {
 export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readonly string[] }>> = {
   "01-desk.txt#S1b Desk: a full day, every kind (setup first, then engine order; MERGE in focus; a planning session open) · ux-spec mock 2":
     { story: "DIPO-530" },
-  "02-floor.txt#S2 Floor: what the team is doing · ux-spec mock 8": {
-    story: "DIPO-530",
-    cells: ["1", "2", "9", "13", "22", "23", "28", "29", "30"],
-  },
   "03-run.txt#S3 Run: watch and steer a live box · ux-spec mock 13": { story: "DIPO-530" },
   "03-run.txt#S7 Steer open at the foot of the stream, then the sent `you` line · ux-spec mock 21":
     { story: "DIPO-530" },
@@ -294,7 +290,7 @@ export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readon
   },
   "07-plan.txt#S2d Plan: a conversation with the planner · ux-spec mock 11, changed by DIPO-487": {
     story: "DIPO-530",
-    cells: ["1", "6", "15", "16", "17", "28:2-2"],
+    cells: ["1", "15", "16", "17", "28:2-2"],
   },
   "08-offices.txt#S2e Offices · ux-spec mock 12": { story: "DIPO-530" },
   "09-palette.txt#S5 Command palette over the Floor (body behind in shade) · ux-spec mock 15": {

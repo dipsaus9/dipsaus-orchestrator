@@ -28,6 +28,7 @@ export function glyphs(ascii: boolean) {
     failed: ascii ? "x" : "✗",
     met: ascii ? "+" : "✓",
     done: ascii ? "=" : "━",
+    arrow: ascii ? "->" : "→",
   };
 }
 
@@ -294,13 +295,12 @@ export function Header(props: {
 /** The rooms of an office, with the keys that switch to them. */
 export type Room = "desk" | "floor" | "queue" | "retro" | "plan" | "roles";
 
+// The band shows rooms 1 to 4 only; 5 (Plan) and 6 (Roles) keep their keys and palette rows.
 const ROOMS: readonly { readonly room: Room; readonly key: string; readonly name: string }[] = [
   { room: "desk", key: "1", name: "Desk" },
   { room: "floor", key: "2", name: "Floor" },
   { room: "queue", key: "3", name: "Queue" },
   { room: "retro", key: "4", name: "Retro" },
-  { room: "plan", key: "5", name: "Plan" },
-  { room: "roles", key: "6", name: "Roles" },
 ];
 
 /** Each room's count as the engine sent it: needs you, running, Ready·waiting; none for Retro, Plan and Roles. */
@@ -320,7 +320,7 @@ export function roomCounts(
   };
 }
 
-/** The rooms band as plain text: `1 Desk 6    2 Floor 2    3 Queue 1·4    4 Retro    5 Plan    6 Roles`. */
+/** The rooms band as plain text: `1 Desk 6    2 Floor 2    3 Queue 1·4    4 Retro`. */
 export function roomsText(state: OfficeStoreState, ascii: boolean): string {
   const counts = roomCounts(state, ascii);
   return ROOMS.map(

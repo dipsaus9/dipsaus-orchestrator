@@ -50,7 +50,7 @@ describe("the retro view", () => {
     await ui.press("4");
     await ui.waitFor("capability.missing: none");
     await ui.press("escape");
-    await ui.waitFor("O offices");
+    await ui.waitFor(": commands");
   });
 });
 

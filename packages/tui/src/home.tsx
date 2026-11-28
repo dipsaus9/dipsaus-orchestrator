@@ -36,6 +36,7 @@ import { previewLines } from "./desk-preview";
 import { DOUBLE_CLICK_MS, type DeskHitMap, deskHit, type MouseEvent, WHEEL_ROWS } from "./mouse";
 import { Detail, type DetailTarget } from "./detail";
 import { useSteering } from "./steering";
+import { useTickerLog } from "./ticker";
 import { useChain, useGate } from "./chain";
 import { skipReason } from "./format";
 import { useDigest } from "./digest";
@@ -676,6 +677,18 @@ export function useHome(args: HomeArgs) {
     } else if (input === "a" && overviewEntry !== null) {
       if (overviewEntry.run === null) setMessage("no question waits on this row");
       else answerRun(overviewEntry.run);
+    } else if ((input === "s" || input === "p") && overviewEntry !== null) {
+      if (overviewEntry.run === null) {
+        setMessage("no run is going on this row");
+      } else {
+        // `s` opens the run's stream with its Composer; `p` parks the story, which asks first.
+        if (input === "s") {
+          openDetail(overviewEntry.run, "overview");
+          steering.open();
+        } else {
+          steerOrPark("park", overviewEntry.run);
+        }
+      }
     } else if (input === "c" && overviewEntry !== null) {
       copyId(String(overviewEntry.story));
     }
@@ -985,7 +998,10 @@ export function useHome(args: HomeArgs) {
         view: "overview",
         label: String(overviewEntry.story),
         story: String(overviewEntry.story),
-        commands: new Set(asks(overviewEntry.run) ? ["work.answer"] : []),
+        commands: new Set([
+          ...(asks(overviewEntry.run) ? ["work.answer"] : []),
+          ...(overviewEntry.run === null ? [] : ["story.park", "work.steer"]),
+        ]),
         running: overviewEntry.run !== null,
       };
     }
@@ -1048,6 +1064,10 @@ export function useHome(args: HomeArgs) {
     if (overviewEntry !== null && asks(overviewEntry.run)) {
       rowHintList.push(hintOf(binding("answer")));
     }
+    if (overviewEntry?.run !== null && overviewEntry !== null) {
+      const commands = new Set(["story.park", "work.steer"]);
+      for (const entry of viewKeys("overview", { commands })) rowHintList.push(hintOf(entry));
+    }
   } else if (view === "queue") {
     if (queue[queueSelected] !== undefined) {
       const commands = new Set(["story.park", "story.drop"]);
@@ -1071,6 +1091,19 @@ export function useHome(args: HomeArgs) {
         ? "card"
         : view;
 
+  const ticker = useTickerLog({
+    store,
+    clock,
+    state,
+    display,
+    runResult:
+      run?.status === "done"
+        ? {
+            id: String(run.request.requestId),
+            text: runSummary(run, state, ellipsis, glyphs(display.ascii).dot) ?? "",
+          }
+        : null,
+  });
   return {
     store,
     clock,
@@ -1131,8 +1164,13 @@ export function useHome(args: HomeArgs) {
     sendPrivacy,
     rowHintList,
     expanded,
-    /** The run's one ticker line until the next key after it is done (DIPO-458). */
-    runSummary: run === null ? null : runSummary(run, state, ellipsis, glyphs(display.ascii).dot),
+    /** The run's one ticker line while it is on its way (DIPO-458). */
+    runSummary:
+      run === null || run.status === "done"
+        ? null
+        : runSummary(run, state, ellipsis, glyphs(display.ascii).dot),
+    /** The ticker's events, newest first: the office's and the runs' results (DIPO-530). */
+    ticker,
     refusal: activeRefusal,
     failure,
     /** The view the footer names. */

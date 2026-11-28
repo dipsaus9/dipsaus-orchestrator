@@ -6,7 +6,7 @@
 import { usageTokens } from "@dipsaus-orchestrator/client";
 import type { RunRecord, StoryView } from "@dipsaus-orchestrator/contract";
 
-import { age, elapsed } from "./format";
+import { age, elapsed, shortModel } from "./format";
 
 /** `DIPO-28 Show the merge queue · developer · L · claude-haiku · run_01J…`. */
 export function recordHeaderLine(
@@ -66,7 +66,7 @@ export function recordFactLines(record: RunRecord, now: number): string[] {
   return [
     `run      ${ended(record, now)}`,
     `role     ${record.role}`,
-    `model    ${record.model}`,
+    `model    ${shortModel(record.model)}`,
     `time     ${u.time}`,
     `usage    ${u.io}`,
     `         ${u.cache}`,
@@ -80,7 +80,7 @@ export function compactRecordFactLines(record: RunRecord, now: number): string[]
   const u = usageParts(record);
   const cost = u.cost === "" ? "" : ` ${u.cost}`;
   return [
-    `run ${ended(record, now)}  role ${record.role}  model ${record.model}  time ${u.time}`,
+    `run ${ended(record, now)}  role ${record.role}  model ${shortModel(record.model)}  time ${u.time}`,
     `usage ${u.io} ${u.cache} ${u.turns}${cost}`,
     ...doneReportFactLines(record),
   ];

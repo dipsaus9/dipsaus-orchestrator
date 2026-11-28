@@ -151,3 +151,14 @@ export function compactCount(count: number): string {
   if (count >= 10_000) return `${Math.round(count / 1_000)}k`;
   return String(count);
 }
+
+/**
+ * A model id as the mocks print it: `claude-opus-5-5` is `opus-5.5`, `claude-haiku-4-5-20251001`
+ * is `haiku-4.5`, and an id without a version (`claude-sonnet`) is `sonnet`.
+ */
+export function shortModel(id: string): string {
+  return id
+    .replace(/^claude-/, "")
+    .replace(/-\d{8}$/, "")
+    .replace(/-(\d+)-(\d+)$/, "-$1.$2");
+}

@@ -33,7 +33,8 @@ import {
   OFFLINE_LINES,
   OfflineLines,
 } from "./states";
-import { Header, isOffline, type Room, Rooms } from "./views";
+import { type TickerEvent, tickerLine } from "./ticker";
+import { glyphs, Header, isOffline, type Room, Rooms } from "./views";
 
 export interface ScreenProps {
   readonly mode: Mode;
@@ -68,6 +69,22 @@ function currentRoom(mode: Mode, home: Home): Room | null {
     default:
       return null;
   }
+}
+
+/** The ticker's events, after the engine's notice while it shows; null when there is nothing to say. */
+function tickerOf(
+  notice: string | null,
+  events: readonly TickerEvent[],
+  width: number,
+  ascii: boolean,
+): string | null {
+  const separator = `  ${glyphs(ascii).dot}  `;
+  const line = tickerLine(
+    events,
+    width - (notice === null ? 0 : notice.length + separator.length),
+    separator,
+  );
+  return notice === null ? line : line === null ? notice : `${notice}${separator}${line}`;
 }
 
 /** The footer keys: a daemon screen's own, else the mode's from the registry. */
@@ -176,7 +193,7 @@ export function Screen(props: ScreenProps) {
     home.refusal ??
     home.failure ??
     home.runSummary ??
-    state.notice;
+    tickerOf(state.notice, home.ticker, columns - 1, display.ascii);
 
   const keys = screenKeys(props, columns);
   const room = screen === null ? currentRoom(mode, home) : null;

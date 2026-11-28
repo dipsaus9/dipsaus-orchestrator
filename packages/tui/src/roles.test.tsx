@@ -58,8 +58,9 @@ describe("the Roles room", () => {
     expect(frame).toContain("Read the story first.");
     expect(frame).not.toContain("Run the checklist.");
     expect(session.reads.some((read) => read.name === "office.roles")).toBe(true);
-    // The rooms band marks Roles and lists Plan.
-    expect(frame).toContain("5 Plan    6 Roles");
+    // The rooms band lists rooms 1 to 4 only (DIPO-530); Roles keeps its key.
+    expect(frame).toContain("4 Retro");
+    expect(frame).not.toContain("6 Roles");
     await ui.press("down");
     expect((await ui.waitFor("Run the checklist.")).includes("Read the story first.")).toBe(false);
   });
@@ -72,7 +73,7 @@ describe("the Roles room", () => {
     await ui.press("6");
     await ui.waitFor("Builds a story");
     await ui.press("escape");
-    await ui.waitFor("O offices");
+    await ui.waitFor(": commands");
     expect(ui.frame()).not.toContain("Builds a story");
   });
 
@@ -84,7 +85,7 @@ describe("the Roles room", () => {
     expect(ui.frame()).toMatch(/Go to roles\s+6/);
     await ui.press("escape");
     await ui.press("?");
-    expect((await ui.waitFor("Roles")).includes("6")).toBe(true);
+    expect(await ui.waitFor("all commands")).toMatch(/6\s+roles/);
   });
 
   it("reads again when the roster changes on the base", async () => {

@@ -112,15 +112,25 @@ export function FooterLine(props: {
 export function Frame(props: FrameProps) {
   const { columns, rows } = useWindowSize();
   if (tooSmall(columns, rows)) return <Text wrap="truncate-end">{WIDEN_MESSAGE}</Text>;
-  if (props.bare === true) return <Box flexDirection="column">{props.children}</Box>;
+  if (props.bare === true) {
+    return (
+      <Box flexDirection="column" height={rows}>
+        {props.children}
+      </Box>
+    );
+  }
   const width = columns - 1;
   const ticker = props.ticker === null ? [] : tickerLines(props.ticker, width);
+  // The body takes the rows the bands leave, so the ticker, the rule and the keys sit on the last
+  // rows of the terminal in every room and level.
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={rows}>
       {props.header}
       {props.rooms ?? null}
       <Rule display={props.display} columns={width} />
-      {props.children}
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+        {props.children}
+      </Box>
       {ticker.map((line, i) => (
         <Colored key={i} display={props.display} role="dim" wrap="truncate-end">
           {line}
