@@ -2835,7 +2835,7 @@ export class PlanningSessions {
       ...(open.proposals.length === 0
         ? {}
         : { proposals: open.proposals.map((item) => this.#proposalView(open, item)) }),
-      ...(open.cards.length === 0 ? {} : { cards: open.cards.map((card) => ({ ...card })) }),
+      ...cardsField(open.cards),
       ...(open.refusals.length === 0
         ? {}
         : {
@@ -2856,6 +2856,11 @@ export class PlanningSessions {
         : { queued: queued.map((item) => ({ text: item.text, at: iso(item.at) })) }),
     };
   }
+}
+
+/** The view's `cards`: the thread's action cards (DIPO-525), none while it has none. */
+function cardsField(cards: readonly ChatCardView[]): { cards?: ChatCardView[] } {
+  return cards.length === 0 ? {} : { cards: cards.map((card) => ({ ...card })) };
 }
 
 /** The office planning file at `commit`; null when the commit has none. */

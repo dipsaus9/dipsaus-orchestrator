@@ -1,10 +1,11 @@
 // The planning view's conversation as rows (0009, DIPO-486), pure. The answers are stored worker
 // output: tool calls and thinking blocks fold to one line each through the Run stream's rows
 // (DIPO-461, `stream.ts`) and open on demand; the rest is the agent's markdown (`markdown.ts`).
-// The proposal and question blocks the engine reads (0022) never show as text: the proposals and
+// The proposal, question and card blocks the engine reads (0022, DIPO-525) never show as text: the proposals and
 // the question view are their rendered form.
 
 import {
+  CHAT_CARD_FENCE,
   PLANNING_PROPOSAL_FENCE,
   PLANNING_QUESTIONS_FENCE,
   type PlanningView,
@@ -16,7 +17,7 @@ import type { Span } from "./spans";
 import { isFoldLine, streamEntries, streamRows } from "./stream";
 import { clockTime } from "./views";
 
-const BLOCK_FENCES = [PLANNING_PROPOSAL_FENCE, PLANNING_QUESTIONS_FENCE];
+const BLOCK_FENCES = [PLANNING_PROPOSAL_FENCE, PLANNING_QUESTIONS_FENCE, CHAT_CARD_FENCE];
 const OPEN = new RegExp(`^\\s*\`\`\`(?:${BLOCK_FENCES.join("|")})\\s*$`);
 const CLOSE = /^\s*```\s*$/;
 

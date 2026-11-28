@@ -141,6 +141,7 @@ export async function mount(options: MountOptions = {}) {
         office: request.office,
         requestId: request.requestId,
         confirmed: request.confirmed,
+        ...(request.origin === undefined ? {} : { origin: request.origin }),
       })) as CommandOutcome,
     readLosses: async (request) =>
       (await session.read(

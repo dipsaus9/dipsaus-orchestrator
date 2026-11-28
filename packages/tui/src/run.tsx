@@ -337,6 +337,7 @@ async function runTuiScreen(args: readonly string[], deps: TuiDeps, mouse: Mouse
             office: request.office,
             requestId: request.requestId,
             confirmed: request.confirmed,
+            ...(request.origin === undefined ? {} : { origin: request.origin }),
           });
         } catch (error) {
           return {

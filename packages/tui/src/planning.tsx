@@ -35,6 +35,8 @@ import {
   usageTokens,
 } from "@dipsaus-orchestrator/client";
 import {
+  type ChatCardView,
+  type Clock,
   type LaneProgress,
   PLANNING_KINDS,
   type PlanningProposalView,
@@ -47,6 +49,8 @@ import { Box, type Key, Text } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TuiActions } from "./app";
+import { type ChatCards, useChatCards } from "./chat-card-state";
+import { cardRows, cardText } from "./chat-cards";
 import { Colored, type Role } from "./colour";
 import { COMPOSER_ROWS, Composer, composerKey, composerRows } from "./composer";
 import { truncate } from "./format";
@@ -60,7 +64,7 @@ import {
   type DialogState,
   freshDialog,
 } from "./question-dialog";
-import { SpanLine } from "./spans";
+import { type Span, SpanLine } from "./spans";
 import {
   conversationParts,
   foldCount,
@@ -92,6 +96,10 @@ export interface PlanningArgs {
   readonly leave: () => void;
   /** Opens the planning view (the retro's `d`). */
   readonly open: () => void;
+  /** The clock the cards' result lines read the time from (DIPO-525). */
+  readonly clock: Clock;
+  /** Opens the existing drop or discard prompt for a story, leaving the view (DIPO-525). */
+  readonly startPrompt: (action: "drop" | "discard", story: string) => boolean;
 }
 
 /** A story the session filed or edited that stayed Refined, with the gate's first message (DIPO-497). */
@@ -122,6 +130,12 @@ export interface Planning {
   readonly open: ReadonlySet<number>;
   /** The number of the focused card, or null while the input has focus (DIPO-487). */
   readonly focused: number | null;
+  /** The number of the focused chat card (DIPO-525), or null. */
+  readonly focusedCard: number | null;
+  /** The number of the chat card whose text the input holds (DIPO-525), or null. */
+  readonly editingCard: number | null;
+  /** The chat's action cards and what became of the ones sent (DIPO-525). */
+  readonly chatCards: ChatCards;
   /** The number of the proposal whose form the input holds, or null. */
   readonly editing: number | null;
   /** The stories fold-out is open. */
@@ -142,18 +156,6 @@ export interface Planning {
 /** The proposals a decision applies to: open ones, and those the lane could not file. */
 const decidable = (proposal: PlanningProposalView) =>
   proposal.state === "open" || proposal.state === "failed";
-
-/** The card after `step` from `focused`, among the cards that take a decision. */
-function stepFocus(
-  cards: readonly PlanningProposalView[],
-  focused: number | null,
-  step: number,
-): number | null {
-  if (cards.length === 0) return null;
-  const at = cards.findIndex((card) => card.n === focused);
-  const from = at < 0 ? cards.length - 1 : at + step;
-  return cards[Math.max(0, Math.min(cards.length - 1, from))]?.n ?? null;
-}
 
 /** Appends `chunk` to what is shown when it continues it; true when it did. */
 function continues(have: number, from: number, to: number): boolean {
@@ -289,10 +291,12 @@ type Send = (
 
 interface CardKeys {
   readonly focused: number | null;
+  readonly focusedCard: number | null;
   readonly editing: number | null;
+  readonly editingCard: number | null;
   /** Handles a key of the cards; false when it is not one of theirs. */
   onKey(input: string, key: Key): boolean;
-  /** Sends the form in the input as `planning.edit`. */
+  /** Sends the form in the input as `planning.edit`, or keeps a chat card's edited text. */
   saveEdit(): void;
 }
 
@@ -330,7 +334,18 @@ export function stayedRefined(view: PlanningView): StayedRefined[] {
 /** The text that asks to end the session; it is typed in the input, with no key of its own. */
 const END_COMMAND = "/end";
 
-type CardKey = "up" | "down" | "leave" | "tab" | "confirm" | "decline" | "edit" | "ignore" | "type";
+type CardKey =
+  | "up"
+  | "down"
+  | "leave"
+  | "tab"
+  | "confirm"
+  | "decline"
+  | "edit"
+  | "dropStory"
+  | "discardStory"
+  | "ignore"
+  | "type";
 
 /**
  * What a key does while a card has focus: a card key, Esc, Tab (the view's), nothing (Ctrl keys,
@@ -344,49 +359,74 @@ function cardKey(text: string, key: Key): CardKey {
   if (key.ctrl || key.meta || text.length === 0 || text.charCodeAt(0) < 32) return "ignore";
   if (text === "c") return "confirm";
   if (text === "x") return "decline";
+  if (text === "X") return "dropStory";
+  if (text === "D") return "discardStory";
   return text === "e" ? "edit" : "type";
 }
 
-/**
- * The card keys (DIPO-450, DIPO-487): Up on an empty input moves focus into the cards, Up and Down
- * move between them, `c` confirms, `x` declines and `e` edits in the input; Esc, or any other
- * printable key, gives focus back to the input. Ctrl keys do nothing.
- */
-function useCards(args: PlanningArgs, input: CardInput, dialogOpen: () => boolean): CardKeys {
-  const cards = (args.state.planning?.proposals ?? []).filter(decidable);
-  const [focus, setFocus] = useState<number | null>(null);
-  const [editing, setEditing] = useState<number | null>(null);
-  const [kept, setKept] = useState("");
-  const focused = cards.some((card) => card.n === focus) ? focus : null;
+/** A card with focus: a proposal that needs a decision, or one of the chat's action cards. */
+interface Focus {
+  readonly kind: "proposal" | "card";
+  readonly n: number;
+}
 
-  const chosen = cards.find((card) => card.n === focused);
-  const stopEdit = () => {
+/** The focus `step` places after `focus` in `order`; the last one from the input. */
+function stepFocus(order: readonly Focus[], focus: Focus | null, step: number): Focus | null {
+  if (order.length === 0) return null;
+  const at = order.findIndex((item) => item.kind === focus?.kind && item.n === focus.n);
+  const from = at < 0 ? order.length - 1 : at + step;
+  return order[Math.max(0, Math.min(order.length - 1, from))] ?? null;
+}
+
+/** What the card edits share with the cards' focus: setting focus on a card and leaving it. */
+interface Edits {
+  readonly editing: number | null;
+  readonly editingCard: number | null;
+  startProposal(proposal: PlanningProposalView): void;
+  startCard(card: ChatCardView): void;
+  save(): void;
+  /** Esc: the edit is not sent. */
+  cancel(): void;
+}
+
+/**
+ * The edits of a card (DIPO-450, DIPO-525): a proposal's form goes to the input and Enter sends it
+ * as `planning.edit`; a chat card's text goes to the input and Enter keeps it for the card's next
+ * `c`. Esc leaves either unsent, and the draft the input held comes back.
+ */
+function useCardEdits(
+  args: PlanningArgs,
+  input: CardInput,
+  chat: ChatCards,
+  focusCard: (n: number) => void,
+): Edits {
+  const [editing, setEditing] = useState<number | null>(null);
+  const [editingCard, setEditingCard] = useState<number | null>(null);
+  const [kept, setKept] = useState("");
+  const stop = () => {
     setEditing(null);
+    setEditingCard(null);
     input.setDraft(kept);
   };
-  const decide = (command: "planning.confirm" | "planning.decline") => {
-    if (chosen === undefined || input.sending || args.refusedOffline()) return;
-    const at = cards.indexOf(chosen);
-    setFocus((cards[at + 1] ?? cards[at - 1])?.n ?? null);
-    input.send("proposal", command, { proposal: chosen.n }, (result) =>
-      args.setMessage(
-        command === "planning.confirm"
-          ? `proposal ${chosen.n} confirmed${filedWords(result)}`
-          : `proposal ${chosen.n} declined`,
-      ),
-    );
+  const saveCard = (n: number) => {
+    const text = input.draft.trim();
+    if (text === "") {
+      args.setMessage("the card's text is empty; write it, or Esc to keep it as it was");
+      return;
+    }
+    chat.edit(n, text);
+    args.setMessage(`card ${n} edited; c sends it`);
+    focusCard(n);
+    stop();
   };
-  const startEdit = () => {
-    if (chosen === undefined) return;
-    setKept(input.draft);
-    setFocus(null);
-    setEditing(chosen.n);
-    input.setDraft(proposalForm(chosen.proposal));
-  };
-  const saveEdit = () => {
+  const save = () => {
+    if (editingCard !== null) {
+      saveCard(editingCard);
+      return;
+    }
     const original = (args.state.planning?.proposals ?? []).find((p) => p.n === editing);
     if (original === undefined) {
-      stopEdit();
+      stop();
       return;
     }
     const read = readProposalForm(original.proposal, input.draft);
@@ -397,33 +437,144 @@ function useCards(args: PlanningArgs, input: CardInput, dialogOpen: () => boolea
     if (args.refusedOffline()) return;
     input.send("proposal", "planning.edit", { proposal: original.n, edited: read.proposal }, () => {
       args.setMessage(`proposal ${original.n} edited`);
-      stopEdit();
+      stop();
     });
+  };
+  return {
+    editing,
+    editingCard,
+    startProposal: (proposal) => {
+      setKept(input.draft);
+      setEditing(proposal.n);
+      input.setDraft(proposalForm(proposal.proposal));
+    },
+    startCard: (card) => {
+      if (card.card.kind === "command") {
+        args.setMessage("a command card is copied as it is");
+        return;
+      }
+      setKept(input.draft);
+      setEditingCard(card.n);
+      input.setDraft(cardText(card.card, chat.edited.get(card.n)));
+    },
+    save,
+    cancel: () => {
+      args.setMessage("the edit was not sent");
+      if (editingCard !== null) focusCard(editingCard);
+      stop();
+    },
+  };
+}
+
+/**
+ * The card keys (DIPO-450, DIPO-487, DIPO-525): Up on an empty input moves focus into the cards,
+ * Up and Down move between them, `c` confirms a proposal, sends a chat card's command or copies a
+ * command card's line, `x` declines a proposal or drops a chat card from view, `e` edits (a
+ * proposal in a form, a chat card's text), `X` and `D` open the drop and discard prompts of the
+ * story a command card names; Esc, or any other printable key, gives focus back to the input.
+ * Ctrl keys do nothing.
+ */
+function useCards(
+  args: PlanningArgs,
+  input: CardInput,
+  dialogOpen: () => boolean,
+  chat: ChatCards,
+): CardKeys {
+  const cards = (args.state.planning?.proposals ?? []).filter(decidable);
+  const order: Focus[] = [
+    ...cards.map((card): Focus => ({ kind: "proposal", n: card.n })),
+    ...chat.open.map((card): Focus => ({ kind: "card", n: card.n })),
+  ];
+  const [asked, setFocus] = useState<Focus | null>(null);
+  const edits = useCardEdits(args, input, chat, (n) => setFocus({ kind: "card", n }));
+  const focus =
+    asked !== null && order.some((item) => item.kind === asked.kind && item.n === asked.n)
+      ? asked
+      : null;
+  const focused = focus?.kind === "proposal" ? focus.n : null;
+  const focusedCard = focus?.kind === "card" ? focus.n : null;
+
+  /** The focus after the card `focus` leaves the deck: its next, else its previous. */
+  const leave = (kind: Focus["kind"], n: number) => {
+    const at = order.findIndex((item) => item.kind === kind && item.n === n);
+    setFocus(order[at + 1] ?? order[at - 1] ?? null);
+  };
+  const decide = (proposal: number, command: "planning.confirm" | "planning.decline") => {
+    if (input.sending || args.refusedOffline()) return;
+    leave("proposal", proposal);
+    input.send("proposal", command, { proposal }, (result) =>
+      args.setMessage(
+        command === "planning.confirm"
+          ? `proposal ${proposal} confirmed${filedWords(result)}`
+          : `proposal ${proposal} declined`,
+      ),
+    );
+  };
+  const onCardKey = (act: CardKey, n: number) => {
+    const card = chat.views.find((item) => item.n === n);
+    if (act === "confirm") {
+      chat.send(n);
+      if (card?.card.kind !== "command") leave("card", n);
+    } else if (act === "decline") {
+      chat.hide(n);
+      leave("card", n);
+    } else if (act === "edit" && card !== undefined) {
+      if (card.card.kind !== "command") setFocus(null);
+      edits.startCard(card);
+    } else if (act === "dropStory" || act === "discardStory") {
+      chat.startPrompt(n, act === "dropStory" ? "drop" : "discard");
+    }
+  };
+  const onProposalKey = (act: CardKey, n: number) => {
+    const proposal = cards.find((item) => item.n === n);
+    if (act === "confirm") decide(n, "planning.confirm");
+    else if (act === "decline") decide(n, "planning.decline");
+    else if (act === "edit" && proposal !== undefined) {
+      setFocus(null);
+      edits.startProposal(proposal);
+    }
+  };
+  /** A key while the card `on` has focus. */
+  const onFocused = (text: string, key: Key, on: Focus): boolean => {
+    const act = cardKey(text, key);
+    // The drop and discard keys belong to the chat's command cards; on a proposal they type.
+    const typed = act === "type" || (on.kind === "proposal" && act.endsWith("Story"));
+    if (typed) setFocus(null);
+    else if (act === "up" || act === "down") setFocus(stepFocus(order, on, act === "up" ? -1 : 1));
+    else if (act === "leave") setFocus(null);
+    else if (on.kind === "card") onCardKey(act, on.n);
+    else onProposalKey(act, on.n);
+    return !typed && act !== "tab";
   };
   const onKey = (text: string, key: Key): boolean => {
     if (dialogOpen()) return false;
-    if (editing !== null) {
+    if (key.ctrl && text === "r" && chat.retry()) return true;
+    if (edits.editing !== null || edits.editingCard !== null) {
       if (!key.escape) return false;
-      args.setMessage("the edit was not sent");
-      stopEdit();
+      edits.cancel();
       return true;
     }
-    if (focused === null) {
-      if (!key.upArrow || input.draft !== "" || cards.length === 0) return false;
-      setFocus(cards.at(-1)?.n ?? null);
+    if (focus === null) {
+      if (!key.upArrow || input.draft !== "" || order.length === 0) return false;
+      setFocus(order.at(-1) ?? null);
       return true;
     }
-    const act = cardKey(text, key);
-    if (act === "type") setFocus(null);
-    else if (act === "up" || act === "down")
-      setFocus(stepFocus(cards, focused, act === "up" ? -1 : 1));
-    else if (act === "leave") setFocus(null);
-    else if (act === "confirm") decide("planning.confirm");
-    else if (act === "decline") decide("planning.decline");
-    else if (act === "edit") startEdit();
-    return act !== "type" && act !== "tab";
+    return onFocused(text, key, focus);
   };
-  return { focused, editing, onKey, saveEdit };
+  return {
+    focused,
+    focusedCard,
+    editing: edits.editing,
+    editingCard: edits.editingCard,
+    onKey,
+    saveEdit: edits.save,
+  };
+}
+
+/** The chat's action cards and the keys of every card, the proposals' too (DIPO-525). */
+function useCardDeck(args: PlanningArgs, input: CardInput, dialogOpen: () => boolean) {
+  const chat = useChatCards(args);
+  return { chat, cards: useCards(args, input, dialogOpen, chat) };
 }
 
 /**
@@ -581,18 +732,17 @@ export function usePlanning(args: PlanningArgs): Planning {
   useResets(session, office, setEnding, setDraft);
   const send: Send = (which, command, commandArgs, done) =>
     sendCommand(args, setSending, which, { command, args: commandArgs }, done);
-  const cards = useCards(
+  const { chat, cards } = useCardDeck(
     args,
     { draft, setDraft, send, sending: sending !== null },
     () => questions.dialog !== null,
   );
   const questions = useQuestions(args, send, sending !== null, cards.editing);
   const endKey = useEnd(args, send, sending !== null, ending, setEnding);
-
   const submit = () => {
     const text = draft.trim();
     if (sending !== null) return;
-    if (cards.editing !== null) {
+    if (cards.editing !== null || cards.editingCard !== null) {
       cards.saveEdit();
       return;
     }
@@ -651,6 +801,9 @@ export function usePlanning(args: PlanningArgs): Planning {
     focus: fold.focus,
     open: fold.open,
     focused: cards.focused,
+    focusedCard: cards.focusedCard,
+    editingCard: cards.editingCard,
+    chatCards: chat,
     editing: cards.editing,
     rail,
     dialog: questions.dialog,
@@ -1006,7 +1159,10 @@ export interface PlanningModeProps {
 }
 
 /** Drops the blocks that fit least, never the focused one, until the rows fit `max`. */
-function fitBlocks(blocks: readonly Block[], max: number): Row[] {
+function fitBlocks<R>(
+  blocks: readonly { readonly rows: readonly R[]; readonly focused?: boolean }[],
+  max: number,
+): R[] {
   const kept = [...blocks];
   const count = () => kept.reduce((sum, block) => sum + block.rows.length, 0);
   while (kept.length > 1 && count() > max) {
@@ -1054,6 +1210,22 @@ function viewHead(planning: Planning, columns: number, display: Display): string
   ];
 }
 
+/** The chat's action cards as blocks of rows, the focused one with its keys (DIPO-525). */
+function chatBlocksOf(planning: Planning, columns: number, display: Display) {
+  if (planning.view === null) return [];
+  const { chatCards } = planning;
+  return chatCards.views.map((card) => ({
+    rows: cardRows(card, {
+      focused: card.n === planning.focusedCard,
+      width: Math.max(10, columns - 3),
+      ascii: display.ascii,
+      send: chatCards.sends.get(card.n),
+      edited: chatCards.edited.get(card.n),
+    }),
+    focused: card.n === planning.focusedCard,
+  }));
+}
+
 /** The planning mode's body: one conversation column and one input at the foot. */
 export function PlanningMode(props: PlanningModeProps) {
   const { planning, display, columns } = props;
@@ -1072,9 +1244,11 @@ export function PlanningMode(props: PlanningModeProps) {
   const extra: Row[] = view === null || !planning.rail ? [] : railRows(view, columns, display);
   const blocks =
     view === null ? [] : proposalBlocks(view, planning.focused, columns, display, props.lane);
+  const chatBlocks = chatBlocksOf(planning, columns, display);
   const space = Math.max(1, props.height - head.length - foot - 2);
   const cards = fitBlocks(blocks, Math.max(1, space - extra.length - 1));
-  const room = Math.max(0, space - cards.length - extra.length);
+  const chatRows = fitBlocks(chatBlocks, Math.max(1, space - extra.length - cards.length - 1));
+  const room = Math.max(0, space - cards.length - chatRows.length - extra.length);
   const rows = view === null ? [] : conversationRows(planning, columns, display, room);
   const line = (row: Row, key: string) => (
     <Colored
@@ -1102,6 +1276,9 @@ export function PlanningMode(props: PlanningModeProps) {
         />
       )}
       {cards.map((row, i) => line(row, `card:${i}`))}
+      {chatRows.map((spans: Span[], i) => (
+        <SpanLine key={`chat:${i}`} spans={[{ text: " " }, ...spans]} display={display} />
+      ))}
       {extra.map((row, i) => line(row, `extra:${i}`))}
       <Box flexGrow={1} />
       {view !== null && step !== null ? (

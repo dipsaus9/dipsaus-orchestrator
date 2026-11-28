@@ -62,6 +62,8 @@ export interface CommandRequest {
   readonly requestId: RequestId;
   /** True only after the maintainer agreed (0005). */
   readonly confirmed: boolean;
+  /** `chat` for a card the maintainer sent with `c` (DIPO-525); else the connection's origin. */
+  readonly origin?: "chat";
 }
 
 /** A command reply; a failure on the client side comes back as an error too. */

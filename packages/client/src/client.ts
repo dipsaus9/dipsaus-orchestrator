@@ -99,6 +99,8 @@ export interface CommandOptions extends RequestOptions {
    * (0005, 0009).
    */
   readonly requestId?: RequestId;
+  /** The origin of this command, when it is not the connection's: the chat's cards (DIPO-525). */
+  readonly origin?: Origin;
 }
 
 export interface RequestOptions {
@@ -261,7 +263,7 @@ export class DipoClient {
       requestId,
       name: definition.name,
       args: parsed.data,
-      origin: this.#origin,
+      origin: options.origin ?? this.#origin,
       confirmed: options.confirmed ?? false,
       ...(options.office === undefined ? {} : { office: options.office }),
     };
