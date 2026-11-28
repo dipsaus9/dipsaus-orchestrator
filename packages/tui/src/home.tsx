@@ -670,6 +670,10 @@ export function useHome(args: HomeArgs) {
       const test = state.tests.find((open) => String(open.test) === item.ref);
       if (test === undefined) setMessage("this test is no longer open");
       else openChecklist({ key: String(test.key), id: String(test.story) }, "overview");
+    } else if (item.url !== undefined) {
+      // A story PR's checks have no read yet: Enter opens the PR, as `o` does.
+      const url = item.url;
+      void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
     } else {
       setMessage(`${item.ref}: nothing to open here yet`);
     }
@@ -691,6 +695,9 @@ export function useHome(args: HomeArgs) {
       setOverviewKey(String(overviewEntry.key));
       if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
       else openStory(overviewEntry.key, String(overviewEntry.story), "overview");
+    } else if (input === "o" && backgroundPick?.item.url !== undefined) {
+      const url = backgroundPick.item.url;
+      void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
     } else if (input === "t" && backgroundPick?.item.kind === "test") {
       openBackground(backgroundPick);
     } else if (input === "a" && overviewEntry !== null) {
