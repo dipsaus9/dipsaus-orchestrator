@@ -3,9 +3,10 @@ id: DIPO-532
 title: >-
   Queue: a now view of what can start and a plan view of every open story by
   milestone
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 18:14'
 labels:
   - 'tier:M'
   - 'role:developer'
