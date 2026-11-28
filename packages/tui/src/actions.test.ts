@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import { findCommand, type OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { confirmSteps, requestOf, shareChosen, startFlow, TOP_UPS } from "./actions";
+import { confirmSteps, readySummary, requestOf, shareChosen, startFlow, TOP_UPS } from "./actions";
 import { KEY_TABLE } from "./keys";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
@@ -129,5 +129,21 @@ describe("the resume prompt asks only for what the park reason needs (spec.md, P
 
   it("reads a drop's losses first, then asks keep or delete the branch", () => {
     expect(kinds(startFlow("drop", OFFICE, { story: "DIPO-7" }).steps)).toEqual(["losses", "drop"]);
+  });
+});
+
+describe("the reply to set Ready (DIPO-521)", () => {
+  it("names each refused story and its reason in words, after the count of those set", () => {
+    const refused = {
+      story: "DIPO-116",
+      messages: ["ready DIPO-116 failed R15: the unknowns list is missing"],
+    };
+    expect(readySummary({ queued: ["DIPO-1"], refused: [] })).toBe("1 set");
+    expect(readySummary({ queued: [], refused: [refused] })).toBe(
+      "DIPO-116 refused: R15: the unknowns list is missing",
+    );
+    expect(readySummary({ queued: ["DIPO-1"], refused: [refused] })).toBe(
+      "1 set, DIPO-116 refused: R15: the unknowns list is missing",
+    );
   });
 });

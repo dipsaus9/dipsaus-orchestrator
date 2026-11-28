@@ -13,7 +13,7 @@ import {
 import { markdownRows, wrapSpans } from "./markdown";
 import { splitLines } from "./output";
 import type { Span } from "./spans";
-import { isFoldLine, streamEntries, streamRows } from "./stream";
+import { isFoldLine, type StreamEntry, streamEntries, streamRows, tokensText } from "./stream";
 import { clockTime } from "./views";
 
 const BLOCK_FENCES = [PLANNING_PROPOSAL_FENCE, PLANNING_QUESTIONS_FENCE];
@@ -140,13 +140,37 @@ function groups(lines: readonly string[]): Group[] {
   return found;
 }
 
-/** How many folds the conversation has. */
+/**
+ * One fold line's words for the tool and thinking entries of an answer (DIPO-521): the tools by
+ * verb with their counts, then the thoughts, their seconds and their tokens.
+ */
+function foldSummary(entries: readonly StreamEntry[], dot: string): string {
+  const verbs = new Map<string, number>();
+  let thoughts = 0;
+  let seconds: number | null = null;
+  let tokens: number | null = null;
+  for (const entry of entries) {
+    if (entry.kind === "tool") verbs.set(entry.verb, (verbs.get(entry.verb) ?? 0) + 1);
+    if (entry.kind !== "thinking") continue;
+    thoughts += entry.count;
+    seconds = entry.seconds === null ? seconds : (seconds ?? 0) + entry.seconds;
+    tokens = entry.tokens === null ? tokens : (tokens ?? 0) + entry.tokens;
+  }
+  return [
+    ...[...verbs].map(([verb, count]) => `${verb} ${count}`),
+    ...(thoughts === 0 ? [] : [`${thoughts} ${thoughts === 1 ? "thought" : "thoughts"}`]),
+    ...(seconds === null ? [] : [`${seconds.toFixed(1)}s`]),
+    ...(tokens === null ? [] : [`${tokensText(tokens)} tokens`]),
+  ].join(` ${dot} `);
+}
+
+/** How many folds the conversation has: one for each run of tool and thinking lines (DIPO-521). */
 export function foldCount(transcript: Transcript): number {
   let count = 0;
   for (const part of partsOf(transcript)) {
     if (part.kind !== "model") continue;
     for (const group of groups(visibleLines(part.text))) {
-      if (group.fold) count += streamEntries(group.lines).length;
+      if (group.fold) count += 1;
     }
   }
   return count;
@@ -231,30 +255,34 @@ function modelRows(
   let fold = start;
   for (const group of groups(visibleLines(text))) {
     if (!group.fold) {
-      const block = markdownRows(group.lines, width, options);
+      // List items take the dot; the bullet marks the answer (DIPO-521).
+      const block = markdownRows(group.lines, width, { bullet: options.dot });
       // A blank row between two blocks stays; one at an edge goes.
       while (block.at(-1)?.length === 0) block.pop();
       while (block[0]?.length === 0) block.shift();
       rows.push(...block.map((spans) => ({ spans })));
       continue;
     }
-    for (const entry of streamEntries(group.lines, options.dot)) {
-      const own = streamRows([entry], width, {
-        full: options.open.has(fold),
+    // One fold line for the run; opened, its lines follow it in full (DIPO-521).
+    const entries = streamEntries(group.lines, options.dot);
+    const summary: Span[] = [
+      { text: `${options.dot.repeat(2)} ${foldSummary(entries, options.dot)}`, role: "dim" },
+    ];
+    rows.push({
+      spans:
+        options.focus === fold ? [{ text: `${options.bar} `, role: "acc" }, ...summary] : summary,
+      fold,
+    });
+    if (options.open.has(fold)) {
+      const full = streamRows(entries, width, {
+        full: true,
         dot: options.dot,
         ellipsis: options.ellipsis,
         rule: options.rule,
       });
-      own.forEach((spans, i) => {
-        const [first, ...rest] = spans;
-        const marked =
-          i === 0 && options.focus === fold && first !== undefined
-            ? [{ text: `${options.bar} `, role: "acc" as const }, first, ...rest]
-            : spans;
-        rows.push({ spans: marked, fold });
-      });
-      fold++;
+      for (const spans of full) rows.push({ spans, fold });
     }
+    fold++;
   }
   return fold;
 }

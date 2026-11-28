@@ -483,12 +483,20 @@ export interface ActionDeps {
   readonly ellipsis: string;
 }
 
-/** `2 set, 1 refused` for the footer; the lines are in the Queue. */
-function readySummary(result: ReadyResult): string {
+/**
+ * `2 set, DIPO-116 refused: R15: the unknowns list is missing` for the footer; each refusal names
+ * its story and its reason in words (DIPO-521). The engine's `ready <ID> failed` lead is dropped.
+ */
+export function readySummary(result: ReadyResult): string {
   const lines = readyLines(result);
-  const refused = lines.filter((line) => line.state === "refused").length;
-  const set = lines.length - refused;
-  return [set > 0 ? `${set} set` : null, refused > 0 ? `${refused} refused` : null]
+  const refused = lines.filter((line) => line.state === "refused");
+  const set = lines.length - refused.length;
+  return [
+    set > 0 ? `${set} set` : null,
+    ...refused.map(
+      (line) => `${line.story} refused: ${line.text.replace(/^ready \S+ failed /, "")}`,
+    ),
+  ]
     .filter((part) => part !== null)
     .join(", ");
 }

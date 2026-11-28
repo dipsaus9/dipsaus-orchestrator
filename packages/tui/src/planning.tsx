@@ -1092,7 +1092,9 @@ export function PlanningMode(props: PlanningModeProps) {
       {head.map((text, i) => (
         <Text key={`head:${i}`} wrap="truncate-end">{` ${text}`}</Text>
       ))}
-      <Text wrap="truncate-end">{` ${rule}`}</Text>
+      <Colored display={display} role="faint" wrap="truncate-end">
+        {` ${rule}`}
+      </Colored>
       {view === null ? null : (
         <Answers
           view={view}

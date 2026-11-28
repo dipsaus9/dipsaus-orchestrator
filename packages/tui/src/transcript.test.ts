@@ -52,20 +52,46 @@ const ANSWER = [
 
 describe("the planning conversation", () => {
   it("folds thinking and tool lines to one line each, and opens one on demand (#1)", () => {
-    expect(foldCount(ANSWER)).toBe(2);
-    const shut = transcriptRows(ANSWER, 80, options({ focus: 1 }));
-    // The answer's marker, then its folds and text indented under it (DIPO-491).
-    expect(text(shut)).toHaveLength(4);
-    expect(text(shut)[0]).toBe("●");
-    expect(text(shut)[1]).toContain("2 thoughts · 0.8k tokens");
-    expect(text(shut)[2]).toMatch(/^▌ .*read /);
-    expect(text(shut)[2]).toContain("⏎ full");
-    expect(text(shut)[3]).toBe("  Here is the plan.");
-    expect(shut.map((row) => row.fold)).toEqual([undefined, 0, 1, undefined]);
-    const opened = transcriptRows(ANSWER, 80, options({ open: new Set([1]) }));
-    expect(text(opened).length).toBeGreaterThan(4);
-    expect(text(opened).join(" ")).not.toContain("⏎ full");
+    // The run of tool and thinking lines is one fold (DIPO-521).
+    expect(foldCount(ANSWER)).toBe(1);
+    const shut = transcriptRows(ANSWER, 80, options({ focus: 0 }));
+    // The answer's marker, then its fold and text indented under it (DIPO-491).
+    expect(text(shut)).toEqual([
+      "●",
+      "▌ ·· read 1 · 2 thoughts · 3.0s · 0.8k tokens",
+      "  Here is the plan.",
+    ]);
+    expect(shut[1]?.spans.find((span) => span.role === "dim")).toBeDefined();
+    expect(shut.map((row) => row.fold)).toEqual([undefined, 0, undefined]);
+    const opened = transcriptRows(ANSWER, 80, options({ open: new Set([0]) }));
+    expect(text(opened).length).toBeGreaterThan(3);
     expect(text(opened).join("").replaceAll(" ", "")).toContain(TARGET);
+    expect(text(opened).at(-1)).toBe("  Here is the plan.");
+  });
+
+  it("no answer row is cut: an answer wraps at the width its indent leaves (#1)", () => {
+    const long = `${"word ".repeat(30)}end`;
+    const answer = `${long}\n- ${long}\n[tool] Read ${TARGET}\n${long}\n`;
+    for (const columns of [60, 80]) {
+      const rows = transcriptRows(answer, columns - 2, options({ focus: 0 }));
+      for (const row of text(rows)) {
+        expect(row.length).toBeLessThanOrEqual(columns - 2);
+        expect(row.endsWith("…")).toBe(false);
+      }
+      // The answer's text is all there, in order, with no word lost at a row end.
+      expect(
+        text(rows)
+          .join(" ")
+          .split(/\s+/)
+          .filter((w) => w === "word"),
+      ).toHaveLength(90);
+    }
+  });
+
+  it("marks a list item in an answer with the dot, not the answer's bullet (#3)", () => {
+    const rows = transcriptRows("- first item\n2. second item\n", 60, options());
+    expect(text(rows)).toEqual(["● · first item", "  2. second item"]);
+    expect(text(rows)[0]?.slice(2)).not.toContain("●");
   });
 
   it("never shows a question or proposal block as text, closed, open or being written (#2)", () => {
@@ -231,7 +257,7 @@ describe("who wrote a line (DIPO-490, DIPO-491)", () => {
       "> confirmed right?",
       "",
       "●",
-      expect.stringContaining("thinking 1.6s"),
+      "  ·· 1 thought · 1.6s · 0.1k tokens",
       "  Yes.",
     ]);
     const own = rows[2]?.spans ?? [];
