@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { Event, LaneProgress, PlanningView, RunId } from "@dipsaus-orchestrator/contract";
 
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
-import { mockRows } from "../test/support/mock-screens";
+import { expectScreen } from "../test/support/mock-screens";
 import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -893,14 +893,8 @@ describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
     await ui.waitFor("Refuse a story whose skill");
     await ui.press("up");
     await ui.waitFor("▌ ◆");
-    // Every row under the header, cell for cell: the head, the conversation, the cards, the input and the footer.
-    const ours = ui
-      .frame()
-      .split("\n")
-      .map((row) => row.trimEnd());
-    const mock = mockRows("07-plan.txt");
-    expect(ours).toHaveLength(mock.length);
-    expect(ours.slice(1)).toEqual(mock.slice(1));
+    // The whole screen, cell for cell: header, rooms, the conversation, the cards, the input and the footer.
+    expectScreen(ui, "07-plan.txt");
   });
 });
 

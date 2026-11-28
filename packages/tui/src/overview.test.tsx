@@ -18,7 +18,7 @@ import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
 
 import { floorStories } from "./overview";
 import { goldenHello, goldenSnapshots, OFFICES } from "../test/support/fake-session";
-import { mockRows } from "../test/support/mock-screens";
+import { expectScreen } from "../test/support/mock-screens";
 import { mount } from "../test/support/setup";
 import { officeCells } from "./views";
 
@@ -289,19 +289,7 @@ describe("the Floor", () => {
     } as Event);
     const frame = await view.ui.waitFor("When DIPO-447 merges");
     await view.ui.waitFor("1 of 3 slots");
-    const shown = lines(view.ui.frame());
-    const mock = mockRows("02-floor.txt");
-    // The body: from the row under the first rule to the BACKLOG row (DIPO-481).
-    const from = shown.findIndex((line) => /^─+$/.test(line)) + 1;
-    const to = shown.findIndex((line) => line.includes("BACKLOG"));
-    // The engine sends no review verdict yet, so the mock's `approved` is not drawn.
-    const expected = mock
-      .slice(
-        mock.findIndex((row) => row.startsWith("───")) + 1,
-        mock.findIndex((row) => row.includes("BACKLOG")) + 1,
-      )
-      .map((row) => row.replace(" · review round 1 approved", " · review round 1"));
-    expect(shown.slice(from, to + 1)).toEqual(expected);
+    expectScreen(view.ui, "02-floor.txt");
     expect(frame).not.toContain("busy");
   });
 
