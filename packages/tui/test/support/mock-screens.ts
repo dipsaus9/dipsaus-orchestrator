@@ -247,6 +247,10 @@ export function screenDiff(expected: Screen, got: Screen): CellDiff[] {
   return diffs;
 }
 
+/** The rows `from` to `to`, as the cell specs of `KNOWN_GAPS` name a whole row. */
+const rowsOf = (from: number, to: number): string[] =>
+  Array.from({ length: to - from + 1 }, (_, index) => String(from + index));
+
 /**
  * Captions with no `expectScreen` test, or with cells it tolerates, each with the story that closes
  * them (DIPO-520). A caption with no `cells` has no test at all. `cells` are `row` or
@@ -339,16 +343,28 @@ export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readon
   "17-themes.txt#S10 16 colours, light · ux-spec mock 29": { story: "DIPO-530" },
   "17-themes.txt#S10 16 colours, dark · ux-spec mock 30": { story: "DIPO-530" },
   "17-themes.txt#S10 NO_COLOR · ux-spec mock 31": { story: "DIPO-530" },
+  // Only the focused command card's rows (22 to 24) are held (DIPO-525); the dock around it is DIPO-526's.
   "01-queue-with-dock.txt#C1 Queue with the chat docked (too narrow for the panel, after `) · a command card in focus":
-    { story: "DIPO-526" },
+    {
+      story: "DIPO-526",
+      cells: [...rowsOf(1, 15), "17", "19", "20", "21", ...rowsOf(27, 30)],
+    },
   "02-chat-room.txt#C2 Chat, full screen (5): one conversation in threads, led by context · changes 07-plan.txt":
     { story: "DIPO-523" },
   "03-floor-background.txt#C3 Floor: the BACKGROUND group, the header chip and the chat line (chat hidden with \\)":
     { story: "DIPO-526", cells: ["2", "26", "27", "28", "29", "30"] },
   "04-background-detail.txt#C3 Floor › a background item: a story PR's checks (chat hidden with \\)":
+<<<<<<< 1d746c9bb9fd9a0cfa1513daaf9f94707ef1aaa1
     { story: "DIPO-526", cells: ["27", "30"] },
+=======
+    { story: "DIPO-528" },
+  // Only the focused steer card's cells (rows 13 to 17, from the dock's `│`) are held (DIPO-525); the room and the dock around it are DIPO-526's and DIPO-530's.
+>>>>>>> 4345fdc2eff1609a5506b638f72a6b09f5b5858a
   "05-run-with-dock-wide.txt#C1 Run with the chat docked on the right (152 columns or wider) · a steer card in focus":
-    { story: "DIPO-526" },
+    {
+      story: "DIPO-526",
+      cells: [...rowsOf(1, 12), ...rowsOf(13, 17).map((row) => `${row}:1-96`), ...rowsOf(18, 30)],
+    },
   "06-desk-jump-and-line.txt#C4 Desk: the attention count, a question and the chat line (chat hidden with \\)":
     { story: "DIPO-526" },
   "07-states.txt#C5 Chat line, idle (the chat hidden, or below 100 columns; the row above the ticker)":
@@ -357,8 +373,6 @@ export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readon
   "07-states.txt#C5 Chat line, an answer you haven't seen": { story: "DIPO-526" },
   "07-states.txt#C5 Input while dipo answers: the message waits": { story: "DIPO-526" },
   "07-states.txt#C5 Context line in the dock": { story: "DIPO-526" },
-  "07-states.txt#C5 An action card after c (pending, sent, failed; in place, as the Desk's pending rows)":
-    { story: "DIPO-526" },
   "07-states.txt#C5 A refused command, with its reason (ticker and card)": { story: "DIPO-526" },
   "07-states.txt#C5 A thread that closed by itself": { story: "DIPO-526" },
   "07-states.txt#C5 Chat while the daemon is away (conversation in shade, input kept)": {
