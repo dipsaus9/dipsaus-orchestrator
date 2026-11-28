@@ -108,3 +108,13 @@ export function recordStoryFiles(
     );
   }
 }
+
+/** The files a story's branch changed, as `recordStoryFiles` kept them, sorted. */
+export function storyFilesOf(office: OfficeHandle, key: StoryKey): string[] {
+  return office
+    .all<{ path: string }>(
+      `select path from story_files where office_id = $office_id and key = $key order by path`,
+      { key },
+    )
+    .map((row) => row.path);
+}

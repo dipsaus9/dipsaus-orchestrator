@@ -1412,7 +1412,7 @@
           "anyOf": [
             {
               "type": "string",
-              "enum": ["sent", "queued", "opened", "new", "closed"]
+              "enum": ["sent", "queued", "opened", "new", "closed", "noted"]
             },
             {
               "type": "string"
@@ -1433,6 +1433,37 @@
             },
             "required": ["story", "message"]
           }
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "room": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "desk",
+                    "floor",
+                    "run",
+                    "queue",
+                    "story",
+                    "retro",
+                    "roles",
+                    "background",
+                    "chat"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "item": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["room"]
         }
       },
       "required": ["outcome"]
