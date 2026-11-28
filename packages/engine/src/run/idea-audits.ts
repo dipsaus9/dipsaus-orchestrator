@@ -55,6 +55,7 @@ import {
   passIdea,
   rejectIdea,
 } from "../records/ideas";
+import { tellBackground } from "./background";
 
 /** The characters of an idea's id its `<idea>` tag gives the session. */
 export const AUDIT_ID_CHARS = 12;
@@ -244,6 +245,7 @@ export class IdeaAudits {
               );
             }
             const held = holdIdea(ctx.office, quick) !== null;
+            if (held) tellBackground(ctx.office, ctx.now);
             if (held) this.poke(ctx.office.officeId as OfficeId);
             return { result: { idea: id, held }, changed: held };
           },
@@ -342,6 +344,7 @@ export class IdeaAudits {
       for (const [id, reason] of reasons) {
         rejectIdea(handle, id, { by: "code", reason, auditRun: null, at });
       }
+      tellBackground(handle, at);
       return reasons;
     });
     if (rejected.size > 0) this.#deps.onChanged?.(office);
@@ -419,6 +422,7 @@ export class IdeaAudits {
       for (const [id, problem] of decisions.missed) {
         auditMissed(handle, [id], { problem, auditRun: run, at });
       }
+      tellBackground(handle, at);
     });
     this.#deps.onChanged?.(office);
   }

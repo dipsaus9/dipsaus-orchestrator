@@ -24,6 +24,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
+import { snapshotBackground } from "../run/background";
 import { headCursor } from "../changelog/log";
 import type { FeatureModule, ReadContext } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
@@ -59,9 +60,11 @@ export function snapshot(
   office: OfficeHandle,
   planning: (office: OfficeHandle) => PlanningView | null = () => null,
   lane: (office: OfficeHandle) => LaneProgress | null = () => null,
+  now = 0,
 ): OfficeSnapshot {
   const session = planning(office);
   const progress = lane(office);
+  const background = snapshotBackground(office, now, progress);
   return {
     cursor: headCursor(office),
     stories: activeStoryViews(office),
@@ -74,6 +77,8 @@ export function snapshot(
     ...(session === null ? {} : { planning: session }),
     // The planning lane's open changes and the backlog PR they wait on (DIPO-481).
     ...(progress === null ? {} : { lane: progress }),
+    // What the office is busy with outside story runs (DIPO-527).
+    ...(background === null ? {} : { background }),
   };
 }
 
@@ -353,7 +358,7 @@ export function viewsFeatureWith(
     register(registry) {
       registry.addRead({
         definition: officeSnapshot,
-        handle: (ctx) => snapshot(officeOf(ctx), planning, lane),
+        handle: (ctx) => snapshot(officeOf(ctx), planning, lane, ctx.clock.now()),
       });
       registry.addRead({
         definition: storyDetail,

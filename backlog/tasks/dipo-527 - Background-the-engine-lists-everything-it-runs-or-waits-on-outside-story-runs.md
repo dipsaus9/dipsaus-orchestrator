@@ -1,10 +1,10 @@
 ---
 id: DIPO-527
 title: 'Background: the engine lists everything it runs or waits on outside story runs'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 16:50'
+updated_date: '2026-11-28 17:30'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -16,6 +16,28 @@ references:
   - packages/engine/src/backlog/lane/progress.ts
   - packages/engine/src/run/audit-session.ts
   - docs/design/chat-and-activity/migration.md
+modified_files:
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/backlog/lane/lane.ts
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/backlog/lane/progress.ts
+  - packages/engine/src/backlog/pr/feature.ts
+  - packages/engine/src/backlog/pr/merge.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/overview/feature.ts
+  - packages/engine/src/run/asides.ts
+  - packages/engine/src/run/audit-session.ts
+  - packages/engine/src/run/background.ts
+  - packages/engine/src/run/idea-audits.ts
+  - packages/engine/src/run/report-data.ts
+  - packages/engine/src/run/reviews.ts
+  - packages/engine/src/run/tests.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/test/run/background.test.ts
 priority: high
 type: feature
 ordinal: 488000
@@ -48,8 +70,23 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 OfficeSnapshot.background lists the six kinds with state, next, since and url where there is one
-- [ ] #2 The engine sets the order and drops done items after 10 minutes
-- [ ] #3 background.changed fires on every state change with its ticker line
-- [ ] #4 Nothing in next is an estimate
+- [x] #1 OfficeSnapshot.background lists the six kinds with state, next, since and url where there is one
+- [x] #2 The engine sets the order and drops done items after 10 minutes
+- [x] #3 background.changed fires on every state change with its ticker line
+- [x] #4 Nothing in next is an estimate
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-28 17:30 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 242,141 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

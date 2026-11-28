@@ -76,6 +76,7 @@ import { findClaim } from "../worktree/records";
 
 import { REVIEWER_ROLE, runCaps } from "../records/caps";
 import { runConfigOf } from "../records/config-snapshot";
+import { tellBackground } from "./background";
 import type { RunSteering } from "./control-types";
 import { resolveIntent, runIntents, sendAsIntent, type StoredIntent } from "../records/intents";
 import {
@@ -572,6 +573,7 @@ export class Reviews {
         judged,
         at,
       });
+      tellBackground(office, at);
       if (judged.verdict === "blocked") {
         appendRunStep(office, run.runId, "review-failed", String(round), at);
       }

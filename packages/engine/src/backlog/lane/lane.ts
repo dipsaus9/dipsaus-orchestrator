@@ -41,6 +41,7 @@
 // waiting writes a log line with the reason and keeps it as the lane's `stall`; the desk names a
 // lane whose operations wait longer than `LANE_STUCK_MS` (`desk.ts`).
 
+import { progressEntriesWithBackground } from "./progress";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -88,7 +89,6 @@ import {
   openEntries,
   updateEntry,
 } from "./journal";
-import { progressEntries } from "./progress";
 import type { LaneOpKind } from "./ops";
 
 /** The engine's backlog worktree under the worktree root (0010). */
@@ -395,7 +395,11 @@ export class OfficeLane {
           );
         }
         const inserted = insertEntry(this.#office, op, this.#clock.now());
-        appendEntries(this.#office, progressEntries(this.#office), { at: this.#clock.now() });
+        appendEntries(
+          this.#office,
+          progressEntriesWithBackground(this.#office, this.#clock.now()),
+          { at: this.#clock.now() },
+        );
         return inserted;
       });
       this.#onChanged(this.officeId);
@@ -961,7 +965,10 @@ export class OfficeLane {
     const now = this.#clock.now();
     const notices = this.#office.immediate(() => {
       // A change of the journal appends the lane's progress with it (DIPO-481).
-      const entries = [...(fn() ?? []), ...progressEntries(this.#office)];
+      const entries = [
+        ...(fn() ?? []),
+        ...progressEntriesWithBackground(this.#office, this.#clock.now()),
+      ];
       appendEntries(this.#office, entries, { at: now });
       return entries.length;
     });

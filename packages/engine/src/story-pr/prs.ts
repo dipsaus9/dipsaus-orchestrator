@@ -84,6 +84,12 @@ import type {
   TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
+import {
+  backgroundEntries,
+  finishStoryPr,
+  rememberStoryPr,
+  type StoryPrFact,
+} from "../run/background";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
@@ -999,6 +1005,8 @@ export class StoryPrs {
     const next: StoryPrRecord = { ...stored, state: hostState, closedAt, headSha };
     const story = findStoryByKey(state.office, stored.key)?.story;
     this.#write(officeId, state, () => {
+      const at = this.#deps.clock.now();
+      finishStoryPr(state.office, stored, hostState, at);
       setStoryPrState(state.office, stored.runId, { state: hostState, closedAt });
       if (headSha !== stored.headSha) {
         updateStoryPr(state.office, stored.runId, {
@@ -1007,7 +1015,10 @@ export class StoryPrs {
           bodyHash: stored.bodyHash,
         });
       }
-      return story === undefined ? [] : [prEntry(next, story)];
+      return [
+        ...(story === undefined ? [] : [prEntry(next, story)]),
+        ...backgroundEntries(state.office, at),
+      ];
     });
   }
 
@@ -1141,6 +1152,7 @@ export class StoryPrs {
     }
     if (verdict.state === "passed") watch.final = true;
     watch.failing = verdict.state === "failed";
+    this.#background(officeId, state, run, stored, verdict.state, reports, now);
     if (verdict.state === "failed" && (final || waited)) {
       // A park that failed leaves the head open, so the next poll tries the park again; a rerun
       // (DIPO-465) leaves it open for the new attempt.
@@ -1227,6 +1239,36 @@ export class StoryPrs {
   requiresNoChecks(officeId: OfficeId, runId: RunId, head: string): boolean {
     const watch = this.#offices.get(officeId)?.watch.get(runId);
     return watch !== undefined && watch.head === head && watch.noneRequired;
+  }
+
+  /**
+   * Tells the background list where the head's CI stands (DIPO-527): the board keeps the fact, and
+   * a change of it appends its `background.changed` entry.
+   */
+  #background(
+    officeId: OfficeId,
+    state: Polled,
+    run: StoredRun,
+    stored: StoryPrRecord,
+    verdict: "passed" | "pending" | "failed",
+    reports: readonly RequiredCheck[],
+    now: number,
+  ): void {
+    const office = state.office;
+    const failed = reports.find((report) => report.bucket === "fail");
+    const cap = runCaps(office, run).ciCap;
+    const attempts = runRoundCounts(office, run.runId).ciAttempts;
+    const fact: StoryPrFact = {
+      key: stored.key,
+      number: stored.number,
+      url: stored.url,
+      ci: verdict === "passed" ? "passed" : verdict === "failed" ? "failed" : "running",
+      ...(verdict === "failed" && failed !== undefined ? { failedCheck: failed.name } : {}),
+      ...(verdict === "failed" && cap !== null ? { attempt: Math.max(attempts, 1), of: cap } : {}),
+      since: now,
+    };
+    if (!rememberStoryPr(office, fact)) return;
+    this.#write(officeId, state, () => backgroundEntries(office, now));
   }
 
   /**

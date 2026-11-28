@@ -21,6 +21,7 @@ import { runningStoryCount, sessionRunCount } from "../overview/summary";
 import { branchDiff } from "../story-pr/git";
 import type { CommandServices } from "./commands";
 import { controlFeature, sumOverOffices } from "./control";
+import { trackUpdate } from "../run/background";
 import { SelfUpdate } from "../update/self-update";
 import { selfUpdateOf, updateDeskItems } from "./update-service";
 import type { Core } from "./core";
@@ -91,7 +92,16 @@ function processFeatures(
           const handle = offices.get(id);
           return handle === undefined ? undefined : sessionRunCount(handle);
         }),
-      ...(update === null ? {} : { update: (id: OfficeId) => update.run(id) }),
+      ...(update === null
+        ? {}
+        : {
+            update: (id: OfficeId) =>
+              trackUpdate(
+                offices.get(id),
+                () => deps.clock.now(),
+                () => update.run(id),
+              ),
+          }),
       requestStop: daemon.requestStop,
     }),
   ];

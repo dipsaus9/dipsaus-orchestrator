@@ -10,6 +10,7 @@ import { AsideBlock, type RunId } from "@dipsaus-orchestrator/contract";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { holdIdea } from "../records/ideas";
+import { tellBackground } from "./background";
 
 /** The info string of an aside block's fence. */
 export const ASIDE_FENCE = "dipo-aside";
@@ -93,5 +94,6 @@ export function holdAsides(
     });
     if (id !== null) held += 1;
   }
+  if (held > 0) tellBackground(office, input.at);
   return { held, refused };
 }
