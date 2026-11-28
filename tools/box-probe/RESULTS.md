@@ -22,7 +22,7 @@ The probes P1 to P3 of 0023 ran on macOS 26.6.2 (Apple silicon) with Apple `cont
 
 **P3, the scan's plan on the Mac** (as `planSession` builds it: `--tools ""`, the run settings with every tool denied by name, `--setting-sources project,local`, `--strict-mcp-config` with an empty MCP config, `--permission-mode default`, `--permission-prompts none`; `HOME` a scratch folder, never the maintainer's).
 
-- Before the steps, the same plan with the scratch `HOME` and no model route (no `ANTHROPIC_BASE_URL`, no key): `system/init` came, and the answer was `Not logged in · Please run /login`. A Mac session in any home but the maintainer's has no login.
+- Before the steps, the same plan with the scratch `HOME` and no model route (no `ANTHROPIC_BASE_URL`, no key): `system/init` came, and the answer was `Not logged in · Please run /login`. A Mac session in an empty home has no login (a `CLAUDE_CONFIG_DIR` or a Keychain item for it was not tried).
 - Step 1, as today: `skills: []`, `tools: []`, no `PLAIN-OK`. The flag was kept, so this does not separate "every tool off" from the flag.
 - Step 2, flag dropped, `--tools Skill`, `Skill` taken out of the denied names: under `project,local` the skill in the scratch home is not listed and the answer has no `PLAIN-OK` (first pass); with `user,project,local` it is listed with 19 bundled ones (`claude-approvals` is the extra one in 2.1.332), the session invoked it and answered `PLAIN-OK`, and `tools` is `Skill` only (second pass).
 - Steps 3 and 4, `probe-hook`, with and without `disableAllHooks`: both invocations of the skill were refused by Claude Code, "Permission for this tool use was denied. It requires approval, and this session has no approval surface"; no `$SCRATCH/hook-mark` either way.
