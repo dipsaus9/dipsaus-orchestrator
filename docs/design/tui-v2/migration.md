@@ -22,7 +22,7 @@ Each step is a story dipo can run on its own (filed as M6 stories). Dependency: 
 7. Command palette (`:` and `ctrl-k`) and the `?` overlay from the registry. Settings and privacy live there. The Plan view (DIPO-449) and the Retro room (DIPO-453) mount inside the Frame, laid out as `07-plan.txt` and `06-retro.txt`. Plan is the fifth view, on `5`, and its input sends on Enter (DIPO-479). It is one conversation column with one input at the foot, proposed stories as inline cards (`c` confirm, `e` edit, `x` decline), the stories rail as a fold-out on Tab, and the Ready step on `/end` (DIPO-487).
 
 ## The only engine and contract additions
-Ten, each added by the step that first shows it:
+Fourteen: ten added by the step that first shows them, and four added by the chat-and-activity addendum's M6 stories (the maintainer's answer of 2026-11-28, `docs/design/chat-and-activity/`):
 1. **Spend today** (step 2): on `office.summary`, for the header. `DayUsage.estimatedCost` (packages/contract/src/software.ts) already exists, optional and always estimated, on `dayUsage`; use it if the office read carries it, and add only what is missing.
 2. **Last activity per office** (step 2): on `OfficeSummary`, for Offices' `idle N days`.
 3. **Desk order with setup first** (step 3): `KNOWN_DESK_KINDS` puts the setup kinds (PROFILE) first; the TUI still never re-sorts.
@@ -33,5 +33,9 @@ Ten, each added by the step that first shows it:
 8. **Dependency chain** (step 4): the engine computes the chain from the dependency graph and sends it, for the Floor's UP NEXT sentence, the Queue's CHAIN picture and its "everything below N waits on the park" line, and the waiting state behind a bare `needs N`.
 9. **Gate rule count** (step 4): `story.gate` returns the number of rules, for the Queue's `Gate ✓ N rules`.
 10. **Diff read** (step 6): a diff read for the story's branch, for the reader's Diff tab.
+11. **The background list** (DIPO-527): `OfficeSnapshot.background` and the `background.changed` event, for the Floor's BACKGROUND group and the header chip.
+12. **Retro as data** (DIPO-531): `office.retro` returns the headline numbers, the tier and type rows, the park reasons and the origins per period, instead of text lines.
+13. **Milestones** (DIPO-532): a new read `office.milestones`, for the Queue's `plan` view.
+14. **A reason on a refused command** (DIPO-521): where only a count comes back today (`set Ready DIPO-116: 1 refused`).
 
 No other engine facts are added: undo, expected times, proposal grouping, rework and "Worth a look" are dropped from M6 (spec.md, Maintainer decisions).

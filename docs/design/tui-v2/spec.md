@@ -8,7 +8,7 @@ Make the maintainer's decisions obvious, and keep everything else quiet but reac
 ## Reading the screen files
 - Each mock starts with a caption line `=== <title> · ux-spec mock <n> · <cols> cols × <rows> rows ===`. The next `<rows>` lines are the screen, cell for cell: one character is one terminal cell, spaces included, blank rows included. A line `--- notes ---` starts notes that are not part of the screen.
 - `[role]text[/]` paints text in a role from `roles.json`. Roles nest; `[/]` closes the innermost one.
-- `**text**` is bold and `__text__` is underlined (always in acc). Both sit inside the role.
+- `**text**` is bold and `__text__` is underlined, in the text's own colour (the maintainer's answer of 2026-11-28: no separate underline colour, no SGR 58). Both sit inside the role.
 - `[sel]…[/]` is the focused row's background; it covers the cells it wraps, padding included.
 - An unmarked `│` or full-width `─` is a pane rule in faint. A box (`┌─┐ │ └─┘`) carries its border role on every border cell.
 - `⟦ key Label ⟧` is a clickable button: `[acc]⟦[/]…[acc]⟧[/]` is the primary button (acc border), `[faint]⟦[/]…[faint]⟧[/]` the others.
@@ -82,7 +82,7 @@ ticker   10:41 merged DIPO-444  ·  10:40 DIPO-447 → merge  ·  …   (dim, on
 keys     verbs for the focused item (left)                               : commands   ? keys
 ```
 - **Header**: `dipo` in acc and bold, ` / ` dim, then the office (fg). When other offices need you, right after the office name: three dim spaces, `+2` acc, ` elsewhere · ` dim, `O` acc, from `office.summary` (`14-desk-proposals.txt`). Right: on the Desk while a planning session is open, `●` acc and ` plan open` fg, four spaces; then `●` ok, ` daemon live` fg, then dim `    $19.14 today    10:42`. Deeper levels extend the path in dim (`dipo / dipsaus-orchestrator / Floor / ` then `DIPO-447` in fg) and show `● live` and the time. Plan shows `● planner live` and `$0.84 this session`. Offices shows `$27.10 today, all offices`.
-- **Rooms**: gap of 4 spaces (3 at 80 columns). The current room is hi with an acc underline; the others are dim. Desk's count is acc. Queue shows `ready·waiting` (`0·6`); at 80 columns it shows `3 Queue` without counts. Retro has no count; on Retro the period switch `7d  30d  all` sits at the right end of the rooms row.
+- **Rooms**: gap of 4 spaces (3 at 80 columns). The current room is hi and underlined; the others are dim. Desk's count is acc. Queue shows `ready·waiting` (`0·6`); at 80 columns it shows `3 Queue` without counts. Retro has no count; on Retro the period switch `7d  30d  all` sits at the right end of the rooms row.
 - **Since band** (Desk, 100 columns or wider): dim `Since 09:41 · ` then `1 merged` in fg, dim ` · 2 new proposals · $4.10 spent`, and `any key to dismiss` at the right, between two rules. Its data is an engine addition: "since you last looked" in the office read (step 3).
 - **Body**: list on the left (46 columns on the Desk, 62 on the Queue, 57 on Retro, 28 on the Run), `│` in faint, two spaces, then the preview.
 - **Ticker**: the latest events, dim, `  ·  ` between them.
@@ -202,7 +202,7 @@ File: `10-test-overlay.txt`. `t` on a MERGE item; replaces room 4 "checklist".
 
 ## Command palette (S5)
 File: `09-palette.txt`. `:` or `ctrl-k`, from anywhere.
-- Overlay, acc border, 62 columns inside, over the shaded screen. Query line `: pa▍`. Matches underlined (acc).
+- Overlay, acc border, 62 columns inside, over the shaded screen. Query line `: pa▍`. Matches underlined.
 - Scoped first: actions on the focused item (`ON DIPO-447`), then `SETTINGS`, then `GO TO`. Each row shows its key at the right (acc when bound, dim otherwise): `Park run  p`, `Expand stream to full screen  z`, `Open offices…  O`.
 - Disabled rows say why (`Start again` faint, `not parked` dim) instead of disappearing.
 - With an empty query it lists your recent commands. Rare settings live only here, like privacy (`Privacy: what dipo stores`) and slots (`Parallel slots: 3`, the office's `caps.parallelRuns`), which frees up `p`.
@@ -274,7 +274,7 @@ Box Drawing, Geometric Shapes and two Dingbats only, no Nerd Font glyphs. Colour
 - Layout from `useStdout().columns` and rows: ≥ 100 columns split panes, 60 to 99 one pane, below 60 columns or 16 rows the widen message.
 - Theme: OSC 11, then `COLORFGBG`, then dark; respect `NO_COLOR`.
 - Mouse: SGR mode 1006.
-- The TUI renders what the engine computes; it never derives health, phase, desk order or skip reasons. The ten engine and contract additions, each with its step, are in `migration.md`.
+- The TUI renders what the engine computes; it never derives health, phase, desk order or skip reasons. The engine and contract additions, each with its step or story, are in `migration.md`.
 - Evidence labels stay hidden (ADR 0009).
 
 ## Maintainer decisions (2026-11-06)

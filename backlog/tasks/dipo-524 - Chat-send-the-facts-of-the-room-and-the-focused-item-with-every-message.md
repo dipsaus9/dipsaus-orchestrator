@@ -1,16 +1,15 @@
 ---
-id: DIPO-904
-title: >-
-  Chat: send the facts of the room and the focused item with every message
-status: Draft
+id: DIPO-524
+title: 'Chat: send the facts of the room and the focused item with every message'
+status: Refined
 assignee: []
-created_date: '2026-11-28 10:00'
+created_date: '2026-11-28 14:11'
 labels:
   - 'tier:M'
   - 'role:developer'
 milestone: m-5
 dependencies:
-  - DIPO-903
+  - DIPO-523
 references:
   - packages/engine/src/run/planning.ts
   - packages/engine/src/prompts/task/planning-roles.md
@@ -18,6 +17,7 @@ references:
   - docs/design/chat-and-activity/spec.md
 priority: high
 type: feature
+ordinal: 485000
 ---
 
 ## Description
@@ -27,10 +27,10 @@ Story: As maintainer I want dipo to know what I am looking at when I ask, so tha
 
 P3. The context `{ room, item? }` is stored with each message. Code (never a model) builds the facts per place, as 0022 does per kind today: Desk item and list; Queue story, gate, chain, Ready and waiting lists, files of running stories; Run phase, health, criteria, the last 200 stream lines, verify and CI output, last findings, budget; reader story, criteria, rounds, runs; Retro the numbers of the period on screen; Roles what the roles kind gets; Background the item and its log tail. Facts go once per change of context. The proposal schemas follow the context (role proposals only in Roles). `/general` sends no item, `/here` adds it back.
 
-Design: docs/design/chat-and-activity/ (spec.md, P3 and The chat (context divider, context line)). The mocks win; a cell difference is a bug (DIPO-900).
+Design: docs/design/chat-and-activity/ (spec.md, P3 and The chat (context divider, context line)). The mocks win; a cell difference is a bug (DIPO-520).
 
 ```dipo
-branch: "DIPO-904/chat-context"
+branch: "DIPO-524/chat-context"
 unknowns: []
 test_plan:
   entries:

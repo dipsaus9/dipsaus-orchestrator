@@ -141,7 +141,7 @@
   "markup": {
     "role": "[role]text[/], nestable; [/] closes the innermost role",
     "bold": "**text**, inside a role",
-    "underline": "__text__, inside a role; drawn in acc (room tab, stream filter, reader tab, Retro period, link, palette match)",
+    "underline": "__text__, inside a role; drawn in the text's own colour, no SGR 58 (room tab, stream filter, reader tab, Retro period, link, palette match; the maintainer's answer of 2026-11-28)",
     "buttons": "⟦ key Label ⟧. [acc]⟦[/] … [acc]⟧[/] is the primary button (acc border), [faint]⟦[/] … [faint]⟧[/] the others (faint border)",
     "rules": "an unmarked │ or full-width ─ rule is faint; a box carries its border role on every border cell"
   }

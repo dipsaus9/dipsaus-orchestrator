@@ -32,4 +32,4 @@
 --- notes ---
 The Plan view (07-plan.txt) becomes the Chat view on 5 and keeps its layout cell for cell: the header, the head lines under the rule (`Chat · thread N of M · <state> · <model>`, `thread: <title>`, `spend: …`), one conversation column, cards, the one-line input at the foot. Width 111 as 07-plan.txt.
 New: a dim context divider `── in <room> · on <item> ──` before the first message sent from a new place (never when the place is the same as the last message's); `/new` starts a thread, `/end` closes it (the Ready step as today), `/general` and `/here` drop and restore the item, `/threads` lists the open ones.
-Without a focused card the footer reads `⏎ send   shift-⏎ new line   /end close thread   ↑ cards   tab stories`, right `esc back` (as 07-plan.txt).
+Without a focused card the footer reads `⏎ send   shift-⏎ new line   /end close thread   ↑ cards   tab links`, right `esc back`. The stories fold-out that `tab` opens in 07-plan.txt moves to `/threads` (answer of 2026-11-28).

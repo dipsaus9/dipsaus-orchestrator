@@ -100,7 +100,7 @@
       "views": [
         "chat"
       ],
-      "when": "an answer is focused",
+      "when": "an answer is focused; the stories fold-out of 07-plan.txt moves to /threads",
       "priority": 5
     },
     {
@@ -141,6 +141,17 @@
         "chat",
         "dock"
       ],
+      "priority": 9
+    },
+    {
+      "id": "chatThreads",
+      "key": "/threads",
+      "label": "threads and their stories",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "lists the office's threads, each with its filed stories (the fold-out of 07-plan.txt)",
       "priority": 9
     },
     {

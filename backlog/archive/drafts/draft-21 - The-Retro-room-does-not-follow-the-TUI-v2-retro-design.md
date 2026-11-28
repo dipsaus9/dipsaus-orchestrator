@@ -4,7 +4,7 @@ title: The Retro room does not follow the TUI v2 retro design
 status: Draft
 assignee: []
 created_date: '2026-11-13 13:22'
-updated_date: '2026-11-13 13:22'
+updated_date: '2026-11-28 14:12'
 labels: []
 milestone: m-3
 dependencies: []
@@ -37,3 +37,9 @@ Origin: a planning session's aside
 Source story: none
 dipo idea: 7b0920f62843cf633d68dfe74c300bf86e49e996aeda510c75266f994b2695c6
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Replaced by DIPO-531 (Build the Retro room to its mock), filed on 2026-11-28 from the chat-and-activity planning session; archived when DIPO-531 was filed.
+<!-- SECTION:NOTES:END -->

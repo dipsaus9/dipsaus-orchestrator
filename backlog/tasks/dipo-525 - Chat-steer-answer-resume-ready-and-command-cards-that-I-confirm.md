@@ -1,16 +1,15 @@
 ---
-id: DIPO-905
-title: >-
-  Chat: steer, answer, resume, ready and command cards that I confirm
-status: Draft
+id: DIPO-525
+title: 'Chat: steer, answer, resume, ready and command cards that I confirm'
+status: Refined
 assignee: []
-created_date: '2026-11-28 10:00'
+created_date: '2026-11-28 14:11'
 labels:
   - 'tier:M'
   - 'role:developer'
 milestone: m-5
 dependencies:
-  - DIPO-903
+  - DIPO-523
 references:
   - packages/engine/src/run/planning-proposals.ts
   - packages/contract/src/office.ts
@@ -20,6 +19,7 @@ references:
   - docs/design/chat-and-activity/screens/07-states.txt
 priority: medium
 type: feature
+ordinal: 486000
 ---
 
 ## Description
@@ -29,10 +29,10 @@ Story: As maintainer I want dipo's advice to come with the action ready to send,
 
 P4. Cards are blocks in an answer, validated by the engine like proposals (an invalid one is refused with a message to Claude): steer, answer, resume, ready, command. Drawn as 07-plan.txt cards: `◆ <kind> · <target> · <consequence>`, the text dim indented 5, the keys acc. `c` sends work.steer, work.answer, work.resume or story.ready as the maintainer with origin chat; a command card's `c` copies its line and `X` opens the existing drop prompt. Results show in place as 07-states.txt C5.
 
-Design: docs/design/chat-and-activity/ (spec.md, P4; screens/05-run-with-dock-wide.txt (steer card), 01-queue-with-dock.txt (command card), 07-states.txt (card results)). The mocks win; a cell difference is a bug (DIPO-900).
+Design: docs/design/chat-and-activity/ (spec.md, P4; screens/05-run-with-dock-wide.txt (steer card), 01-queue-with-dock.txt (command card), 07-states.txt (card results)). The mocks win; a cell difference is a bug (DIPO-520).
 
 ```dipo
-branch: "DIPO-905/chat-action-cards"
+branch: "DIPO-525/chat-action-cards"
 unknowns: []
 test_plan:
   entries:

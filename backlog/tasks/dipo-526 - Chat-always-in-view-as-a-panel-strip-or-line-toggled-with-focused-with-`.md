@@ -1,18 +1,17 @@
 ---
-id: DIPO-906
-title: >-
-  Chat: always in view as a panel, strip or line, toggled with \, focused with `
-status: Draft
+id: DIPO-526
+title: 'Chat: always in view as a panel, strip or line, toggled with \, focused with `'
+status: Refined
 assignee: []
-created_date: '2026-11-28 10:00'
+created_date: '2026-11-28 14:11'
 labels:
   - 'tier:M'
   - 'role:developer'
 milestone: m-5
 dependencies:
-  - DIPO-900
-  - DIPO-901
-  - DIPO-903
+  - DIPO-520
+  - DIPO-521
+  - DIPO-523
 references:
   - packages/tui/src/frame.tsx
   - packages/tui/src/screen.tsx
@@ -23,6 +22,7 @@ references:
   - docs/design/chat-and-activity/keymap-additions.json
 priority: high
 type: feature
+ordinal: 487000
 ---
 
 ## Description
@@ -32,10 +32,10 @@ Story: As maintainer I want the chat always in view and aware of what I'm on, wi
 
 P1, P6, P7. The chat is on by default in every room and \ toggles it (remembered per viewer). Where the room keeps its own minimum width beside it (spec.md P7: Desk, Floor, reader and Roles 98, Run 96, Queue and Retro 112) it is the right 56 columns (08-desk-chat-panel.txt); from 100 columns up to that a two-row strip above the ticker (09-queue-chat-strip.txt) that ` grows to the dock (01-queue-with-dock.txt); below 100, or while hidden, the one-row chat line. The room keeps the keyboard: the chat's input is dim until ` moves the keyboard to it (acc input, cursor, the chat's footer; 05-run-with-dock-wide.txt), and esc gives it back. ` twice or 5 opens Chat full screen. The panel's context line follows the room's focus; `ask about this` lists questions code builds from the item's kind and sends nothing until one is picked. Retro's d and the Roles room's c move the keyboard to the chat with their context. keymap.json gains the entries of keymap-additions.json. The draft survives every step and a restart.
 
-Design: docs/design/chat-and-activity/ (screens/08-desk-chat-panel.txt, 09-queue-chat-strip.txt, 01-queue-with-dock.txt, 02-chat-room.txt, 05-run-with-dock-wide.txt, 07-states.txt C5 and C6; keymap-additions.json; spec.md What the chat is for). The mocks win; a cell difference is a bug (DIPO-900).
+Design: docs/design/chat-and-activity/ (screens/08-desk-chat-panel.txt, 09-queue-chat-strip.txt, 01-queue-with-dock.txt, 02-chat-room.txt, 05-run-with-dock-wide.txt, 07-states.txt C5 and C6; keymap-additions.json; spec.md What the chat is for). The mocks win; a cell difference is a bug (DIPO-520).
 
 ```dipo
-branch: "DIPO-906/chat-everywhere"
+branch: "DIPO-526/chat-everywhere"
 unknowns: []
 test_plan:
   entries:

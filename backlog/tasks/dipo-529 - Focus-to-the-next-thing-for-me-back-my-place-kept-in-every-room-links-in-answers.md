@@ -1,17 +1,19 @@
 ---
-id: DIPO-909
+id: DIPO-529
 title: >-
-  Focus: ! to the next thing for me, ' back, my place kept in every room, links in answers
-status: Draft
+  Focus: the next thing for me on !, back on ', my place kept in every room,
+  links in answers
+status: Refined
 assignee: []
-created_date: '2026-11-28 10:00'
+created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 14:18'
 labels:
   - 'tier:M'
   - 'role:developer'
 milestone: m-5
 dependencies:
-  - DIPO-906
-  - DIPO-908
+  - DIPO-526
+  - DIPO-528
 references:
   - packages/tui/src/app.tsx
   - packages/tui/src/home.tsx
@@ -20,6 +22,7 @@ references:
   - docs/design/chat-and-activity/keymap-additions.json
 priority: medium
 type: feature
+ordinal: 490000
 ---
 
 ## Description
@@ -29,10 +32,10 @@ Story: As maintainer I want one key to the next thing that needs me and one key 
 
 P6. The attention list: Desk items in engine order, background failures, chat answers not seen. The header shows `! N for you`; `!` visits them in order and marks each seen; `'` returns to where you were before the first `!` or the last link. Each room keeps its focused row, scroll and filter while the TUI runs; digits return there; a restart restores room, dock and draft. In answers, story ids, PR numbers and path:line are links (acc): tab cycles them, ⏎ opens one at its level, esc or ' comes back with the draft kept. On a QUESTION item, the `Ask dipo first` button and ` open the dock with that question.
 
-Design: docs/design/chat-and-activity/ (screens/06-desk-jump-and-line.txt; spec.md, Focus). The mocks win; a cell difference is a bug (DIPO-900).
+Design: docs/design/chat-and-activity/ (screens/06-desk-jump-and-line.txt; spec.md, Focus). The mocks win; a cell difference is a bug (DIPO-520).
 
 ```dipo
-branch: "DIPO-909/focus-jumps"
+branch: "DIPO-529/focus-jumps"
 unknowns: []
 test_plan:
   entries:

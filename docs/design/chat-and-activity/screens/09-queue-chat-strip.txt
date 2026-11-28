@@ -1,6 +1,6 @@
 === C7 Queue with the chat strip (the Queue below 168 columns) · the keyboard in the room · 112 cols × 30 rows ===
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                           [acc]◌[/] 2 in background    [ok]●[/] daemon live[dim]    $6.02 today    13:20[/]
-[dim]1 Desk [acc]2[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]1·2[/]__[/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]
+[dim]1 Desk [acc]2[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]1·2[/]__[/]    [dim]4 Retro[/]                     
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [hi]**READY**[/]                                                      [dim]1  [/][faint]│[/]  [dim]READY · tier M · offered as next up[/]
 [sel][acc]▌[/] [ok]→[/] [dim]DIPO-519[/]  [hi]Write proposed decision 0023…   [/][dim]M[/]  [ok]next up[/]      [/][faint]│[/]  [hi]**DIPO-519 Write proposed decision 0023 on**[/]

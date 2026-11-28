@@ -1,6 +1,6 @@
 === C1 Queue with the chat docked (too narrow for the panel, after `) · a command card in focus · 112 cols × 30 rows ===
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator            [acc]![/] 2 for you    [acc]◌[/] 3 in background    [ok]●[/] daemon live[dim]    $4.86 today    10:12[/]
-[dim]1 Desk [acc]1[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]0·1[/]__[/]    [dim]4 Retro[/]    [dim]5 Chat [acc]1[/][/]    [dim]6 Roles[/]
+[dim]1 Desk [acc]1[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]0·1[/]__[/]    [dim]4 Retro[/]                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [hi]**WAITING ON A DEPENDENCY**[/]                                    [dim]1  [/][faint]│[/]  [dim]REFINED · not Ready yet · tier M[/]
   [acc]○[/] [dim]DIPO-518[/]  Run the skills and plugins pr…  [dim]M[/]  [dim]needs [/][ok]519→[/]   [faint]│[/]  [hi]**DIPO-116 Propose decision 0023 on how roles**[/]

@@ -1,10 +1,11 @@
 ---
-id: DIPO-902
+id: DIPO-522
 title: >-
-  Decide in ADR 0024 that each office has one standing chat in threads, led by context
-status: Draft
+  Decide in ADR 0024 that each office has one standing chat in threads, led by
+  context
+status: Refined
 assignee: []
-created_date: '2026-11-28 10:00'
+created_date: '2026-11-28 14:11'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -19,6 +20,7 @@ references:
   - docs/design/chat-and-activity/migration.md
 priority: high
 type: spike
+ordinal: 483000
 ---
 
 ## Description
@@ -26,12 +28,12 @@ type: spike
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Story: We need to decide how the chat works once it is dipo's voice in every room instead of a planning session so that every later chat story follows one set of rules on threads, context and the actions it may offer.
 
-The chat shifts from planning only to dipo's voice in the office (spec.md, What the chat is for). It is the M5 conversation layer of 0003 and vision.md: it maps the maintainer's words to commands and asks for confirmation, and it can never do something no command can; 0024 says so and 0003's M5 line points to it. Proposals P1 to P4 of spec.md. 0024 keeps 0022's box, model, interviewing standard, decision record and one-Claude-session rule, and changes: begin and end become threads (`/new`, `/end`, a day idle closes one); kind becomes context (room and focused item, facts built by code); the chat may add steer, answer, resume, ready and command cards that run only as the maintainer's command on `c`, with origin chat, never drop or discard. 0022 is rewritten where it changes and gets one Replaced line (CLAUDE.md: ADRs describe what runs). This needs the maintainer's explicit approval (CLAUDE.md, Rules).
+The chat shifts from planning only to dipo's voice in the office (spec.md, What the chat is for). It is the M5 conversation layer of 0003 and vision.md: it maps the maintainer's words to commands and asks for confirmation, and it can never do something no command can; 0024 says so and 0003's M5 line points to it. Proposals P1 to P4 of spec.md. 0024 keeps 0022's box, model, interviewing standard, decision record and one-Claude-session rule, and changes: begin and end become threads (`/new`, `/end`, a day idle closes one); kind becomes context (room and focused item, facts built by code); the chat may add steer, answer, resume, ready and command cards that run only as the maintainer's command on `c`, with origin chat, never drop or discard. 0022 is rewritten where it changes and gets one Replaced line (CLAUDE.md: ADRs describe what runs). The maintainer explicitly approved this change to 0022 (P2) in the planning session of 2026-11-28; the ADR's wording is approved in this story's PR (CLAUDE.md, Rules).
 
-Design: docs/design/chat-and-activity/ (spec.md, Proposals P1 to P4; migration.md, The ADR change). The mocks win; a cell difference is a bug (DIPO-900).
+Design: docs/design/chat-and-activity/ (spec.md, Proposals P1 to P4; migration.md, The ADR change). The mocks win; a cell difference is a bug (DIPO-520).
 
 ```dipo
-branch: "DIPO-902/adr-0024-office-chat"
+branch: "DIPO-522/adr-0024-office-chat"
 unknowns:
   - q: "Is the ADR number 0024 free?"
     status: "resolved"

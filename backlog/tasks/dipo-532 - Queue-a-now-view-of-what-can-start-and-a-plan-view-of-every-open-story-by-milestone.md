@@ -1,16 +1,17 @@
 ---
-id: DIPO-912
+id: DIPO-532
 title: >-
-  Queue: a now view of what can start and a plan view of every open story by milestone
-status: Draft
+  Queue: a now view of what can start and a plan view of every open story by
+  milestone
+status: Refined
 assignee: []
-created_date: '2026-11-28 11:00'
+created_date: '2026-11-28 14:11'
 labels:
   - 'tier:M'
   - 'role:developer'
 milestone: m-6
 dependencies:
-  - DIPO-900
+  - DIPO-520
 references:
   - packages/tui/src/queue.tsx
   - packages/tui/src/keys.ts
@@ -23,6 +24,7 @@ references:
   - docs/design/tui-v2/screens/05-queue.txt
 priority: high
 type: feature
+ordinal: 493000
 ---
 
 ## Description
@@ -30,13 +32,14 @@ type: feature
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Story: As maintainer I want the Queue to show me at once what can start now, and on a second view every open story by milestone with its progress and what blocks it, so that I can pick the next story quickly and plan the milestones from the same room.
 
-P8 of chat-and-activity spec.md. The arrow keys switch `now` and `plan`, shown at the right of the rooms row like Retro's period; the Queue opens on now and remembers the choice. now (10-queue-now.txt) lists only Ready stories whose dependencies are Done, in next-up order, with the slots and one line counting what it leaves out. plan (11-queue-plan.txt) groups every story that is not Done by milestone in the backlog's order: a head with a Done bar and done/total, open stories in chain order with 05-queue.txt's row, a finished milestone folded to one line, more than four stories folded behind `+ N more`, stories without a milestone last. Enter folds a head and opens a story. A milestone's preview shows its description, progress, Ready, why the rest is not Ready, the next story to act on, its chain and what blocks it. A new read office.milestones carries all of it; the TUI groups and counts nothing. keymap.json gains queueView and milestoneFold from keymap-additions.json.
+P8 of chat-and-activity spec.md. The arrow keys switch `now` and `plan`, shown at the right of the rooms row like Retro's period; the Queue opens on now and remembers the choice. now (10-queue-now.txt) lists only Ready stories whose dependencies are Done, in next-up order, with the slots and one line counting what it leaves out. plan (11-queue-plan.txt) groups every story that is not Done by milestone in the backlog's order: a head with a Done bar and done/total, open stories in chain order with 05-queue.txt's row, a finished milestone folded to one line, more than four stories folded behind `+ N more`, stories without a milestone last. Enter folds a head and opens a story. A milestone's preview shows its description, progress, Ready, why the rest is not Ready, the next story to act on, its chain and what blocks it. A new read office.milestones carries all of it; the TUI groups and counts nothing. The two views replace today's three-group Queue (05-queue.txt), which is marked replaced in its caption; its cell test moves to the two new mocks. keymap.json gains queueView and milestoneFold from keymap-additions.json.
 
 ```dipo
-branch: "DIPO-912/queue-now-and-plan"
+branch: "DIPO-532/queue-now-and-plan"
 unknowns:
   - q: "Should the Queue keep today's three-group view (05-queue.txt) as a third view, or does plan replace it?"
-    status: "open"
+    status: "resolved"
+    answer: "plan replaces it: two views only. 05-queue.txt is marked replaced by 10-queue-now.txt and 11-queue-plan.txt, and its expectScreen test moves to them (maintainer, 2026-11-28)."
 test_plan:
   entries:
     - kind: "automated"
