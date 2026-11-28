@@ -3,10 +3,10 @@ id: DIPO-522
 title: >-
   Decide in ADR 0024 that each office has one standing chat in threads, led by
   context
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 17:09'
+updated_date: '2026-11-28 17:11'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -44,9 +44,9 @@ unknowns:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 0024 opens with the chat's purpose as spec.md "What the chat is for" states it: explain, help decide, help fix, plan, improve the process; never act, never a second dashboard, never a replacement for keys, never a guess
-- [ ] #2 docs/decisions/0024-office-chat.md decides one standing chat per office in threads, closed by /end or a day idle
-- [ ] #3 It replaces the session kind with context and lists the facts code builds per room; it decides the five action cards, their confirm and origin chat, and that drop and discard are never cards that run
-- [ ] #4 0022 is rewritten where it changed and has its Replaced line; the maintainer approved the decision
-- [ ] #5 docs/decisions/0003-milestones-and-quality-bar.md names the chat as the M5 conversation layer and points to 0024
+- [x] #1 0024 opens with the chat's purpose as spec.md "What the chat is for" states it: explain, help decide, help fix, plan, improve the process; never act, never a second dashboard, never a replacement for keys, never a guess
+- [x] #2 docs/decisions/0024-office-chat.md decides one standing chat per office in threads, closed by /end or a day idle
+- [x] #3 It replaces the session kind with context and lists the facts code builds per room; it decides the five action cards, their confirm and origin chat, and that drop and discard are never cards that run
+- [x] #4 0022 is rewritten where it changed and has its Replaced line; the maintainer approved the decision
+- [x] #5 docs/decisions/0003-milestones-and-quality-bar.md names the chat as the M5 conversation layer and points to 0024
 <!-- AC:END -->
