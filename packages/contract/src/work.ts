@@ -401,8 +401,9 @@ export const KNOWN_TEST_END_REASONS = [
 export const TestEndReason = openEnum(KNOWN_TEST_END_REASONS);
 export type TestEndReason = z.infer<typeof TestEndReason>;
 
-// The maintainer's planning session (DIPO-447, 0008): one per office, started with a kind and a
-// goal, talked to turn by turn. It has no story, so its events carry the planning view, never a
+// The maintainer's planning session (DIPO-447, 0008), a thread of the office chat (DIPO-523, 0024):
+// one model session answers per office, talked to turn by turn, and the thread keeps its kind as a
+// value of its record. It has no story, so its events carry the planning view, never a
 // `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the drafts with
 // their origin and refines each into a story or drops it (DIPO-454).
 // `roles` talks through the office's roles and takes only role proposals (DIPO-475); the Roles room
@@ -417,10 +418,11 @@ export const KNOWN_PLANNING_STATES = ["starting", "working", "waiting", "ended"]
 export const PlanningState = openEnum(KNOWN_PLANNING_STATES);
 export type PlanningState = z.infer<typeof PlanningState>;
 
-// Why a planning session's model session ended: the maintainer ended the planning session, it
+// Why a planning session's model session ended: the maintainer ended the thread (`/end`), it
 // waited for a message longer than `planning.idleHours`, its worker exited, its start failed, the
-// daemon stopped, or its context neared full (DIPO-448). Every reason but `maintainer` and a
-// failed first start leaves the planning session open to continue in a fresh model session.
+// daemon stopped, its context neared full (DIPO-448), or the office's one model session went to
+// another thread of the chat (`switched`, DIPO-523). `maintainer` and `idle` close the thread;
+// every other reason but a failed first start leaves it open to continue in a fresh model session.
 export const KNOWN_PLANNING_END_REASONS = [
   "maintainer",
   "idle",
@@ -428,6 +430,7 @@ export const KNOWN_PLANNING_END_REASONS = [
   "start-failed",
   "daemon-stopped",
   "context-full",
+  "switched",
 ] as const;
 export const PlanningEndReason = openEnum(KNOWN_PLANNING_END_REASONS);
 export type PlanningEndReason = z.infer<typeof PlanningEndReason>;
@@ -889,17 +892,25 @@ export const PlanningMessageView = z.object({
 });
 export type PlanningMessageView = z.infer<typeof PlanningMessageView>;
 
+// A message the chat holds while the office's one model session answers or starts (DIPO-523,
+// 0024), shown as `queued · sends when the answer ends`; it goes with the next turn.
+export const PlanningQueuedMessage = z.object({ text: z.string(), at: Timestamp });
+export type PlanningQueuedMessage = z.infer<typeof PlanningQueuedMessage>;
+
 // The view of a planning session, derived by the engine. `usage` is the session's spend so far, as
 // the model proxy counted it; `turns` the answers it finished; `health` is `quiet` or `stuck`
 // only while it works on an answer, never while it waits for the maintainer. `proposals` are the
 // session's proposals in order, `refusals` the latest refused blocks (DIPO-450).
 export const PlanningView = z.object({
   run: RunId,
-  // The planning session: the run of its first model session. `run` is the model session now.
+  // The planning session, the chat's thread: the run of its first model session. `run` is the
+  // model session now.
   session: RunId.optional(),
   agent: AgentId.optional(),
   kind: PlanningKind,
   goal: z.string(),
+  // The thread's title: the goal's first line, cut (DIPO-523).
+  title: z.string().optional(),
   model: z.string(),
   state: PlanningState,
   health: Health.optional(),
@@ -921,6 +932,8 @@ export const PlanningView = z.object({
   refusals: z.array(PlanningRefusal).optional(),
   // The question blocks the maintainer has not answered yet (DIPO-455).
   questions: z.array(PlanningQuestionBlock).optional(),
+  // The maintainer's messages to this thread that wait until its answer ends (DIPO-523).
+  queued: z.array(PlanningQueuedMessage).optional(),
 });
 export type PlanningView = z.infer<typeof PlanningView>;
 

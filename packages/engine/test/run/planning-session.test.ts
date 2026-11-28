@@ -3,7 +3,7 @@
 //
 // - It starts with a kind and a goal in a box planned like the reviewer's, with only the reading
 //   and web tools and the office's planning model, Opus by default.
-// - An office has at most one open, and it holds no run slot.
+// - An office runs one model session at a time, and it holds no run slot.
 // - Its first message gives it the open drafts, the desk and the recent story runs as text.
 // - The model proxy counts its usage against no cap, and the spend is in its events.
 // - Waiting for the maintainer trips neither the watchdog nor a minute cap; it ends by itself after
@@ -112,25 +112,28 @@ describe("a planning session (DIPO-447)", () => {
       expect(flag(argvOf(w), "--effort")).toBe(OFFICE_DEFAULTS.planning.effort);
     }));
 
-  it("is refused while one is open in the office, and holds no run slot", () =>
+  it("opens another thread while one is open, with one model session at a time and no run slot (DIPO-523)", () =>
     withWorld(async (w) => {
       const { run } = await started(w);
-      const second = await w.sessions
-        .start(commandContext(w), { kind: "plan", goal: "Another" })
-        .catch((error: unknown) => error);
-      expect(second).toBeInstanceOf(CommandError);
-      expect((second as CommandError).error.code).toBe("planning.open");
-      expect(w.boxes.made).toHaveLength(1);
+      const second = w.sessions.start(commandContext(w), { kind: "plan", goal: "Another" });
+      // The first thread's model session ends `switched` before the second one starts.
+      await until(() => {
+        w.t.clock.advance(1_000);
+        return w.boxes.made.length === 2;
+      });
+      const next = await second;
+      expect(next.result.run).not.toBe(run);
+      expect(planningRun(w.office, run)?.end_kind).toBe("done");
+      expect(
+        planningEntries(w, "planning.ended").map(
+          (entry) => (entry.delta as { reason: string }).reason,
+        ),
+      ).toEqual(["switched"]);
+      expect(w.sessions.liveRuns()).toEqual([next.result.run]);
       // No slot: the places count no session run, so every slot is still free.
       expect(placeHolders(w.office)).toEqual({ worker: [], reviewer: [] });
       expect(slotHolders(w.office)).toEqual([]);
       expect(freeSlots(w.office, { limit: 1 })).toBe(1);
-      // Once it ended, a new one starts.
-      await w.sessions.end(commandContext(w));
-      w.t.clock.advance(1_000);
-      await until(() => planningRun(w.office, run)?.end_kind !== null);
-      const next = await w.sessions.start(commandContext(w), { kind: "triage", goal: "The desk" });
-      expect(next.result.run).not.toBe(run);
     }));
 
   it("refuses a message and an end without an open session", () =>

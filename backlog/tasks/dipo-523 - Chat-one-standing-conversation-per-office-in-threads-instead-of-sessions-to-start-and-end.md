@@ -3,10 +3,10 @@ id: DIPO-523
 title: >-
   Chat: one standing conversation per office, in threads, instead of sessions to
   start and end
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 18:14'
+updated_date: '2026-11-28 19:22'
 labels:
   - 'tier:L'
   - 'role:developer'
@@ -20,6 +20,25 @@ references:
   - packages/contract/src/work.ts
   - packages/contract/src/office.ts
   - docs/design/chat-and-activity/migration.md
+modified_files:
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/config/schema.ts
+  - packages/engine/src/create/surface.ts
+  - packages/engine/src/records/planning-record.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/test/run/chat.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
+  - packages/engine/test/run/planning-record.test.ts
+  - packages/engine/test/run/planning-roles-session.test.ts
+  - packages/engine/test/run/planning-session.test.ts
 priority: high
 type: feature
 ordinal: 484000
@@ -55,9 +74,24 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each office has one standing chat and chat.message never fails with planning.open
-- [ ] #2 A thread has a title, decisions, filed stories and messages, stored as the planning record is today
-- [ ] #3 /end runs today's Ready step and closes the thread; a day idle closes it
-- [ ] #4 One Claude session answers per office; a message sent meanwhile is held and sent after
-- [ ] #5 The planning commands keep working for one release as aliases
+- [x] #1 Each office has one standing chat and chat.message never fails with planning.open
+- [x] #2 A thread has a title, decisions, filed stories and messages, stored as the planning record is today
+- [x] #3 /end runs today's Ready step and closes the thread; a day idle closes it
+- [x] #4 One Claude session answers per office; a message sent meanwhile is held and sent after
+- [x] #5 The planning commands keep working for one release as aliases
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-28 19:22 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 357,897 of 2,000,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 2
+<!-- SECTION:FINAL_SUMMARY:END -->
