@@ -3,10 +3,10 @@ id: DIPO-520
 title: >-
   TUI: hold every screen to its mock cell for cell, with roles, bold, underline
   and focus
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 17:17'
+updated_date: '2026-11-28 18:14'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -22,6 +22,14 @@ references:
   - docs/design/tui-v2/spec.md
   - docs/design/tui-v2/roles.json
   - docs/design/chat-and-activity/spec.md
+modified_files:
+  - docs/design/tui-v2/screens/05-queue.txt
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/test/support/harness.ts
+  - packages/tui/test/support/mock-screens.test.ts
+  - packages/tui/test/support/mock-screens.ts
 priority: high
 type: feature
 ordinal: 481000
@@ -68,3 +76,18 @@ test_plan:
 - [x] #5 The Floor, Queue and Plan tests use expectScreen on the whole frame instead of mockRows on part of it
 - [x] #6 bun run verify runs all of it and stays under the local 60-second budget
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-28 18:14 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 126,766 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
