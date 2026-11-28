@@ -1,0 +1,36 @@
+=== C7 Desk with the chat panel on (154 columns or wider) · the keyboard in the room · 154 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                                      [acc]![/] 2 for you    [acc]◌[/] 2 in background    [ok]●[/] daemon live[dim]    $6.02 today    13:12[/]
+[hi]__1 Desk [acc]2[/]__[/]    [dim]2 Floor [acc]1[/][/]    [dim]3 Queue [acc]1·2[/][/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**NEEDS YOU**[/]                                  [acc]2  [/][faint]│[/]  [dim]MERGE · waits for you[/]                            [faint]│[/]  [dim]in Desk · on DIPO-446 · MERGE[/]
+                                              [faint]│[/]  [hi]**DIPO-446 Planning tools for workers**[/]              [faint]│[/]
+[dim]MERGE[/]                                         [faint]│[/]  [ok]setup ━━ build ✓ ━━ review ✓ ━━ [/][acc]● test [/][faint]┄┄ merge[/]  [faint]│[/]  [acc]>[/] [fg]what changed since round 1?[/]
+[sel][acc]▌[/] [acc]○[/] [hi]DIPO-446 Planning tools…[/]              [dim]8m  [/][/][faint]│[/]                                                   [faint]│[/]
+[sel][dim]    test before merge · blocks 2[/]              [/][faint]│[/]  [dim]Review  [/][ok]approved[/] round 1 · 8/8 criteria          [faint]│[/]  [acc]●[/] [fg]Two files: the read-only tool set in[/]
+                                              [faint]│[/]  [dim]CI      [/][ok]✓[/] 4 required checks green                [faint]│[/]    [acc]tools.ts[/] and its test. The reviewer's
+[dim]PROPOSALS · from your AI team[/]                 [faint]│[/]  [dim]Change  [/]6 files · +214 −38                       [faint]│[/]    advisory on box-plan.ts is not addressed.
+  [acc]◆[/] CLI verbs for planning                [dim]2h  [/][faint]│[/]  [dim]Tests   [/]3 manual steps                           [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]  [dim]ask about this[/]
+                                              [faint]│[/]  [acc]⟦[/] [acc]t[/] Test first [acc]⟧[/]  [faint]⟦[/] [acc]y[/] Approve [faint]⟧[/]                  [faint]│[/]  [dim]· what should I test by hand?[/]
+                                              [faint]│[/]                                                   [faint]│[/]  [dim]· what does merging unblock?[/]
+                                              [faint]│[/]  [dim]$ dipo approve DIPO-446[/]                          [faint]│[/]  [dim]· is the advisory worth a story?[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+                                              [faint]│[/]                                                   [faint]│[/]
+[dim]13:04 DIPO-446 review approved  ·  12:58 backlog PR #702 merged[/]                                   [faint]│[/]  [dim]>[/] [dim]` to type[/]
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject   [acc]⏎[/] open story                                                           [dim][acc]`[/] ask   [acc]\[/] hide chat   [acc]:[/] commands   [acc]?[/] keys[/]
+--- notes ---
+The chat panel is on by default wherever the room keeps its minimum width (spec.md P7; the Desk needs 98, so 154 columns) and stays on as you move: the right 56 columns (a faint │, two spaces, 53). `\` hides and shows it; the choice is remembered. The room keeps the keyboard: every lowercase key is the room's verb, as in TUI v2.
+While the room has the keyboard the panel is quiet: the conversation in its roles, the input dim (` > ` dim and `` ` to type``). `` ` `` moves the keyboard to the chat: the input turns acc with a cursor (05-run-with-dock-wide.txt), the footer shows the chat's keys, `esc` gives the keyboard back.
+`ask about this` lists questions code builds from the focused item's kind (MERGE: test, unblock, advisory). No model call happens until you send one; ↑ from the input or a click picks it.
+The panel follows the room's focus: the context line changes when you move; the conversation does not.

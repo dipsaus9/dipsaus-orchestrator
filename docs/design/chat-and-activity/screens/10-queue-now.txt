@@ -1,0 +1,35 @@
+=== C8 Queue · now: only what can start (chat hidden with \) · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                                [ok]●[/] daemon live[dim]    $6.40 today    14:02[/]
+[dim]1 Desk [acc]2[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]2·2[/]__[/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]                                   [hi]__now__[/]  [dim]plan[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**CAN START NOW**[/]                                              [dim]2  [/][faint]│[/]  [dim]READY · tier M · next up[/]
+[sel][acc]▌[/] [ok]→[/] [dim]DIPO-519[/]  [hi]Write proposed decision 0023…   [/][dim]M[/]  [ok]next up[/]      [/][faint]│[/]  [hi]**DIPO-519 Write proposed decision 0023 on**[/]
+  [ok]→[/] [dim]DIPO-521[/]  Show granted skills in the card [dim]S[/]  [dim]ready[/]        [faint]│[/]  [hi]**granting skills and plugins to each session**[/]
+                                                              [faint]│[/]
+[dim]SLOTS[/]                                [dim]1 of 3 running · 2 free  [/][faint]│[/]  [dim]Gate     [/][ok]✓[/] 31 rules
+                                                              [faint]│[/]  [dim]Needs    [/][ok]all done[/]
+[dim]  2 waiting on a dependency · 3 not Ready yet[/]                 [faint]│[/]  [dim]Unblocks [/]DIPO-518
+[dim]  [acc]→[/] plan view shows them by milestone[/]                         [faint]│[/]  [dim]Touches  [/]docs/decisions/
+                                                              [faint]│[/]  [dim]         [/]packages/engine/src/workers/
+                                                              [faint]│[/]
+                                                              [faint]│[/]  [dim]Starts on r, or by itself as next up once[/]
+                                                              [faint]│[/]  [dim]its files overlap no running story.[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+[dim]14:01 DIPO-521 Ready  ·  13:19 DIPO-519 Ready[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]r[/] run now   [acc]p[/] park   [acc]⏎[/] story   [acc]←→[/] view                                               [dim][acc]/[/] filter   [acc]?[/] keys[/]
+--- notes ---
+The Queue has two views, switched with ←→ like Retro's period; the switch sits at the right end of the rooms row (`now  plan`, the current one hi and underlined in acc). The Queue opens on `now`; the choice is remembered.
+`now` lists only the stories that can start: Ready, dependencies Done, in next-up order (the first is next up). Under them the slots from `office.summary` and one dim line counting what is not shown, pointing at the plan view. The preview is 05-queue.txt's, plus a dim line saying how the story starts.
+Everything 05-queue.txt binds still works here; X and space are left out of the footer because nothing in this view is Refined.

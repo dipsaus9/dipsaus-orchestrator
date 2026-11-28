@@ -1,0 +1,35 @@
+=== C5 Chat line, idle (the chat hidden, or below 100 columns; the row above the ticker) · 112 cols × 1 rows ===
+ [acc]>[/] [dim]ask about Queue · DIPO-116[/]                                                                             [dim][acc]`[/] chat[/]
+=== C5 Chat line, answering · 112 cols × 1 rows ===
+ [acc]●[/] [fg]dipo is answering about Floor · DIPO-519[/][dim] · 2.3k tokens · 12s[/]                                          [dim][acc]`[/] watch[/]
+=== C5 Chat line, an answer you haven't seen · 112 cols × 1 rows ===
+ [acc]>[/] [dim]ask about Desk · DIPO-512's question[/]                                          [acc]◆[/] 1 new answer in Chat   [dim][acc]`[/] chat[/]
+=== C5 Input while dipo answers: the message waits · 112 cols × 2 rows ===
+ [acc]>[/] And is DIPO-288 worth keeping?
+[dim]   queued · sends when the answer ends[/]
+=== C5 Context line in the dock · 112 cols × 3 rows ===
+ [dim]in Queue · on DIPO-116 · Refined, gate ✗ R15[/]                                          [dim]/general asks without it [/]
+ [dim]in Queue[/]                                                                                   [dim]/here adds DIPO-116 [/]
+ [dim]general[/]                                                                            [dim]/here adds Queue · DIPO-116 [/]
+=== C5 An action card after c (pending, sent, failed; in place, as the Desk's pending rows) · 112 cols × 3 rows ===
+ [acc]◌[/][dim] steer · DIPO-512 · sending…[/]
+ [ok]✓ sent 11:03 · steer · DIPO-512 · delivered next turn[/]
+ [err]✗[/][err] steer not sent: DIPO-512 is no longer running (parked 11:03)[/][dim] · [/][acc]^R[/][dim] retry as a resume note[/]
+=== C5 A refused command, with its reason (ticker and card) · 112 cols × 1 rows ===
+[dim]11:05 set Ready DIPO-116 refused: R15 the unknowns list is missing  ·  [/][acc]`[/][dim] ask why[/]
+=== C5 A thread that closed by itself · 112 cols × 1 rows ===
+ [dim]── thread “Unblock the skills decision” closed after a day idle · 2 filed · the record is kept ──[/]
+=== C5 Chat while the daemon is away (conversation in shade, input kept) · 112 cols × 5 rows ===
+[shade] > Can we fix 116 already?[/]
+[shade] ● No: DIPO-116 can never pass the Ready gate without a field block…[/]
+
+ [acc]>[/] and 288?_
+[dim]   messages send when the daemon is back · your draft is kept[/]
+=== C6 Header chips · 112 cols × 3 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                           [acc]◌[/] 3 in background    [ok]●[/] daemon live[dim]    $4.86 today    10:12[/]
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                    [err]✗[/] 1 failed in background    [ok]●[/] daemon live[dim]    $5.12 today    10:31[/]
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator     [acc]![/] 4 for you    [err]✗[/] 1 failed in background    [ok]●[/] daemon live[dim]    $5.40 today    11:05[/]
+=== C6 Too narrow for a dock (below 100 columns): ` opens the chat full screen; esc returns to the room · 80 cols × 1 rows ===
+[acc]**dipo**[/][dim] / [/][dim]dipsaus-orch… / [/]Chat
+--- notes ---
+Order in the header, right to left: time, spend, the daemon dot and word, then `✗ N failed in background` or `◌ N in background`, then `! N for you`, then `● plan open` on the Desk (01-desk.txt): four spaces between chips. A chip with nothing to count is absent.

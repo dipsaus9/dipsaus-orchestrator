@@ -1,0 +1,35 @@
+=== C1 Run with the chat docked on the right (152 columns or wider) · a steer card in focus · 152 cols × 30 rows ===
+[acc]**dipo**[/][dim] / dipsaus-orchestrator / Floor / [/]DIPO-512                                                                            [acc]![/] 1 for you    [ok]●[/] live[dim]    11:02[/]
+[hi]**Keep the daemon's lock across a restart**[/]
+[ok]setup ━━ [/][err]✗ build · verify [/][faint]┄┄ review ┄┄ test ┄┄ merge[/]                         [dim]loop 3 of 8 · 41m[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]PHASE     [/]build             [faint]│[/]  [hi]__all__[/]   [dim]worker[/]   [dim]reviewer[/]   [dim]verify[/]   [dim]prompt[/]            [dim]following ↓ [/][faint]│[/]  [dim]in Run · on DIPO-512 · looping[/]
+[dim]HEALTH    [/][err]![/][err] looping[/]         [faint]│[/]                                                                   [faint]│[/]
+[dim]CRITERIA  [/]3/5               [faint]│[/]  [dim]── build · worker · 10:58 ───────────────────────────[/]            [faint]│[/]  [acc]>[/] it keeps failing verify, why?
+[dim]REVIEW    [/]round 0           [faint]│[/]  [dim]10:58  bash   [/]bun run verify                                     [faint]│[/]
+[dim]VERIFY    [/][err]✗[/] 3 of 3 failed   [faint]│[/]  [dim]10:59  verify [/][err]✗[/] lock.test.ts:88 pid mismatch                     [faint]│[/]  [acc]●[/] [dim]·· read 3 files · 7.2s · 1.1k tokens[/]
+                            [faint]│[/]  [dim]10:59  ··     [/][dim]3 thoughts · 0.8k tokens[/]                           [faint]│[/]    Each loop raises the wait in [acc]lock.ts:142[/]. The
+[dim]USAGE[/]                       [faint]│[/]  [dim]11:00  edit   [/]packages/daemon/src/lock.ts                        [faint]│[/]    test fails because a restart reads the old pid
+[dim]in        [/]412k              [faint]│[/]  [dim]11:00  [/][acc]says   [/][hi]Raising the reacquire wait to 5 s.[/]                 [faint]│[/]    file at [acc]lock.ts:97[/], not because it is slow.
+[dim]out       [/]61k               [faint]│[/]  [dim]11:01  bash   [/]bun run verify                                     [faint]│[/]  [sel][acc]▌[/] [hi]**◆ steer · DIPO-512 · arrives at its next turn**[/][/]
+[dim]turns     [/]212               [faint]│[/]  [dim]11:02  verify [/][err]✗[/] lock.test.ts:88 pid mismatch                     [faint]│[/]  [sel][dim]    Stop changing the wait. A restart reads the old[/][/]
+                            [faint]│[/]                                                                   [faint]│[/]  [sel][dim]    pid file at lock.ts:97; clear it on acquire and[/][/]
+[dim]BUDGET    [/]61% of 2.0M       [faint]│[/]                                                                   [faint]│[/]  [sel][dim]    keep the test at lock.test.ts:88 as it is.[/][/]
+[acc]━━━━━━━━━━━━━━━━[/][faint]━━━━━━━━━━[/]  [faint]│[/]                                                                   [faint]│[/]  [sel][acc]    c send   e edit   x drop   esc to the input[/][/]
+                            [faint]│[/]                                                                   [faint]│[/]
+[dim]MODEL     [/]sonnet-5.5        [faint]│[/]                                                                   [faint]│[/]
+[dim]RUN       [/]…7Q2MXK4D1        [faint]│[/]                                                                   [faint]│[/]  [acc]>[/] _
+                            [faint]│[/]                                                                   [faint]│[/]
+                            [faint]│[/]                                                                   [faint]│[/]
+                            [faint]│[/]                                                                   [faint]│[/]
+                            [faint]│[/]                                                                   [faint]│[/]
+                            [faint]│[/]                                                                   [faint]│[/]
+                            [faint]│[/]                                                                   [faint]│[/]
+                            [faint]│[/]                                                                   [faint]│[/]
+                            [faint]│[/]                                                                   [faint]│[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]c[/] send   [acc]e[/] edit   [acc]x[/] drop   [acc]↑↓[/] card   [acc]esc[/] to the input                                                            [dim][acc]tab[/] to the run   [acc]`[/] full screen   [acc]?[/] keys[/]
+--- notes ---
+When the room keeps its own minimum width (spec.md P7; the Run needs 96, so 152 columns) the chat panel is the right 56 columns: a faint `│`, two spaces, 53 columns of conversation; the room keeps the rest (here the Run of 03-run.txt at 96 columns, its stream cut to fit). The header and the rules span the whole width; the room's own lines (pipeline, stream) end at the dock.
+The steer card's `c` sends `work.steer` as the maintainer with origin chat; the Run stream then shows the `you` line with its delivery state (03-run.txt, S7). The card turns into `✓ sent 11:03 · delivered next turn` in ok, or `✗ not sent: <reason>` in err with `^R retry`.
+This frame has no ticker and no chat line: the dock replaces the chat line, and at this height the ticker drops first.

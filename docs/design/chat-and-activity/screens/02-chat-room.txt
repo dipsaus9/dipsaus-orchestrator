@@ -1,0 +1,35 @@
+=== C2 Chat, full screen (5): one conversation in threads, led by context · changes 07-plan.txt · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / dipsaus-orchestrator / [/]Chat                                    [ok]●[/] dipo live[dim]    $0.84 this thread    10:14[/]
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Chat · thread 2 of 3 · waiting · claude-opus-5-5
+ thread: Unblock the skills-and-plugins decision
+ spend: in 56k · out 15k · cache write 92k · cache read 1.7M
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ [dim]── in Queue · on DIPO-116 ──[/]
+
+ [acc]>[/] Can we fix 116 already?
+
+ [acc]●[/] [dim]·· read 2 drafts, grep 2 · 15.8s · 9.9k tokens[/]
+   No: DIPO-116 can never pass the Ready gate without a field block, and an edit can't add one. I
+   propose a new story with the same work, and DIPO-518 waiting on it instead.
+[ok]   ✓ filed as DIPO-519 · Write proposed decision 0023 on granting skills and plugins[/]
+[ok]   ✓ edited DIPO-518 · needs DIPO-519 instead of DIPO-116[/]
+
+ [dim]── in Floor · on DIPO-519 ──[/]
+
+ [acc]>[/] How about now?
+
+ [acc]●[/] DIPO-519 merged at 10:11 and is Ready with no dependencies. It starts by itself once a slot
+   frees; DIPO-518 follows when 519 is Done. One thing is left: DIPO-116 will never run.
+ [sel][acc]▌[/] [hi]**◆ command · dipo drop DIPO-116**[/][/]
+[sel][dim]     Archives DIPO-116 and releases its claim. It has no branch or PR, so nothing is lost.[/][/]
+[sel][acc]     c copy   X drop here (asks first)   esc to the input[/][/]
+
+ [acc]>[/] _
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]c[/] copy   [acc]X[/] drop   [acc]↑↓[/] card   [acc]esc[/] to the input
+--- notes ---
+The Plan view (07-plan.txt) becomes the Chat view on 5 and keeps its layout cell for cell: the header, the head lines under the rule (`Chat · thread N of M · <state> · <model>`, `thread: <title>`, `spend: …`), one conversation column, cards, the one-line input at the foot. Width 111 as 07-plan.txt.
+New: a dim context divider `── in <room> · on <item> ──` before the first message sent from a new place (never when the place is the same as the last message's); `/new` starts a thread, `/end` closes it (the Ready step as today), `/general` and `/here` drop and restore the item, `/threads` lists the open ones.
+Without a focused card the footer reads `⏎ send   shift-⏎ new line   /end close thread   ↑ cards   tab stories`, right `esc back` (as 07-plan.txt).

@@ -1,0 +1,34 @@
+=== C3 Floor › a background item: a story PR's checks (chat hidden with \) · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / dipsaus-orchestrator / Floor / [/]PR #698                                                    [ok]●[/] live[dim]    10:32[/]
+[hi]**DIPO-512 Keep the daemon's lock across a restart**[/]
+[ok]setup ━━ build ✓ ━━ review ✓ ━━ test ✓ ━━ [/][err]✗ merge · CI[/]                         [dim]attempt 2 of 3 · retries at 10:35[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]CHECKS[/]                      [faint]│[/]  [hi]**test (bun 1.4)**[/][dim] · failed 10:30 · 3m 12s · log tail[/]
+  [ok]✓[/] format                  [faint]│[/]
+  [ok]✓[/] lint                    [faint]│[/]  [dim]10:30  [/]bun test packages/daemon
+  [ok]✓[/] typecheck               [faint]│[/]  [dim]10:30  [/][err]✗[/] lock survives restart  [dim]packages/daemon/test/lock.test.ts:88[/]
+[sel][acc]▌[/] [err]✗[/][hi] test (bun 1.4)[/]          [/][faint]│[/]         expected pid 4121 to equal 4377
+  [ok]✓[/] test (bun 1.5)          [faint]│[/]         at reacquire  [dim]packages/daemon/src/lock.ts:142[/]
+                            [faint]│[/]  [dim]10:30  [/]412 pass · [err]1 fail[/]
+[dim]NEXT[/]                        [faint]│[/]
+  retries at 10:35          [faint]│[/]  [dim]Failed on bun 1.4 in both attempts and passed on bun 1.5.[/]
+  [dim]then on your Desk[/]         [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+ [acc]>[/] [dim]ask about PR #698 · test (bun 1.4)[/]                                                                     [dim][acc]`[/] chat[/]
+[dim]10:30 PR #698 CI failed (test, bun 1.4)  ·  10:24 dipo restarted on f07dd11[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] check   [acc]⏎[/] full log   [acc]o[/] PR   [acc]`[/] ask about it   [acc]p[/] park   [acc]c[/] copy id                             [dim][acc]esc[/] back   [acc]?[/] keys[/]
+--- notes ---
+⏎ on a BACKGROUND row opens this level; the header path and `● live` follow the Run's (03-run.txt). Left 28 columns: the checks (the focused one on sel), then NEXT from the engine. Right: the focused check's log tail, time dim, the failing line in err, paths dim.
+The dim line under the log is code, not a model: the same check failed on every attempt while a sibling job passed. Other kinds open their own body: the backlog PR lists its changes (as the BACKLOG row's ⏎ list today), a test shows its steps (10-test-overlay.txt), the audit lists its ideas.
