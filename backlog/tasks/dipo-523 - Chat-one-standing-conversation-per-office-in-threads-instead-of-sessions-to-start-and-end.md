@@ -3,10 +3,10 @@ id: DIPO-523
 title: >-
   Chat: one standing conversation per office, in threads, instead of sessions to
   start and end
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:00'
+updated_date: '2026-11-28 19:21'
 labels:
   - 'tier:L'
   - 'role:developer'
@@ -55,9 +55,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each office has one standing chat and chat.message never fails with planning.open
-- [ ] #2 A thread has a title, decisions, filed stories and messages, stored as the planning record is today
-- [ ] #3 /end runs today's Ready step and closes the thread; a day idle closes it
-- [ ] #4 One Claude session answers per office; a message sent meanwhile is held and sent after
-- [ ] #5 The planning commands keep working for one release as aliases
+- [x] #1 Each office has one standing chat and chat.message never fails with planning.open
+- [x] #2 A thread has a title, decisions, filed stories and messages, stored as the planning record is today
+- [x] #3 /end runs today's Ready step and closes the thread; a day idle closes it
+- [x] #4 One Claude session answers per office; a message sent meanwhile is held and sent after
+- [x] #5 The planning commands keep working for one release as aliases
 <!-- AC:END -->
