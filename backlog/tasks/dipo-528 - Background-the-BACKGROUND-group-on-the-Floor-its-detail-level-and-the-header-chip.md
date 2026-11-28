@@ -3,10 +3,10 @@ id: DIPO-528
 title: >-
   Background: the BACKGROUND group on the Floor, its detail level and the header
   chip
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:00'
+updated_date: '2026-11-28 19:10'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -46,6 +46,10 @@ test_plan:
       check: "(unit) the header chip reads ◌ N, or ✗ N in err when one failed, and is absent with none"
     - kind: "automated"
       check: "(unit) a background.changed event shows in the ticker with its HH:MM"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "04-background-detail.txt shows a story PR's checks (format, lint, typecheck, `test (bun 1.4)` and so on, each with a state) and the failed check's log tail with the failing line. `BackgroundItem` and the other reads carry none of this: only `ci` as one state, a subject and a `next` line. May I add an engine read, for example `background.detail`, that returns a PR's checks and log tail (the contract schema, an engine implementation that fetches them through gh, and the TUI level)? Or should the level be built later, when the engine side exists, and this story close on the group, chip and ticker?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -56,3 +60,16 @@ test_plan:
 - [ ] #3 The header chip follows 07-states.txt C6
 - [ ] #4 The two screens pass expectScreen
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-28 19:10 UTC: ambiguous-spec
+- Detail: 04-background-detail.txt shows a story PR's checks (format, lint, typecheck, `test (bun 1.4)` and so on, each with a state) and the failed check's log tail with the failing line. `BackgroundItem` and…
+- Run: run_01M8HRE9YDTY7FS4VN54WEVWD2
+- Criteria met: 2 of 4 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 225,776 of 800,000 tokens; 85 of 200 turns; 10 of 90 minutes
+- Last good commit: 4ce62924247e8dee6e4ce39cd0dc04421a0d009c
+<!-- SECTION:NOTES:END -->
