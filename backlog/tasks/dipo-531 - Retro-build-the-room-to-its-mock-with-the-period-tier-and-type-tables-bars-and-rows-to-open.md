@@ -3,9 +3,10 @@ id: DIPO-531
 title: >-
   Retro: build the room to its mock, with the period, tier and type tables, bars
   and rows to open
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 18:14'
 labels:
   - 'tier:M'
   - 'role:developer'
