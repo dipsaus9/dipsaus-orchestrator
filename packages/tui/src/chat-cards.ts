@@ -215,15 +215,19 @@ function keysLine(card: ChatCard): string {
 const CARD_TEXT_ROWS = 6;
 
 /**
- * The rows of a card, `width` cells wide (the gutter is the caller's): a head `◆ steer · DIPO-512 ·
+ * The rows of a card, `width` cells wide after a gutter of `gutter` cells: a head `◆ steer · DIPO-512 ·
  * arrives at its next turn`, its text dim and indented, and while it has focus the bar, the focus
- * background and its keys. A card that was sent shows `sendLine` alone.
+ * background and its keys. A card that was sent shows `sendLine` alone. In the conversation the focus
+ * background covers the gutter of every row but the head's (`gutterInside`, 07-plan.txt); beside
+ * a room it starts after the gutter (05-run-with-dock-wide.txt).
  */
 export function cardRows(
   view: ChatCardView,
   options: {
     readonly focused: boolean;
     readonly width: number;
+    readonly gutter: number;
+    readonly gutterInside: boolean;
     readonly ascii: boolean;
     readonly send?: CardSend | undefined;
     readonly edited?: string | undefined;
@@ -231,7 +235,15 @@ export function cardRows(
 ): Span[][] {
   const { focused, width, ascii } = options;
   const { dot, bar, ellipsis } = glyphs(ascii);
-  if (options.send !== undefined) return [sendLine(view, options.send, ascii)];
+  const gutter = (row: Span[], index: number): Span[] => [
+    {
+      text: " ".repeat(options.gutter),
+      role: "dim",
+      sel: focused && options.gutterInside && index > 0,
+    },
+    ...row,
+  ];
+  if (options.send !== undefined) return [gutter(sendLine(view, options.send, ascii), 0)];
   const mark = ascii ? "#" : "◆";
   const aim = [
     verbOf(view.card),
@@ -265,5 +277,5 @@ export function cardRows(
   if (focused) {
     rows.push([{ text: `    ${keysLine(view.card)}`, role: "acc", sel: true }]);
   }
-  return rows;
+  return rows.map(gutter);
 }

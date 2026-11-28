@@ -598,7 +598,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   {
     id: "cardDropStory",
     key: "X",
-    label: "drop here (asks first)",
+    label: "drop",
     views: ["planning"],
     when: (ctx) => carding(ctx) && chatCard(ctx)?.prompt === "drop",
     priority: 88,
@@ -606,7 +606,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   {
     id: "cardDiscardStory",
     key: "D",
-    label: "discard here (asks first)",
+    label: "discard",
     views: ["planning"],
     when: (ctx) => carding(ctx) && chatCard(ctx)?.prompt === "discard",
     priority: 88,

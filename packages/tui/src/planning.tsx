@@ -1217,7 +1217,9 @@ function chatBlocksOf(planning: Planning, columns: number, display: Display) {
   return chatCards.views.map((card) => ({
     rows: cardRows(card, {
       focused: card.n === planning.focusedCard,
-      width: Math.max(10, columns - 3),
+      width: Math.max(10, columns - 2),
+      gutter: 1,
+      gutterInside: true,
       ascii: display.ascii,
       send: chatCards.sends.get(card.n),
       edited: chatCards.edited.get(card.n),
@@ -1277,7 +1279,7 @@ export function PlanningMode(props: PlanningModeProps) {
       )}
       {cards.map((row, i) => line(row, `card:${i}`))}
       {chatRows.map((spans: Span[], i) => (
-        <SpanLine key={`chat:${i}`} spans={[{ text: " " }, ...spans]} display={display} />
+        <SpanLine key={`chat:${i}`} spans={spans} display={display} />
       ))}
       {extra.map((row, i) => line(row, `extra:${i}`))}
       <Box flexGrow={1} />

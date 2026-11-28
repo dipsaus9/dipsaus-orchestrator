@@ -11,8 +11,14 @@ import type {
   RequestId,
 } from "@dipsaus-orchestrator/contract";
 
-import { cardRequest, dropTarget, retryKind, type CardSend } from "./chat-cards";
+import { Box } from "ink";
+import { createElement } from "react";
+
+import { cardRequest, cardRows, dropTarget, retryKind, type CardSend } from "./chat-cards";
+import { type Span, SpanLine } from "./spans";
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
+import { render } from "../test/support/harness";
+import { expectScreen } from "../test/support/mock-screens";
 import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -273,5 +279,119 @@ describe("the cards of the chat view", () => {
     await ui.press("c");
     const [steered] = await sentOf(session, "work.steer");
     expect(steered?.args).toEqual({ story: "DIPO-512", text: "Use the old pid file." });
+  });
+});
+
+describe("the card lines of screens/07-states.txt (DIPO-525)", () => {
+  it("matches the mock for a card after c: pending, sent and failed, in place", async () => {
+    const request = cardRequest(steer.card, OFFICES.dipsaus as OfficeId, REQUEST)!;
+    const sends: CardSend[] = [
+      { status: "sending", request },
+      { status: "sent", request, at: "11:03", words: "delivered next turn" },
+      {
+        status: "failed",
+        request,
+        error: {
+          code: "story.notRunning",
+          message: "DIPO-512 is no longer running (parked 11:03)",
+          retryable: false,
+        },
+        at: "11:03",
+      },
+    ];
+    const ui = render(
+      createElement(
+        Box,
+        { flexDirection: "column" },
+        ...sends.map((send, i) =>
+          createElement(SpanLine, {
+            key: i,
+            display: { color: true, ascii: false },
+            spans: cardRows(steer, {
+              focused: false,
+              width: 100,
+              gutter: 1,
+              gutterInside: true,
+              ascii: false,
+              send,
+            })[0]!,
+          }),
+        ),
+      ),
+      { columns: 112, rows: 3 },
+    );
+    await Bun.sleep(30);
+    expectScreen(ui, "07-states.txt", "An action card after c");
+    await ui.unmount();
+  });
+});
+
+/** The cells of one focused card, `rows` of a 30-row screen, as the dock or the conversation draws them. */
+async function cardScreen(
+  columns: number,
+  at: number,
+  card: ChatCardView,
+  lead: Span[],
+  layout: { width: number; gutter: number; gutterInside: boolean },
+) {
+  const rows = cardRows(card, { focused: true, ascii: false, ...layout });
+  const ui = render(
+    createElement(
+      Box,
+      { flexDirection: "column" },
+      ...Array.from({ length: 30 }, (_, index) =>
+        createElement(SpanLine, {
+          key: index,
+          display: { color: true, ascii: false },
+          spans: rows[index + 1 - at] === undefined ? [] : [...lead, ...rows[index + 1 - at]!],
+        }),
+      ),
+    ),
+    { columns, rows: 30 },
+  );
+  await Bun.sleep(30);
+  return ui;
+}
+
+describe("the focused cards of the dock mocks (DIPO-525)", () => {
+  it("draws the steer card of 05-run-with-dock-wide.txt cell for cell, beside the room", async () => {
+    const stuck: ChatCardView = {
+      ...steer,
+      card: {
+        kind: "steer",
+        story: "DIPO-512",
+        text: "Stop changing the wait. A restart reads the old pid file at lock.ts:97; clear it on acquire and keep the test at lock.test.ts:88 as it is.",
+      },
+    };
+    // The room keeps 96 columns and the dock's rule `│`; the card has the 53 columns after two spaces.
+    const ui = await cardScreen(
+      152,
+      13,
+      stuck,
+      [{ text: " ".repeat(96) }, { text: "│", role: "faint" }],
+      { width: 51, gutter: 2, gutterInside: false },
+    );
+    expectScreen(ui, "05-run-with-dock-wide.txt", "C1 Run with the chat docked on the right");
+    await ui.unmount();
+  });
+
+  it("draws the command card of 01-queue-with-dock.txt cell for cell, in the conversation", async () => {
+    const ui = await cardScreen(
+      112,
+      22,
+      {
+        ...drop,
+        card: {
+          kind: "command",
+          line: "dipo drop DIPO-116",
+          effect:
+            "Archives DIPO-116 and releases its claim. It has no branch or PR, so nothing is lost.",
+        },
+      },
+      [],
+      { width: 110, gutter: 1, gutterInside: true },
+    );
+    expectScreen(ui, "01-queue-with-dock.txt", "C1 Queue with the chat docked");
+    await ui.unmount();
   });
 });
