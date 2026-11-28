@@ -3,9 +3,10 @@ id: DIPO-523
 title: >-
   Chat: one standing conversation per office, in threads, instead of sessions to
   start and end
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
+updated_date: '2026-11-28 18:14'
 labels:
   - 'tier:L'
   - 'role:developer'
