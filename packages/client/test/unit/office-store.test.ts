@@ -157,6 +157,14 @@ async function setup() {
   return { client, clock, store, snapshots };
 }
 
+const item = (kind: string, ref: string, state: string) => ({
+  kind,
+  ref,
+  subject: ref,
+  state,
+  since: AT,
+});
+
 describe("OfficeStore", () => {
   it("takes offices and the daemon state from engine.hello and follows the software stream", async () => {
     const { client, store } = await setup();
@@ -375,13 +383,6 @@ describe("OfficeStore", () => {
   it("keeps the background list from the snapshot and its changes in the engine's order, with their ticker lines (DIPO-528)", async () => {
     const { client, store, snapshots } = await setup();
     const stream = `office:${A}`;
-    const item = (kind: string, ref: string, state: string) => ({
-      kind,
-      ref,
-      subject: ref,
-      state,
-      since: AT,
-    });
     expect(store.state.background).toEqual([]);
     snapshots.set(A, {
       ...(snapshots.get(A) as OfficeSnapshot),
