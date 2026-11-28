@@ -3,10 +3,10 @@ id: DIPO-520
 title: >-
   TUI: hold every screen to its mock cell for cell, with roles, bold, underline
   and focus
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 16:50'
+updated_date: '2026-11-28 17:09'
 labels:
   - 'tier:M'
   - 'role:developer'
