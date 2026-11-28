@@ -3,10 +3,10 @@ id: DIPO-529
 title: >-
   Focus: the next thing for me on !, back on ', my place kept in every room,
   links in answers
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 14:18'
+updated_date: '2026-11-28 18:14'
 labels:
   - 'tier:M'
   - 'role:developer'
