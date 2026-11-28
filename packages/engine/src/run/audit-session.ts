@@ -29,6 +29,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { baseCommit } from "../box/image";
+import { tellBackground } from "./background";
 import type { BoxSession, BoxWorkers } from "../box/workers";
 import type { OfficeConfig } from "../config";
 import { configHash } from "../config/merge";
@@ -152,7 +153,10 @@ export class AuditSessions implements AuditSessionRunner {
         )
         .filter((row) => !followed.has(row.run_id));
       for (const row of left) {
-        handle.immediate(() => endRun(handle, RunId.parse(row.run_id), at, "dropped"));
+        handle.immediate(() => {
+          endRun(handle, RunId.parse(row.run_id), at, "dropped");
+          tellBackground(handle, at);
+        });
         ended += 1;
       }
       if (left.length > 0) this.#deps.onChanged?.(office);
@@ -194,7 +198,10 @@ export class AuditSessions implements AuditSessionRunner {
       return { kind: "failed", runId: run, reason: messageOf(error) };
     } finally {
       const at = deps.clock.now();
-      request.handle.immediate(() => endRun(request.handle, run, at, end));
+      request.handle.immediate(() => {
+        endRun(request.handle, run, at, end);
+        tellBackground(request.handle, at);
+      });
       deps.onChanged?.(request.office);
       await deps.boxes.endPlanning(agent);
     }
@@ -229,6 +236,7 @@ export class AuditSessions implements AuditSessionRunner {
         runProfileId: currentProfileId(handle),
         startedAt,
       });
+      tellBackground(handle, startedAt);
     });
     this.#deps.onChanged?.(request.office);
   }

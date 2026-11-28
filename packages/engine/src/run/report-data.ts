@@ -32,6 +32,7 @@ import { proposalIdeaText } from "../db/idea-ids";
 import type { OfficeHandle } from "../db/office";
 import { checkStoryLine } from "../gate/rules";
 import { holdIdea } from "../records/ideas";
+import { tellBackground } from "./background";
 import type {
   WorkerDecisionNote,
   WorkerDeviation,
@@ -366,6 +367,7 @@ export function storeProposals(
     });
     if (id !== null) held += 1;
   }
+  if (held > 0) tellBackground(office, input.at);
   return held;
 }
 

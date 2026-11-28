@@ -61,6 +61,7 @@ import type { Logger } from "../log/logger";
 import { decideTestedMergeGates } from "../run-state/gates";
 import { currentProfile, type StoredProfile } from "../scan/store";
 import { findStoryPr } from "../records/story-prs";
+import { backgroundEntries } from "./background";
 import { storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { DISCARD_RELEASE_REASON, DROP_RELEASE_REASON } from "../worktree/release";
@@ -436,7 +437,7 @@ export class StoryTests {
         target: running.forward?.target ?? null,
         at: this.#deps.clock.now(),
       });
-      return ready;
+      return [...ready, ...backgroundEntries(office, this.#deps.clock.now())];
     });
     const test = findTest(office, request.testId);
     if (ready.length === 0 || test === null) {
@@ -493,7 +494,11 @@ export class StoryTests {
               at: ctx.now,
             })
           : [];
-      return withWorkViews(office, [...recorded, ...decided]);
+      return withWorkViews(office, [
+        ...recorded,
+        ...decided,
+        ...backgroundEntries(office, ctx.now),
+      ]);
     });
     await this.#teardown(test, `its test was recorded as a ${args.result}`);
     if (args.result === "fail") {
@@ -516,7 +521,10 @@ export class StoryTests {
   async #close(officeId: OfficeId, test: StoredTest, reason: TestEndReason): Promise<void> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return;
-    this.#write(office, () => endTest(office, test.testId, reason, this.#deps.clock.now()));
+    this.#write(office, () => {
+      const at = this.#deps.clock.now();
+      return [...endTest(office, test.testId, reason, at), ...backgroundEntries(office, at)];
+    });
     this.#deps.logger?.info("a test closed", { test: test.testId, reason });
     await this.#teardown(test, `its test closed (${reason})`);
   }

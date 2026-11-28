@@ -7,7 +7,7 @@
 
 import type { LaneCi, LaneOpView, LaneProgress } from "@dipsaus-orchestrator/contract";
 
-import { backgroundEntries, rememberLane } from "../../overview/background";
+import { backgroundEntries, rememberLane } from "../../run/background";
 import type { NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
 import type { RequiredCheck } from "../../platform/host";

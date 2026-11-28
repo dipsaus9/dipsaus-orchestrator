@@ -8,23 +8,25 @@ import { join } from "node:path";
 import {
   type BackgroundItem,
   type OfficeSnapshot,
+  type RunId,
+  type StoryKey,
   RequestId,
 } from "@dipsaus-orchestrator/contract";
 
 import {
-  BACKGROUND_DONE_KEEP_MS,
   backgroundEntries,
   backgroundItems,
-  clockTime,
+  finishStoryPr,
   listedBackground,
   rememberStoryPr,
   trackUpdate,
-} from "../../src/overview/background";
+} from "../../src/run/background";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { progressEntriesWithBackground } from "../../src/backlog/lane/progress";
 import { appendEntries } from "../../src/changelog/log";
 import { CommandError } from "../../src/commands/errors";
 import { engineRegistry } from "../../src/features";
+import { storeProposals } from "../../src/run/report-data";
 import { executeRead } from "../../src/reads/execute";
 import { PENDING, type BacklogSetup, backlogSetup, openBacklogPr } from "../merge/helpers";
 
@@ -79,7 +81,7 @@ const item = (
 describe("office.snapshot: the background", () => {
   it("lists a story PR whose CI failed with attempts left as failed, with the retry time dipo scheduled", async () => {
     const now = s.t.clock.now();
-    const retryAt = now + 5 * 60_000;
+    const retryAt = new Date(2026, 10, 28, 14, 20).getTime(); // 14:20 in the machine's time
     rememberStoryPr(s.office, {
       key: "TASK-1",
       number: 698,
@@ -99,7 +101,7 @@ describe("office.snapshot: the background", () => {
       subject: "TASK-1 · CI failed: test (bun 1.4) · attempt 2 of 3",
       state: "failed",
       ci: "failed",
-      next: `retries at ${clockTime(retryAt)}; after attempt 3 it goes to your Desk`,
+      next: "retries at 14:20; after attempt 3 it goes to your Desk",
       since: new Date(now).toISOString(),
       url: "https://github.com/o/r/pull/698",
     });
@@ -164,6 +166,36 @@ describe("office.snapshot: the background", () => {
     expect(events().at(-1)?.item.subject).toBe("dipo update refused: busy");
   });
 
+  it("turns a merged story PR into a done item, sent once, and forgets a closed one", () => {
+    const at = s.t.clock.now();
+    const pr = { key: "TASK-1", number: 7, url: "https://github.com/o/r/pull/7" };
+    rememberStoryPr(s.office, { ...pr, ci: "passed", since: at });
+    finishStoryPr(s.office, pr, "merged", at + 1000);
+    const sent = s.office.immediate(() => backgroundEntries(s.office, at + 1000));
+    expect(sent.map((one) => (one.delta as { item: { state: string } }).item.state)).toEqual([
+      "done",
+    ]);
+    expect(backgroundItems(s.office, at + 1000 + 10 * 60_000, null)).toEqual([]);
+    finishStoryPr(s.office, { ...pr, number: 8 }, "closed", at);
+    expect(backgroundItems(s.office, at, null).some((one) => one.ref === "PR #8")).toBe(false);
+  });
+
+  it("sends background.changed when a worker's proposal is held as an idea", () => {
+    const at = s.t.clock.now();
+    s.office.immediate(() =>
+      storeProposals(s.office, {
+        key: "TASK-1" as StoryKey,
+        runId: "run_1" as RunId,
+        proposals: [
+          { kind: "follow-up", title: "Export", story: "As a user I want export", why: "none" },
+        ],
+        at,
+      }),
+    );
+    const sent = events().filter((one) => one.item.kind === "audit");
+    expect(sent.map((one) => one.line)).toEqual(["audit 1 idea held (waiting)"]);
+  });
+
   it("drops a done item after 10 minutes and orders failed, needs-you, running, waiting, done", async () => {
     const at = s.t.clock.now();
     rememberStoryPr(s.office, {
@@ -174,10 +206,10 @@ describe("office.snapshot: the background", () => {
       merged: true,
       since: at,
     });
-    expect(
-      backgroundItems(s.office, at + BACKGROUND_DONE_KEEP_MS - 1, null).map((one) => one.state),
-    ).toEqual(["done"]);
-    expect(backgroundItems(s.office, at + BACKGROUND_DONE_KEEP_MS, null)).toEqual([]);
+    expect(backgroundItems(s.office, at + 10 * 60_000 - 1, null).map((one) => one.state)).toEqual([
+      "done",
+    ]);
+    expect(backgroundItems(s.office, at + 10 * 60_000, null)).toEqual([]);
     const listed = listedBackground(
       [
         item("done", "a"),

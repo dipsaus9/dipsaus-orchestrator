@@ -84,7 +84,12 @@ import type {
   TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
-import { backgroundEntries, rememberStoryPr, type StoryPrFact } from "../overview/background";
+import {
+  backgroundEntries,
+  finishStoryPr,
+  rememberStoryPr,
+  type StoryPrFact,
+} from "../run/background";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
@@ -1000,6 +1005,8 @@ export class StoryPrs {
     const next: StoryPrRecord = { ...stored, state: hostState, closedAt, headSha };
     const story = findStoryByKey(state.office, stored.key)?.story;
     this.#write(officeId, state, () => {
+      const at = this.#deps.clock.now();
+      finishStoryPr(state.office, stored, hostState, at);
       setStoryPrState(state.office, stored.runId, { state: hostState, closedAt });
       if (headSha !== stored.headSha) {
         updateStoryPr(state.office, stored.runId, {
@@ -1008,7 +1015,10 @@ export class StoryPrs {
           bodyHash: stored.bodyHash,
         });
       }
-      return story === undefined ? [] : [prEntry(next, story)];
+      return [
+        ...(story === undefined ? [] : [prEntry(next, story)]),
+        ...backgroundEntries(state.office, at),
+      ];
     });
   }
 

@@ -24,7 +24,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import { snapshotBackground } from "./background";
+import { snapshotBackground } from "../run/background";
 import { headCursor } from "../changelog/log";
 import type { FeatureModule, ReadContext } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";

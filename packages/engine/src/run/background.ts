@@ -97,6 +97,7 @@ export function rememberLane(office: OfficeHandle, lane: LaneProgress | null): v
 export function rememberStoryPr(office: OfficeHandle, fact: StoryPrFact): boolean {
   const prs = boardOf(office).prs;
   const before = prs.get(fact.number);
+  if (before?.merged === true) return false;
   if (before !== undefined && before.ci === fact.ci && before.attempt === fact.attempt) {
     if (before.failedCheck === fact.failedCheck && before.retryAt === fact.retryAt) return false;
   }
@@ -105,9 +106,28 @@ export function rememberStoryPr(office: OfficeHandle, fact: StoryPrFact): boolea
   return true;
 }
 
-/** Forgets a story PR whose record closed. */
+/** Forgets a story PR that closed unmerged. */
 export function forgetStoryPr(office: OfficeHandle, number: number): void {
   boardOf(office).prs.delete(number);
+}
+
+/**
+ * A story PR's record left `open` (the poll read the host): merged, it is a done item for ten
+ * minutes from `now`; closed unmerged, it leaves the board.
+ */
+export function finishStoryPr(
+  office: OfficeHandle,
+  pr: Pick<StoryPrFact, "key" | "number" | "url">,
+  state: string,
+  now: number,
+): void {
+  if (state !== "merged") {
+    forgetStoryPr(office, pr.number);
+    return;
+  }
+  const prs = boardOf(office).prs;
+  const before = prs.get(pr.number);
+  prs.set(pr.number, { ci: "passed", ...before, ...pr, merged: true, since: now });
 }
 
 /** Posts the chat's or the daemon's item; the same kind and ref replaces the earlier one. */
@@ -294,6 +314,10 @@ function gatherBackground(
   lane: LaneProgress | null,
 ): BackgroundItem[] {
   const board = boardOf(office);
+  for (const [number, fact] of board.prs) {
+    if (fact.merged === true && now - fact.since >= BACKGROUND_DONE_KEEP_MS)
+      board.prs.delete(number);
+  }
   const items: BackgroundItem[] = [...board.prs.values()].map(storyPrItem);
   const backlog = lane === null ? null : backlogPrItem(lane, now);
   if (backlog !== null) items.push(backlog);
@@ -357,6 +381,14 @@ export function backgroundEntries(office: OfficeHandle, now: number): NewEntry[]
   }
   for (const id of board.sent.keys()) if (!seen.has(id)) board.sent.delete(id);
   return entries;
+}
+
+/**
+ * Appends the `background.changed` entries of what changed in the records; inside the caller's
+ * transaction, after the change (an idea held or decided, an audit session started or ended).
+ */
+export function tellBackground(office: OfficeHandle, at: number): void {
+  appendEntries(office, backgroundEntries(office, at), { at });
 }
 
 /** The daemon's item for dipo's own update. */
