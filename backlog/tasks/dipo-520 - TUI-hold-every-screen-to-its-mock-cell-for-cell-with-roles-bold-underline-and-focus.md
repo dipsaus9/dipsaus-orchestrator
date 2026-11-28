@@ -3,10 +3,10 @@ id: DIPO-520
 title: >-
   TUI: hold every screen to its mock cell for cell, with roles, bold, underline
   and focus
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 17:09'
+updated_date: '2026-11-28 17:17'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -61,10 +61,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 mockCells parses every caption of tui-v2/screens and chat-and-activity/screens into cells with role, bold, underline and sel, per tui-v2 spec.md "Reading the screen files"
-- [ ] #2 frameCells reads the rendered ANSI frame into the same cells through colour.tsx's ANSI table
-- [ ] #3 expectScreen compares whole frames, header, rooms, rules, ticker and footer included, and names each differing cell
-- [ ] #4 Every caption in both folders has an expectScreen test or a KNOWN_GAPS entry naming the story that closes it; the guard test enforces this
-- [ ] #5 The Floor, Queue and Plan tests use expectScreen on the whole frame instead of mockRows on part of it
-- [ ] #6 bun run verify runs all of it and stays under the local 60-second budget
+- [x] #1 mockCells parses every caption of tui-v2/screens and chat-and-activity/screens into cells with role, bold, underline and sel, per tui-v2 spec.md "Reading the screen files"
+- [x] #2 frameCells reads the rendered ANSI frame into the same cells through colour.tsx's ANSI table
+- [x] #3 expectScreen compares whole frames, header, rooms, rules, ticker and footer included, and names each differing cell
+- [x] #4 Every caption in both folders has an expectScreen test or a KNOWN_GAPS entry naming the story that closes it; the guard test enforces this
+- [x] #5 The Floor, Queue and Plan tests use expectScreen on the whole frame instead of mockRows on part of it
+- [x] #6 bun run verify runs all of it and stays under the local 60-second budget
 <!-- AC:END -->
