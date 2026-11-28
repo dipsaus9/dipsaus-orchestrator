@@ -1,10 +1,10 @@
 ---
 id: DIPO-525
 title: 'Chat: steer, answer, resume, ready and command cards that I confirm'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:35'
+updated_date: '2026-11-28 19:51'
 labels:
   - 'tier:M'
   - 'role:developer'
@@ -50,9 +50,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The contract defines the five cards and the engine validates them against the office's state
-- [ ] #2 c sends the matching command as the maintainer with origin chat; nothing runs without it
-- [ ] #3 A card shows pending, sent or failed in place, with ^R to retry
-- [ ] #4 Drop and discard appear only as command cards or open the existing prompts
-- [ ] #5 The screens named above pass expectScreen
+- [x] #1 The contract defines the five cards and the engine validates them against the office's state
+- [x] #2 c sends the matching command as the maintainer with origin chat; nothing runs without it
+- [x] #3 A card shows pending, sent or failed in place, with ^R to retry
+- [x] #4 Drop and discard appear only as command cards or open the existing prompts
+- [x] #5 The screens named above pass expectScreen
 <!-- AC:END -->
