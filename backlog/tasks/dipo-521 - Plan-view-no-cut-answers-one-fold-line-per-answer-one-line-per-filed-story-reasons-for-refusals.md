@@ -3,10 +3,10 @@ id: DIPO-521
 title: >-
   Plan view: no cut answers, one fold line per answer, one line per filed story,
   reasons for refusals
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 19:05'
+updated_date: '2026-11-28 19:37'
 labels:
   - 'tier:S'
   - 'role:developer'
@@ -19,6 +19,14 @@ references:
   - packages/tui/src/markdown.ts
   - docs/design/chat-and-activity/spec.md
   - docs/design/tui-v2/screens/07-plan.txt
+modified_files:
+  - packages/tui/src/actions.test.ts
+  - packages/tui/src/actions.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/transcript.test.ts
+  - packages/tui/src/transcript.ts
+  - packages/tui/test/support/mock-screens.ts
 priority: high
 type: bug
 ordinal: 482000
@@ -57,3 +65,18 @@ test_plan:
 - [x] #4 A refused command names its reason in words (for example: set Ready DIPO-116 refused: R15 the unknowns list is missing)
 - [x] #5 The head rule is faint and 07-plan.txt passes expectScreen
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-28 19:37 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 120,584 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
