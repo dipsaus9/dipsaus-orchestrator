@@ -3,10 +3,10 @@ id: DIPO-521
 title: >-
   Plan view: no cut answers, one fold line per answer, one line per filed story,
   reasons for refusals
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 18:14'
+updated_date: '2026-11-28 19:00'
 labels:
   - 'tier:S'
   - 'role:developer'
