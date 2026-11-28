@@ -3,10 +3,10 @@ id: DIPO-528
 title: >-
   Background: the BACKGROUND group on the Floor, its detail level and the header
   chip
-status: Done
+status: In Progress
 assignee: []
 created_date: '2026-11-28 14:11'
-updated_date: '2026-11-28 20:03'
+updated_date: '2026-11-28 20:04'
 labels:
   - 'tier:M'
   - 'role:developer'
