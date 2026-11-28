@@ -113,6 +113,7 @@ import {
   planningEnd,
   planningMessage,
   type PlanningProposal,
+  type ChatCardView,
   type PlanningProposalView,
   planningStart,
   type PlanningState,
@@ -214,6 +215,8 @@ import {
 } from "./planning-proposals";
 import { openStoriesOfRole } from "../records/role-stories";
 import { claimHost, connectWhenBound } from "./hosts";
+import { type CardFacts, cardRefusalMessage, cardView, readCards } from "./chat-cards";
+import { openQuestionViews } from "../run-state/questions";
 import { type HostStarter, runLaunchPaths } from "./launch";
 import { sessionUuid } from "./prompts";
 import { prepareRunTempDirs } from "./temp-dirs";
@@ -567,6 +570,8 @@ interface Open {
   proposals: OpenProposal[];
   /** The question blocks of the session, answered or not (DIPO-455). */
   questions: OpenQuestions[];
+  /** The action cards of the session's answers (DIPO-525). */
+  cards: ChatCardView[];
   /** The refused proposal blocks, newest last. */
   refusals: { readonly at: number; readonly problems: readonly string[] }[];
   /** How many answers in a row dipo refused by itself (`AUTO_REFUSALS_MAX`). */
@@ -1932,10 +1937,22 @@ export class PlanningSessions {
         open.refusals.push({ at, problems: read.problems });
       }
     }
+    const refusedCards: (readonly string[])[] = [];
+    for (const read of readCards(text, this.#cardFacts(open))) {
+      if (read.ok) {
+        open.cards.push(cardView(open.cards.length + 1, read, iso(at)));
+      } else {
+        refusedCards.push(read.problems);
+        open.refusals.push({ at, problems: read.problems });
+      }
+    }
     open.refusals = open.refusals.slice(-PLANNING_REFUSALS_SHOWN);
-    if (refused.length === 0 && refusedQuestions.length === 0) return false;
+    if (refused.length === 0 && refusedQuestions.length === 0 && refusedCards.length === 0) {
+      return false;
+    }
     const message = [
       ...(refused.length === 0 ? [] : [refusalMessage(refused)]),
+      ...(refusedCards.length === 0 ? [] : [cardRefusalMessage(refusedCards)]),
       ...(refusedQuestions.length === 0 ? [] : [questionsRefusalMessage(refusedQuestions)]),
     ].join("\n\n");
     // Sent at once while the session refused fewer answers in a row than the cap, so it never loops.
@@ -1951,6 +1968,24 @@ export class PlanningSessions {
     }
     open.notes.push(message);
     return false;
+  }
+
+  /** What the cards of an answer are checked against: the office's stories and open questions. */
+  #cardFacts(open: Open): CardFacts {
+    const { handle } = open;
+    return {
+      story: (id) => {
+        const found = handle.deferred(() => resolveStoryRef(handle, id.toUpperCase()));
+        const view = found.ok ? handle.deferred(() => storyView(handle, found.key)) : null;
+        return !found.ok || view === null ? null : { id: found.story, lifecycle: view.lifecycle };
+      },
+      question: (id) => {
+        const asked = handle
+          .deferred(() => openQuestionViews(handle))
+          .find((view) => view.question === id);
+        return asked === undefined ? null : { story: asked.work.story };
+      },
+    };
   }
 
   /** The view of one proposal: its state from the lane, its stories from the session's record. */
@@ -2118,6 +2153,7 @@ export class PlanningSessions {
       answer: [],
       proposals: [],
       questions: [],
+      cards: [],
       refusals: [],
       autoRefusals: 0,
       notes: [],
@@ -2799,6 +2835,7 @@ export class PlanningSessions {
       ...(open.proposals.length === 0
         ? {}
         : { proposals: open.proposals.map((item) => this.#proposalView(open, item)) }),
+      ...(open.cards.length === 0 ? {} : { cards: open.cards.map((card) => ({ ...card })) }),
       ...(open.refusals.length === 0
         ? {}
         : {

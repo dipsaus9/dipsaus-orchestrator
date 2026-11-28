@@ -788,6 +788,59 @@ export const PlanningProposal = z.discriminatedUnion("kind", [
 ]);
 export type PlanningProposal = z.infer<typeof PlanningProposal>;
 
+// The action cards of the chat (DIPO-525, P4 of the chat design). dipo's answer may carry a card in
+// a fenced block whose info string is `dipo-card`, holding one JSON object; the engine validates it
+// against `ChatCard` and the office's state and refuses an invalid one with a message to the model
+// session, as it does a proposal. The maintainer confirms a card with `c`, which sends the command
+// `steer` (work.steer), `answer` (work.answer), `resume` (work.resume) or `ready` (story.ready) as
+// the maintainer's own, with origin `chat`. A `command` card holds a line to copy: drop and discard
+// are only ever such cards, and their keys open the existing prompts.
+export const CHAT_CARD_FENCE = "dipo-card";
+
+export const CHAT_CARD_CAPS = { text: 4_000, stories: 10, line: 200, effect: 300 } as const;
+
+const CardText = z.string().trim().min(1).max(CHAT_CARD_CAPS.text);
+
+export const ChatCard = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("steer"),
+    story: ProposalTaskId.describe("the running story the text steers"),
+    text: CardText.describe("the text the worker reads as its next message"),
+  }),
+  z.strictObject({
+    kind: z.literal("answer"),
+    question: QuestionId.describe("the open question of a worker this answers"),
+    text: CardText.describe("the answer, in the maintainer's words"),
+  }),
+  z.strictObject({
+    kind: z.literal("resume"),
+    story: ProposalTaskId.describe("the parked story that resumes"),
+    note: CardText.optional().describe("the note the worker reads when it resumes"),
+  }),
+  z.strictObject({
+    kind: z.literal("ready"),
+    stories: z.array(ProposalTaskId).min(1).max(CHAT_CARD_CAPS.stories),
+  }),
+  z.strictObject({
+    kind: z.literal("command"),
+    line: OneLine(1, CHAT_CARD_CAPS.line).describe("one `dipo …` line to copy"),
+    effect: OneLine(1, CHAT_CARD_CAPS.effect).describe("one line: what the command does"),
+  }),
+]);
+export type ChatCard = z.infer<typeof ChatCard>;
+
+// A card of a thread as the engine shows it: its number in the thread, the card, what it aims at
+// (`target`: a story id, or the command's line) and what sending it does (`consequence`), both
+// worked out by the engine from the office's state.
+export const ChatCardView = z.object({
+  n: z.int().positive(),
+  card: ChatCard,
+  target: z.string(),
+  consequence: z.string(),
+  at: Timestamp,
+});
+export type ChatCardView = z.infer<typeof ChatCardView>;
+
 // The questions a planning session asks the maintainer (DIPO-455, 0022). The session writes them in
 // its answer as one fenced block whose info string is `dipo-questions`, holding one JSON object; the
 // engine validates it against `PlanningQuestions` and refuses an invalid one with a message to the
@@ -930,6 +983,8 @@ export const PlanningView = z.object({
   messages: z.array(PlanningMessageView).optional(),
   proposals: z.array(PlanningProposalView).optional(),
   refusals: z.array(PlanningRefusal).optional(),
+  // The action cards of the thread's answers (DIPO-525).
+  cards: z.array(ChatCardView).optional(),
   // The question blocks the maintainer has not answered yet (DIPO-455).
   questions: z.array(PlanningQuestionBlock).optional(),
   // The maintainer's messages to this thread that wait until its answer ends (DIPO-523).

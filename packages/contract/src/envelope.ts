@@ -21,7 +21,7 @@ export type ReadName = z.infer<typeof ReadName>;
 export const EventType = z.string().regex(dottedName, "expected a dotted name such as work.phase");
 export type EventType = z.infer<typeof EventType>;
 
-export const Origin = z.enum(["cli", "tui", "conversation", "web", "other"]);
+export const Origin = z.enum(["cli", "tui", "chat", "conversation", "web", "other"]);
 export type Origin = z.infer<typeof Origin>;
 
 export const CommandRequest = z.object({
