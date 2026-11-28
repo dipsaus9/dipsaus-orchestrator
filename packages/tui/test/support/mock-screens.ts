@@ -258,7 +258,7 @@ export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readon
     { story: "DIPO-530" },
   "02-floor.txt#S2 Floor: what the team is doing · ux-spec mock 8": {
     story: "DIPO-530",
-    cells: ["1", "2", "9", "13", "22", "23", "28", "29", "30"],
+    cells: ["1", "2", "9", "13", "20", "21", "28", "29", "30"],
   },
   "03-run.txt#S3 Run: watch and steer a live box · ux-spec mock 13": { story: "DIPO-530" },
   "03-run.txt#S7 Steer open at the foot of the stream, then the sent `you` line · ux-spec mock 21":
@@ -344,7 +344,7 @@ export const KNOWN_GAPS: Readonly<Record<string, { story: string; cells?: readon
   "02-chat-room.txt#C2 Chat, full screen (5): one conversation in threads, led by context · changes 07-plan.txt":
     { story: "DIPO-523" },
   "03-floor-background.txt#C3 Floor: the BACKGROUND group, the header chip and the chat line (chat hidden with \\)":
-    { story: "DIPO-528" },
+    { story: "DIPO-526", cells: ["2", "26", "27", "28", "29", "30"] },
   "04-background-detail.txt#C3 Floor › a background item: a story PR's checks (chat hidden with \\)":
     { story: "DIPO-528" },
   "05-run-with-dock-wide.txt#C1 Run with the chat docked on the right (152 columns or wider) · a steer card in focus":

@@ -5,14 +5,14 @@
 // the `now` line with the budget bar, and criteria, review round and model; health shows only
 // when it is stuck, looping or lost. UP NEXT is one sentence the engine computed from the
 // dependency graph (`chain.ts`). Stories that wait for you are on the Desk, Ready and waiting
-// ones in the Queue. The selected card is marked with `▌`; `j`/`k` move over every card and Enter
+// ones in the Queue. BACKGROUND lists what the office is busy with outside runs (DIPO-528). The selected card is marked with `▌`; `j`/`k` move over every card and Enter
 // opens it: a running story's live detail (DIPO-55), or the latest run of a story that ran
 // (DIPO-81). Cards are memoised by what they say.
 
 import { healthLabel, type OfficeStoreState, percent } from "@dipsaus-orchestrator/client";
 import type {
+  BackgroundItem,
   Clock,
-  LaneProgress,
   RunId,
   StoryId,
   StoryKey,
@@ -25,12 +25,12 @@ import { useEffect, useState } from "react";
 import { type Chain, upNextSpans } from "./chain";
 import { elapsed, truncate } from "./format";
 import type { LatestLines } from "./latest";
-import { backlogText, opStateWords } from "./lane";
+import { opStateWords } from "./lane";
 import { boardNowParts } from "./now";
 import type { Display } from "./options";
 import { pipelineSpans } from "./pipeline";
 import { cutSpans, focused, type Span, SpanLine, spread } from "./spans";
-import { glyphs } from "./views";
+import { clockTime, glyphs } from "./views";
 
 /** Columns the card's lines are indented by: focus bar, glyph and the story id padded to ten. */
 const INDENT = 14;
@@ -123,8 +123,20 @@ export function floorStories(state: OfficeStoreState): {
   return { running, review };
 }
 
-/** The key of the BACKLOG row, which Enter opens into the list of the lane's open changes (DIPO-481). */
-export const BACKLOG_ROW = "backlog";
+/** How long a done background item stays listed (DIPO-527): the engine drops it, a client that is not told expires it. */
+const BACKGROUND_DONE_KEEP_MS = 10 * 60_000;
+
+/** The background items the Floor lists: the snapshot's order, without a done one past its ten minutes. */
+export function backgroundItems(state: OfficeStoreState, now: number): readonly BackgroundItem[] {
+  return state.background.filter(
+    (item) => item.state !== "done" || now - Date.parse(item.since) < BACKGROUND_DONE_KEEP_MS,
+  );
+}
+
+/** The key of a background row, which Enter opens at the item's level. */
+export function backgroundKey(item: BackgroundItem): string {
+  return `background:${item.kind}:${item.ref}`;
+}
 
 /** One selectable board row: a story, with its run while a session works on it. */
 export interface StoryEntry {
@@ -133,27 +145,38 @@ export interface StoryEntry {
   readonly run: RunId | null;
 }
 
-/** The BACKLOG row, present while the planning lane has an open change. */
-export interface BacklogEntry {
-  readonly key: typeof BACKLOG_ROW;
+/** A BACKGROUND row (DIPO-528). */
+export interface BackgroundEntry {
+  readonly key: string;
+  readonly item: BackgroundItem;
 }
 
-export type BoardEntry = StoryEntry | BacklogEntry;
+export type BoardEntry = StoryEntry | BackgroundEntry;
 
-/** True for the BACKLOG row. */
-export function isBacklogEntry(entry: BoardEntry): entry is BacklogEntry {
-  return entry.key === BACKLOG_ROW;
+/** True for a BACKGROUND row. */
+export function isBackgroundEntry(entry: BoardEntry): entry is BackgroundEntry {
+  return "item" in entry;
 }
 
-/** The board's selectable rows in screen order: running, in review, then BACKLOG while it shows. */
-export function boardEntries(state: OfficeStoreState): BoardEntry[] {
+/** The board's selectable rows in screen order: running, in review, then each BACKGROUND item. */
+export function boardEntries(state: OfficeStoreState, now: number): BoardEntry[] {
   const { running, review } = floorStories(state);
   const stories = [...running, ...review].map(({ story, view }): StoryEntry => ({
     key: story.key,
     story: story.story,
     run: view === null ? null : view.work.run,
   }));
-  return state.lane === null ? stories : [...stories, { key: BACKLOG_ROW }];
+  const background = backgroundItems(state, now).map((item): BackgroundEntry => ({
+    key: backgroundKey(item),
+    item,
+  }));
+  return [...stories, ...background];
+}
+
+/** True when the Floor has a row to select, for the footer. */
+export function floorHasRow(state: OfficeStoreState): boolean {
+  const { running, review } = floorStories(state);
+  return running.length + review.length + state.background.length > 0;
 }
 
 /** The budget bar: `━` filled in acc, the rest in faint; `=` and `-` under `--ascii`. */
@@ -182,8 +205,8 @@ interface FloorOptions {
   readonly now: number;
   readonly width: number;
   readonly ascii: boolean;
-  /** Enter on the BACKLOG row listed the lane's open changes under it. */
-  readonly backlogOpen?: boolean;
+  /** The key of the background row Enter opened into the lane's open changes. */
+  readonly backgroundOpen?: string | null;
 }
 
 /** The card of one story: four lines for a running story, three for one in review. */
@@ -286,7 +309,7 @@ function cardLines(
         { text: "criteria ", role: "dim" },
         {
           text: `${criteriaMet}/${criteriaTotal}${complete ? ` ${g.met}` : ""}`,
-          role: complete ? "ok" : undefined,
+          role: complete ? "ok" : "dim",
         },
         {
           text: `${reviewRound > 0 ? ` ${g.dot} review round ${reviewRound}` : ""} ${g.dot} ${view.work.model}`,
@@ -359,56 +382,123 @@ export function floorLines(options: FloorOptions): FloorLine[] {
         ? [{ text: "    Nothing waits on another story.", role: "dim" }]
         : [{ text: "    " }, ...sentence],
   });
-  if (state.lane !== null) out.push(...backlogLines(state.lane, options));
+  out.push(...backgroundLines(options));
   return out;
 }
 
-/**
- * The BACKLOG row while the planning lane has an open change (DIPO-481): how many changes wait,
- * for which backlog PR, and that PR's CI as the engine read it. Opened with Enter, it lists each
- * change in words, its subject, how far it got and since when.
- */
-function backlogLines(lane: LaneProgress, options: FloorOptions): FloorLine[] {
-  const { width, ascii, now } = options;
+/** The glyph and its role of a background state. */
+function stateGlyph(
+  state: BackgroundItem["state"],
+  ascii: boolean,
+): { readonly text: string; readonly role: "err" | "acc" | "ok" } {
   const g = glyphs(ascii);
-  const selected = options.selected === BACKLOG_ROW;
-  const open = options.backlogOpen === true;
-  const { text, failed } = backlogText(lane, g.dot);
-  const line = (n: string, left: readonly Span[], right: readonly Span[] = []): FloorLine => ({
-    key: `backlog:${n}`,
-    card: BACKLOG_ROW,
-    spans: focused(spread(left, right, width - 1), selected),
-  });
-  const lines = [
-    { key: "before:backlog", spans: [], card: null },
-    line(
-      "0",
-      [
-        { text: selected ? g.bar : " ", role: "acc" },
-        { text: " " },
-        { text: g.idle, role: "acc" },
-        { text: " " },
-        { text: "BACKLOG".padEnd(10), role: "dim" },
-        { text, role: failed ? "err" : "hi" },
-      ],
-      [{ text: `⏎ ${open ? "hide" : "list"} `, role: "dim" }],
-    ),
+  switch (state) {
+    case "failed":
+      return { text: g.failed, role: "err" };
+    case "needs-you":
+      return { text: "!", role: "acc" };
+    case "running":
+      return { text: g.pending, role: "acc" };
+    case "waiting":
+      return { text: g.idle, role: "acc" };
+    case "done":
+      return { text: g.met, role: "ok" };
+  }
+}
+
+/** The kind column of a row: a PR by its number, the rest by their kind. */
+function kindLabel(item: BackgroundItem): string {
+  switch (item.kind) {
+    case "story-pr":
+    case "backlog-pr":
+      return item.ref;
+    case "daemon":
+      return "UPDATE";
+    default:
+      return item.kind.toUpperCase();
+  }
+}
+
+/** The key an item answers to at the right of its row; the time for a done one. */
+function hintOf(item: BackgroundItem, open: boolean): string {
+  if (item.state === "done") return clockTime(Date.parse(item.since));
+  switch (item.kind) {
+    case "story-pr":
+      return item.state === "failed" ? "⏎ checks" : "";
+    case "backlog-pr":
+      return `⏎ ${open ? "hide" : "list"}`;
+    case "test":
+      return "t resume";
+    case "audit":
+      return "⏎ ideas";
+    default:
+      return "";
+  }
+}
+
+/**
+ * The BACKGROUND group (DIPO-528): what the office is busy with outside story runs, as the engine
+ * ordered it, one row each with its next line under it. A backlog PR opened with Enter lists the
+ * lane's open changes in words, each with its subject, how far it got and since when.
+ */
+function backgroundLines(options: FloorOptions): FloorLine[] {
+  const { state, width, ascii, now } = options;
+  const items = backgroundItems(state, now);
+  if (items.length === 0) return [];
+  const g = glyphs(ascii);
+  const out: FloorLine[] = [
+    blank("before:background"),
+    header("background", "BACKGROUND", String(items.length), width),
+    blank("after:background"),
   ];
-  if (!open) return lines;
-  const indent = " ".repeat(INDENT);
-  lane.ops.forEach((op, i) => {
-    const since = elapsed(Math.max(0, now - Date.parse(op.since)));
-    lines.push(
-      line(String(i + 1), [
-        { text: indent },
-        {
-          text: `${op.what} ${g.dot} ${op.subject} ${g.dot} ${opStateWords(op.state)} ${g.dot} ${since}`,
-          role: "dim",
-        },
-      ]),
+  for (const item of items) {
+    const key = backgroundKey(item);
+    const selected = options.selected === key;
+    const open = options.backgroundOpen === key;
+    const line = (n: string, left: readonly Span[], right: readonly Span[] = []): FloorLine => ({
+      key: `${key}:${n}`,
+      card: key,
+      spans: focused(spread(left, right, width - 1), selected),
+    });
+    const glyph = stateGlyph(item.state, ascii);
+    const hint = hintOf(item, open);
+    out.push(
+      line(
+        "0",
+        [
+          { text: selected ? g.bar : " ", role: "acc" },
+          { text: " " },
+          { text: glyph.text, role: glyph.role },
+          { text: " " },
+          { text: kindLabel(item).padEnd(10), role: "dim" },
+          item.state === "failed"
+            ? { text: item.subject, role: "err" }
+            : item.state === "done"
+              ? { text: item.subject }
+              : { text: item.subject, role: "hi" },
+        ],
+        hint === "" ? [] : [{ text: `${hint} `, role: "dim" }],
+      ),
     );
-  });
-  return lines;
+    if (item.next !== undefined) {
+      out.push(line("1", [{ text: " ".repeat(INDENT) }, { text: item.next, role: "dim" }]));
+    }
+    if (open && state.lane !== null) {
+      state.lane.ops.forEach((op, i) => {
+        const since = elapsed(Math.max(0, now - Date.parse(op.since)));
+        out.push(
+          line(String(i + 2), [
+            { text: " ".repeat(INDENT) },
+            {
+              text: `${op.what} ${g.dot} ${op.subject} ${g.dot} ${opStateWords(op.state)} ${g.dot} ${since}`,
+              role: "dim",
+            },
+          ]),
+        );
+      });
+    }
+  }
+  return out;
 }
 
 /** The lines cut to `height`, from the first one, moved down so the selected card is on screen. */
@@ -449,8 +539,8 @@ export function Overview(props: {
   chain: Chain;
   /** The selected card by story key, marked with `▌`; Enter opens it. */
   selected?: string | null;
-  /** The BACKLOG row lists the lane's open changes (DIPO-481). */
-  backlogOpen?: boolean;
+  /** The key of the background row that lists the lane's open changes (DIPO-481). */
+  backgroundOpen?: string | null;
 }) {
   const { state, display, columns } = props;
   const { ellipsis } = glyphs(display.ascii);
@@ -466,7 +556,7 @@ export function Overview(props: {
     chain: props.chain,
     latest: props.latest,
     selected: props.selected,
-    backlogOpen: props.backlogOpen === true,
+    backgroundOpen: props.backgroundOpen ?? null,
     now: props.clock.now(),
     width: columns,
     ascii: display.ascii,

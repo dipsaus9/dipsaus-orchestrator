@@ -163,8 +163,29 @@ export interface HeaderText {
   readonly elsewhere: string;
   /** `● plan open` and four spaces, or "". */
   readonly plan: string;
+  /** `◌ 3 in background` or `✗ 1 failed in background` and four spaces, or "". */
+  readonly background: string;
   /** The daemon chip, then spend today and the time, four spaces apart. */
   readonly right: string;
+}
+
+/** The background chip: what is going and not done, or the failed ones when one failed (DIPO-528). */
+export function backgroundChip(
+  state: OfficeStoreState,
+  ascii: boolean,
+): { readonly glyph: string; readonly words: string; readonly failed: boolean } | null {
+  const g = glyphs(ascii);
+  const failed = state.background.filter((item) => item.state === "failed").length;
+  if (failed > 0) return { glyph: g.failed, words: `${failed} failed in background`, failed: true };
+  const going = state.background.filter((item) => item.state !== "done").length;
+  if (going === 0) return null;
+  return { glyph: g.pending, words: `${going} in background`, failed: false };
+}
+
+/** The ticker's line of the latest background changes: `10:30 PR #698 CI failed  ·  10:24 …`; null without one. */
+export function backgroundTicker(state: OfficeStoreState): string | null {
+  if (state.backgroundLines.length === 0) return null;
+  return state.backgroundLines.map((entry) => `${clockTime(entry.at)} ${entry.line}`).join("  ·  ");
 }
 
 export function headerText(
@@ -179,6 +200,7 @@ export function headerText(
   const place = title ?? officeName(state) ?? "no office";
   const others = offices ? 0 : elsewhere(state);
   const chip = daemonChip(state, ascii);
+  const background = offices ? null : backgroundChip(state, ascii);
   const spend = spendText(state, offices);
   // Offline the chip says when the view froze; spend and time would read as live.
   const offline = isOffline(state);
@@ -186,6 +208,7 @@ export function headerText(
     left: `dipo / ${place}`,
     elsewhere: others === 0 ? "" : `   +${others} elsewhere ${g.dot} O`,
     plan: planOpen && !offline ? `${g.live} plan open    ` : "",
+    background: background === null ? "" : `${background.glyph} ${background.words}    `,
     right: [
       `${chip.glyph} ${chip.word}`,
       ...(offline || spend === null ? [] : [spend]),
@@ -203,10 +226,16 @@ const HEADER_GAP = 3;
  */
 export function fitHeader(text: HeaderText, chip: string, columns: number, ellipsis: string) {
   const width = (t: HeaderText) =>
-    t.left.length + t.elsewhere.length + HEADER_GAP + t.plan.length + t.right.length;
+    t.left.length +
+    t.elsewhere.length +
+    HEADER_GAP +
+    t.plan.length +
+    t.background.length +
+    t.right.length;
   let fitted = text;
   if (width(fitted) > columns) fitted = { ...fitted, right: chip };
   if (width(fitted) > columns) fitted = { ...fitted, plan: "" };
+  if (width(fitted) > columns) fitted = { ...fitted, background: "" };
   const over = width(fitted) - columns;
   if (over > 0) {
     const keep = Math.max("dipo / ".length + 4, fitted.left.length - over - ellipsis.length);
@@ -218,8 +247,13 @@ export function fitHeader(text: HeaderText, chip: string, columns: number, ellip
 
 /** The header as one plain line of `columns` cells. */
 export function headerLine(text: HeaderText, columns: number): string {
-  const used = text.left.length + text.elsewhere.length + text.plan.length + text.right.length;
-  return `${text.left}${text.elsewhere}${" ".repeat(Math.max(HEADER_GAP, columns - used))}${text.plan}${text.right}`;
+  const used =
+    text.left.length +
+    text.elsewhere.length +
+    text.plan.length +
+    text.background.length +
+    text.right.length;
+  return `${text.left}${text.elsewhere}${" ".repeat(Math.max(HEADER_GAP, columns - used))}${text.plan}${text.background}${text.right}`;
 }
 
 export function Header(props: {
@@ -245,7 +279,13 @@ export function Header(props: {
   const place = text.left.slice("dipo / ".length);
   const others = text.elsewhere === "" ? 0 : elsewhere(state);
   const tail = text.right.slice(chipText.length);
-  const used = text.left.length + text.elsewhere.length + text.plan.length + text.right.length;
+  const used =
+    text.left.length +
+    text.elsewhere.length +
+    text.plan.length +
+    text.background.length +
+    text.right.length;
+  const background = text.background === "" ? null : backgroundChip(state, display.ascii);
   return (
     <Text wrap="truncate-end">
       <Colored display={display} role="acc" bold>
@@ -276,6 +316,14 @@ export function Header(props: {
             {g.live}
           </Colored>
           {text.plan.slice(g.live.length)}
+        </>
+      )}
+      {background === null ? null : (
+        <>
+          <Colored display={display} role={background.failed ? "err" : "acc"}>
+            {background.glyph}
+          </Colored>
+          {` ${background.words}    `}
         </>
       )}
       <Colored display={display} role={chip.glyphRole}>

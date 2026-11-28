@@ -12,6 +12,7 @@ import {
 import {
   type Clock,
   type Cursor,
+  type BackgroundItem,
   type DeskItem,
   type EngineError,
   officeSetPrivacy,
@@ -48,7 +49,7 @@ import { OUTPUT_TAIL_BYTES } from "./output";
 import { promptRows } from "./prompt-box";
 import type { SegLine } from "./segments";
 import { waitsOn } from "./lane";
-import { boardEntries, isBacklogEntry, Overview } from "./overview";
+import { boardEntries, isBackgroundEntry, Overview } from "./overview";
 import { doneCount, Queue, queueRows } from "./queue";
 import { readyLines } from "@dipsaus-orchestrator/client";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
@@ -244,16 +245,19 @@ export function useHome(args: HomeArgs) {
     snapshots: state.snapshots,
   });
   // Every board row is selectable: running stories first, then needs you, in review and Ready.
-  const board = boardEntries(state);
+  const board = boardEntries(state, clock.now());
   const overviewIndex = Math.max(
     0,
     board.findIndex((entry) => String(entry.key) === overviewKey),
   );
   const overviewPick = board[overviewIndex] ?? null;
-  // The BACKLOG row (DIPO-481) is no story: its Enter lists the lane's open changes under it.
-  const backlogSelected = overviewPick !== null && isBacklogEntry(overviewPick);
-  const overviewEntry = overviewPick === null || isBacklogEntry(overviewPick) ? null : overviewPick;
-  const [backlogOpen, setBacklogOpen] = useState(false);
+  // A BACKGROUND row (DIPO-528) is no story: a backlog PR's Enter lists the lane's open changes
+  // under it (DIPO-481).
+  const backgroundPick =
+    overviewPick !== null && isBackgroundEntry(overviewPick) ? overviewPick : null;
+  const overviewEntry =
+    overviewPick === null || isBackgroundEntry(overviewPick) ? null : overviewPick;
+  const [backgroundOpen, setBackgroundOpen] = useState<string | null>(null);
   const queue = queueRows(state.stories, showDone);
   const queueSelected = Math.max(
     0,
@@ -657,6 +661,20 @@ export function useHome(args: HomeArgs) {
     return true;
   };
 
+  /** Enter on a BACKGROUND row: the item at its own level (DIPO-528). */
+  const openBackground = (entry: { readonly key: string; readonly item: BackgroundItem }) => {
+    const { item } = entry;
+    if (item.kind === "backlog-pr") {
+      setBackgroundOpen(backgroundOpen === entry.key ? null : entry.key);
+    } else if (item.kind === "test") {
+      const test = state.tests.find((open) => String(open.test) === item.ref);
+      if (test === undefined) setMessage("this test is no longer open");
+      else openChecklist({ key: String(test.key), id: String(test.story) }, "overview");
+    } else {
+      setMessage(`${item.ref}: nothing to open here yet`);
+    }
+  };
+
   const onOverviewKey = (input: string, key: Key) => {
     const count = board.length;
     const select = (index: number) => {
@@ -667,12 +685,14 @@ export function useHome(args: HomeArgs) {
       select(overviewIndex + 1);
     } else if (key.upArrow || input === "k") {
       select(overviewIndex - 1);
-    } else if (key.return && backlogSelected) {
-      setBacklogOpen(!backlogOpen);
+    } else if (key.return && backgroundPick !== null) {
+      openBackground(backgroundPick);
     } else if (key.return && overviewEntry !== null) {
       setOverviewKey(String(overviewEntry.key));
       if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
       else openStory(overviewEntry.key, String(overviewEntry.story), "overview");
+    } else if (input === "t" && backgroundPick?.item.kind === "test") {
+      openBackground(backgroundPick);
     } else if (input === "a" && overviewEntry !== null) {
       if (overviewEntry.run === null) setMessage("no question waits on this row");
       else answerRun(overviewEntry.run);
@@ -1093,9 +1113,9 @@ export function useHome(args: HomeArgs) {
     readyResult: acts.action?.ready === undefined ? [] : readyLines(acts.action.ready),
     doneTotal: doneCount(state.stories),
     overviewEntry,
-    /** The selected board row, a story's key or the BACKLOG row's. */
+    /** The selected board row, a story's key or a BACKGROUND row's. */
     overviewSelected: overviewPick === null ? null : String(overviewPick.key),
-    backlogOpen,
+    backgroundOpen,
     settingsIndex,
     privacyWritten,
     checklistKey,
@@ -1338,7 +1358,7 @@ export function HomeMode(props: HomeModeProps) {
       latest={home.latest}
       chain={home.chain}
       selected={home.overviewSelected}
-      backlogOpen={home.backlogOpen}
+      backgroundOpen={home.backgroundOpen}
     />
   );
 }

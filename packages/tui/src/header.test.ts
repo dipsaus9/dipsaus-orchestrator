@@ -6,7 +6,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { OfficeEntry, OfficeStoreState } from "@dipsaus-orchestrator/client";
-import type { OfficeId, OfficeSummary } from "@dipsaus-orchestrator/contract";
+import type { BackgroundItem, OfficeId, OfficeSummary } from "@dipsaus-orchestrator/contract";
 
 import { daemonScreen, daemonScreenKeys } from "./states";
 import { daemonChip, fitHeader, headerLine, headerText, officeCells, roomsText } from "./views";
@@ -57,6 +57,7 @@ function state(patch: Partial<OfficeStoreState> = {}): OfficeStoreState {
     questions: [],
     tests: [],
     planning: null,
+    background: [],
     cursor: null,
     snapshots: 0,
     notice: null,
@@ -74,6 +75,7 @@ describe("the header", () => {
       left: "dipo / dipsaus-orchestrator",
       elsewhere: "   +2 elsewhere · O",
       plan: "",
+      background: "",
       right: "● daemon live    $19.14 today    10:42",
     });
     const line = headerLine(text, 112);
@@ -111,6 +113,7 @@ describe("the header", () => {
       left: "dipo / Offices",
       elsewhere: "",
       plan: "",
+      background: "",
       right: "● daemon live    $27.10 today, all offices    10:42",
     });
   });
@@ -241,5 +244,37 @@ describe("the rooms band and the Offices cells", () => {
     expect(cells(summary(C, "notes-cli", { running: 1, lastActivityAt: iso(NOW - 9 * day) }))).toBe(
       "● notes-cli",
     );
+  });
+});
+
+const item = (itemState: BackgroundItem["state"], ref: string): BackgroundItem => ({
+  kind: "story-pr",
+  ref,
+  subject: ref,
+  state: itemState,
+  since: "2026-11-08T10:00:00.000Z",
+});
+
+const backgroundLine = (background: BackgroundItem[]) =>
+  headerLine(headerText(state({ background }), false, NOW), 112);
+
+describe("the background chip (DIPO-528)", () => {
+  it("counts what goes in background as `◌ N`, before the daemon chip", () => {
+    expect(
+      backgroundLine([item("running", "PR #1"), item("waiting", "PR #2"), item("done", "PR #3")]),
+    ).toMatch(/ ◌ 2 in background {4}● daemon live {4}\$19\.14 today {4}10:42$/);
+  });
+
+  it("reads `✗ N failed` when one failed, and is absent with none or only done items", () => {
+    expect(backgroundLine([item("failed", "PR #1"), item("running", "PR #2")])).toContain(
+      "✗ 1 failed in background    ● daemon live",
+    );
+    expect(backgroundLine([])).not.toContain("background");
+    expect(backgroundLine([item("done", "PR #3")])).not.toContain("background");
+  });
+
+  it("drops the chip before the office name shortens", () => {
+    const text = headerText(state({ background: [item("running", "PR #1")] }), false, NOW);
+    expect(fitHeader(text, "● daemon live", 70, "…").background).toBe("");
   });
 });

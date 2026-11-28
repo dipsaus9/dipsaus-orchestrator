@@ -4,10 +4,10 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [hi]**RUNNING**[/]                                                                                             [dim]1 of 3 slots[/]
 
-[sel][acc]▌[/] [ok]●[/] [dim]DIPO-519[/]  [hi]Write proposed decision 0023 on granting skills and plugins[/]                                   [dim]14m [/][/]
-[sel]              [ok]setup ━━ [/][acc]● build [/][faint]┄┄ review ┄┄ test ┄┄ merge[/]                                           [dim]loop 1 of 5 [/][/]
-[sel]              [dim]now [/]reading[dim] · thinking 2.1s[/]                                             [dim]budget [/][acc]━━━[/][faint]━━━━━━━━━━━[/] 19% [/]
-[sel]              [dim]criteria 0/5 · sonnet-5.5[/]                                                                         [/]
+  [ok]●[/] [dim]DIPO-519[/]  [hi]Write proposed decision 0023 on granting skills and plugins[/]                                   [dim]14m [/]
+              [ok]setup ━━ [/][acc]● build [/][faint]┄┄ review ┄┄ test ┄┄ merge[/]                                           [dim]loop 1 of 5 [/]
+              [dim]now [/]building[dim] · thinking 2.1s[/]                                            [dim]budget [/][acc]━━━[/][faint]━━━━━━━━━━━[/] 19% 
+              [dim]criteria 0/5 · sonnet-5.5[/]
 
 [hi]**UP NEXT**[/]                                                                                      [dim]0 ready · 1 waiting[/]
 

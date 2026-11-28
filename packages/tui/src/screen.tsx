@@ -33,7 +33,7 @@ import {
   OFFLINE_LINES,
   OfflineLines,
 } from "./states";
-import { Header, isOffline, type Room, Rooms } from "./views";
+import { backgroundTicker, Header, isOffline, type Room, Rooms } from "./views";
 
 export interface ScreenProps {
   readonly mode: Mode;
@@ -176,7 +176,8 @@ export function Screen(props: ScreenProps) {
     home.refusal ??
     home.failure ??
     home.runSummary ??
-    state.notice;
+    state.notice ??
+    backgroundTicker(state);
 
   const keys = screenKeys(props, columns);
   const room = screen === null ? currentRoom(mode, home) : null;
