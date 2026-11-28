@@ -1,0 +1,36 @@
+=== C3 Floor: the BACKGROUND group, the header chip and the chat line (chat hidden with \) · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                    [err]✗[/] 1 failed in background    [ok]●[/] daemon live[dim]    $5.12 today    10:31[/]
+[dim]1 Desk [acc]1[/][/]    [hi]__2 Floor [acc]1[/]__[/]    [dim]3 Queue [acc]0·1[/][/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**RUNNING**[/]                                                                                             [dim]1 of 3 slots[/]
+
+[sel][acc]▌[/] [ok]●[/] [dim]DIPO-519[/]  [hi]Write proposed decision 0023 on granting skills and plugins[/]                                   [dim]14m [/][/]
+[sel]              [ok]setup ━━ [/][acc]● build [/][faint]┄┄ review ┄┄ test ┄┄ merge[/]                                           [dim]loop 1 of 5 [/][/]
+[sel]              [dim]now [/]reading[dim] · thinking 2.1s[/]                                             [dim]budget [/][acc]━━━[/][faint]━━━━━━━━━━━[/] 19% [/]
+[sel]              [dim]criteria 0/5 · sonnet-5.5[/]                                                                         [/]
+
+[hi]**UP NEXT**[/]                                                                                      [dim]0 ready · 1 waiting[/]
+
+    When [acc]DIPO-519[/] merges → [fg]518[/] starts
+
+[hi]**BACKGROUND**[/]                                                                                                     [dim]5[/]
+
+[sel][acc]▌[/] [err]✗[/] [dim]PR #698   [/][err]DIPO-512 · CI failed: test (bun 1.4) · attempt 2 of 3[/]                                    [dim]⏎ checks [/][/]
+[sel]              [dim]retries at 10:35; after attempt 3 it goes to your Desk[/]                                            [/]
+  [acc]◌[/] [dim]PR #702   [/][hi]backlog PR · 3 changes · CI running[/]                                                        [dim]⏎ list [/]
+              [dim]auto-merges when green[/]
+  [acc]○[/] [dim]TEST      [/][hi]DIPO-506 at 8a1e2f0 · box up · step 2 of 4[/]                                               [dim]t resume [/]
+              [dim]waits on you since 09:58[/]
+  [acc]◌[/] [dim]AUDIT     [/][hi]3 ideas from DIPO-509[/]                                                                     [dim]⏎ ideas [/]
+              [dim]audit running since 10:19[/]
+  [ok]✓[/] [dim]UPDATE    [/][fg]dipo built f07dd11 and restarted[/]                                                            [dim]10:24 [/]
+
+ [acc]>[/] [dim]ask about Floor · PR #698[/]                                                                              [dim][acc]`[/] chat[/]
+[dim]10:30 PR #698 CI failed (test, bun 1.4)  ·  10:28 backlog PR #702 opened  ·  10:24 dipo restarted on f07dd11[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]⏎[/] checks   [acc]o[/] PR   [acc]`[/] ask about it   [acc]c[/] copy id                              [dim][acc]![/] next   [acc]:[/] commands   [acc]?[/] keys[/]
+--- notes ---
+BACKGROUND replaces the BACKLOG row (DIPO-481) and lists OfficeSnapshot.background in the engine's order: failed, needs-you, running, waiting, done. Row: two-cell focus column, glyph and a space, the kind dim padded to 10, the subject (hi; err when failed; fg when done), the action hint dim at the right with one trailing space; second row dim, indented 14, the engine's next line. A done row stays 10 minutes.
+Header chip (left of the daemon dot, four spaces after it): `◌ N in background` (acc glyph, fg words) while all runs; `✗ N failed in background` (err glyph) when one failed; absent when the list is empty.
+Chat line, shown here because the chat is hidden with \ (below 100 columns it is always the line; with the chat on, this row is the strip of 09-queue-chat-strip.txt or the panel of 08-desk-chat-panel.txt): the row above the ticker. ` > ` acc, the context in dim, `` ` chat`` at the right (key acc, label dim).
+No expected times (decision 24): `retries at 10:35` is the engine's scheduled retry, not an estimate.

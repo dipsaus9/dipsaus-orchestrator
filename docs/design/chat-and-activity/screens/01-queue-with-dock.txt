@@ -1,0 +1,35 @@
+=== C1 Queue with the chat docked (too narrow for the panel, after `) · a command card in focus · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator            [acc]![/] 2 for you    [acc]◌[/] 3 in background    [ok]●[/] daemon live[dim]    $4.86 today    10:12[/]
+[dim]1 Desk [acc]1[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]0·1[/]__[/]    [dim]4 Retro[/]    [dim]5 Chat [acc]1[/][/]    [dim]6 Roles[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**WAITING ON A DEPENDENCY**[/]                                    [dim]1  [/][faint]│[/]  [dim]REFINED · not Ready yet · tier M[/]
+  [acc]○[/] [dim]DIPO-518[/]  Run the skills and plugins pr…  [dim]M[/]  [dim]needs [/][ok]519→[/]   [faint]│[/]  [hi]**DIPO-116 Propose decision 0023 on how roles**[/]
+                                                              [faint]│[/]  [hi]**and the office grant skills and plugins**[/]
+[hi]**REFINED · not Ready yet**[/]                                    [dim]3  [/][faint]│[/]
+[sel][acc]▌[/] [err]✗[/] [dim]DIPO-116[/]  [hi]Propose decision 0023 on how    [/][dim]M[/]  [dim]R15 unknowns[/] [/][faint]│[/]  [dim]Gate     [/][err]✗[/] R15 the unknowns list is missing
+  [err]✗[/] [dim]DIPO-288[/]  Yarn, bun.lockb, pnpm           [dim]M[/]  [dim]no test plan[/] [faint]│[/]  [dim]Needs    [/][ok]all done[/]
+  [err]✗[/] [dim]DIPO-437[/]  Keep dipo's temp folder         [dim]M[/]  [dim]not checked[/]  [faint]│[/]  [dim]Unblocks [/]nothing: DIPO-518 now needs 519
+                                                              [faint]│[/]
+[dim]  . show done (469)[/]                                           [faint]│[/]  [dim]CHAIN[/]
+                                                              [faint]│[/]  [err]116✗[/] · replaced by [ok]519[/] → 518
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ [dim]in Queue · on DIPO-116 · Refined, gate ✗ R15[/]                                          [dim]/general asks without it [/]
+
+ [acc]>[/] Why can't this one go Ready, and do I still need it?
+
+ [acc]●[/] [dim]·· read 2 files, grep 1 · 4.1s · 0.9k tokens[/]
+   It fails R15: its field block has no [acc]unknowns[/] list ([acc]backlog/lane/stories.ts:13[/]). Its work moved to
+   DIPO-519, which merged at 10:11, and DIPO-518 now waits on 519. Nothing needs DIPO-116 any more.
+ [sel][acc]▌[/] [hi]**◆ command · dipo drop DIPO-116**[/][/]
+[sel][dim]     Archives DIPO-116 and releases its claim. It has no branch or PR, so nothing is lost.[/][/]
+[sel][acc]     c copy   X drop here (asks first)   esc to the input[/][/]
+
+
+ [acc]>[/] And DIPO-288, is that worth keeping?_
+[dim]10:11 merged DIPO-519  ·  10:10 backlog PR #702 CI passed  ·  10:09 dipo answered in Chat[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]c[/] copy   [acc]X[/] drop   [acc]↑↓[/] card   [acc]esc[/] to the input                                              [dim][acc]`[/] full screen   [acc]?[/] keys[/]
+--- notes ---
+Where the panel does not fit (spec.md P7) the chat is a strip (09-queue-chat-strip.txt); ` gives it the keyboard and grows it to this dock in the lower part of the body under a rule; esc shrinks it back. The dock shows one dim context line (room · item · its state; `/general` drops the item, `/here` brings it back), then the conversation exactly as the Plan view draws it (07-plan.txt, DIPO-487, DIPO-491): your message a block with ` > ` on the shade background (not drawn in this text form) with a blank row before and after; each answer starting with ` ● `, its fold line dim and its text indented 3; cards with the `▌` bar and sel background when focused; the input ` > ` at the foot.
+The room above keeps its rows; the Queue list is cut to the rows that fit. With an empty input ↑ moves to the last card, ↑↓ over cards. The footer shows the dock's keys while it has focus; `tab` gives focus back to the room and the footer shows the room's keys again.
+A command card never runs `dipo drop`: `c` copies the line, `X` opens the existing drop prompt (12-states.txt) with DIPO-116 filled in.

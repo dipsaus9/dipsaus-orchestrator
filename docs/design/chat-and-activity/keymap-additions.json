@@ -1,0 +1,314 @@
+{
+  "note": "Entries to add to docs/design/tui-v2/keymap.json, in its schema (proposals P6 and P7). The room keeps the keyboard until ` moves it to the chat.",
+  "global": [
+    {
+      "id": "chat",
+      "key": "`",
+      "label": "ask",
+      "layer": "L3",
+      "views": [
+        "*"
+      ],
+      "when": "gives the chat the keyboard (shows it first if hidden); esc gives it back; twice: Chat full screen",
+      "priority": 4,
+      "side": "right"
+    },
+    {
+      "id": "toggleChat",
+      "key": "\\",
+      "label": "hide chat",
+      "layer": "L3",
+      "views": [
+        "*"
+      ],
+      "when": "shows or hides the chat panel or strip; remembered per viewer; the label reads show chat while hidden",
+      "priority": 5,
+      "side": "right"
+    },
+    {
+      "id": "attentionNext",
+      "key": "!",
+      "label": "next",
+      "layer": "L3",
+      "views": [
+        "*"
+      ],
+      "when": "the attention list is not empty",
+      "priority": 4,
+      "side": "right"
+    },
+    {
+      "id": "jumpBack",
+      "key": "'",
+      "label": "back to where you were",
+      "layer": "L3",
+      "views": [
+        "*"
+      ],
+      "when": "after ! or a link",
+      "priority": 9
+    }
+  ],
+  "actions": [
+    {
+      "id": "dockToRoom",
+      "key": "tab",
+      "label": "to the {room}",
+      "views": [
+        "dock"
+      ],
+      "priority": 2,
+      "side": "right",
+      "when": "the footer names the room: to the run, to the queue, to the desk"
+    },
+    {
+      "id": "chatSend",
+      "key": "⏎",
+      "label": "send",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "priority": 1
+    },
+    {
+      "id": "chatNewLine",
+      "key": "shift-⏎",
+      "label": "new line",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "⌥⏎ and a trailing backslash also add a line",
+      "priority": 2
+    },
+    {
+      "id": "chatCards",
+      "key": "↑",
+      "label": "cards",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "the input is empty and a card is open",
+      "priority": 3
+    },
+    {
+      "id": "chatLinks",
+      "key": "tab",
+      "label": "links",
+      "views": [
+        "chat"
+      ],
+      "when": "an answer is focused",
+      "priority": 5
+    },
+    {
+      "id": "chatNew",
+      "key": "/new",
+      "label": "new thread",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "priority": 6
+    },
+    {
+      "id": "chatEnd",
+      "key": "/end",
+      "label": "close thread",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "priority": 4
+    },
+    {
+      "id": "chatGeneral",
+      "key": "/general",
+      "label": "ask without the context",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "priority": 9
+    },
+    {
+      "id": "chatHere",
+      "key": "/here",
+      "label": "add the focused item",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "priority": 9
+    },
+    {
+      "id": "cardSend",
+      "key": "c",
+      "label": "send",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "a steer, answer, resume or ready card",
+      "priority": 1
+    },
+    {
+      "id": "cardCopy",
+      "key": "c",
+      "label": "copy",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "a command card",
+      "priority": 1
+    },
+    {
+      "id": "cardEdit",
+      "key": "e",
+      "label": "edit",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "any card but command",
+      "priority": 1
+    },
+    {
+      "id": "cardDrop",
+      "key": "x",
+      "label": "drop",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "any card",
+      "priority": 2
+    },
+    {
+      "id": "cardDropStory",
+      "key": "X",
+      "label": "drop",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "a command card for dipo drop: opens the drop prompt",
+      "priority": 2
+    },
+    {
+      "id": "cardToInput",
+      "key": "esc",
+      "label": "to the input",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "a card is focused",
+      "priority": 3
+    },
+    {
+      "id": "askAbout",
+      "key": "`",
+      "label": "ask about it",
+      "views": [
+        "floor",
+        "background"
+      ],
+      "priority": 4
+    },
+    {
+      "id": "askFirst",
+      "key": "`",
+      "label": "ask dipo",
+      "views": [
+        "desk"
+      ],
+      "when": "a QUESTION item",
+      "priority": 2
+    },
+    {
+      "id": "backgroundOpen",
+      "key": "⏎",
+      "label": "checks",
+      "views": [
+        "floor"
+      ],
+      "when": "a BACKGROUND row; the label follows the kind (checks, list, ideas)",
+      "priority": 2
+    },
+    {
+      "id": "checkMove",
+      "key": "↑↓",
+      "label": "check",
+      "views": [
+        "background"
+      ],
+      "priority": 3
+    },
+    {
+      "id": "fullLog",
+      "key": "⏎",
+      "label": "full log",
+      "views": [
+        "background"
+      ],
+      "priority": 2
+    },
+    {
+      "id": "backgroundPr",
+      "key": "o",
+      "label": "PR",
+      "views": [
+        "floor",
+        "background"
+      ],
+      "when": "a PR row",
+      "priority": 3
+    },
+    {
+      "id": "cardMove",
+      "key": "↑↓",
+      "label": "card",
+      "views": [
+        "chat",
+        "dock"
+      ],
+      "when": "a card is focused (07-plan.txt uses the same)",
+      "priority": 3
+    },
+    {
+      "id": "chatFullScreen",
+      "key": "`",
+      "label": "full screen",
+      "views": [
+        "dock"
+      ],
+      "when": "the chat has the keyboard; opens Chat full screen (5)",
+      "priority": 4,
+      "side": "right"
+    },
+    {
+      "id": "queueView",
+      "key": "←→",
+      "label": "view",
+      "views": [
+        "queue"
+      ],
+      "when": "switches now and plan; remembered",
+      "priority": 5
+    },
+    {
+      "id": "milestoneFold",
+      "key": "⏎",
+      "label": "fold",
+      "views": [
+        "queue"
+      ],
+      "when": "a milestone head in the plan view",
+      "priority": 2
+    }
+  ]
+}

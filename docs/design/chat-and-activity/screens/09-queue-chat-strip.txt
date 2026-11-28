@@ -1,0 +1,35 @@
+=== C7 Queue with the chat strip (the Queue below 168 columns) · the keyboard in the room · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                           [acc]◌[/] 2 in background    [ok]●[/] daemon live[dim]    $6.02 today    13:20[/]
+[dim]1 Desk [acc]2[/][/]    [dim]2 Floor [acc]1[/][/]    [hi]__3 Queue [acc]1·2[/]__[/]    [dim]4 Retro[/]    [dim]5 Chat[/]    [dim]6 Roles[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**READY**[/]                                                      [dim]1  [/][faint]│[/]  [dim]READY · tier M · offered as next up[/]
+[sel][acc]▌[/] [ok]→[/] [dim]DIPO-519[/]  [hi]Write proposed decision 0023…   [/][dim]M[/]  [ok]next up[/]      [/][faint]│[/]  [hi]**DIPO-519 Write proposed decision 0023 on**[/]
+                                                              [faint]│[/]  [hi]**granting skills and plugins to each session**[/]
+[hi]**WAITING ON A DEPENDENCY**[/]                                    [dim]2  [/][faint]│[/]
+  [acc]○[/] [dim]DIPO-518[/]  Run the skills and plugins pr…  [dim]M[/]  [dim]needs [/][ok]519→[/]   [faint]│[/]  [dim]Gate     [/][ok]✓[/] 31 rules
+  [acc]○[/] [dim]DIPO-520[/]  Show granted skills in the card [dim]S[/]  [dim]needs 518[/]    [faint]│[/]  [dim]Needs    [/][ok]all done[/]
+                                                              [faint]│[/]  [dim]Unblocks [/]DIPO-518
+[dim]  . show done (470)[/]                                           [faint]│[/]
+                                                              [faint]│[/]  [dim]CHAIN[/]
+                                                              [faint]│[/]  [ok]519[/] → 518 → 520
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ [acc]●[/] [fg]519 starts when a slot frees; 518 and 520 follow it in that order.[/]                                    [dim]⏎ more [/]
+ [dim]>[/] [dim]` to ask about Queue · DIPO-519[/]                                                                       [dim]\ hide [/]
+[dim]13:19 DIPO-519 Ready  ·  13:12 DIPO-446 review approved[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]r[/] run now   [acc]p[/] park   [acc]X[/] drop   [acc]⏎[/] story   [acc].[/] done                               [dim][acc]`[/] ask   [acc]/[/] filter   [acc]?[/] keys[/]
+--- notes ---
+Where the panel does not fit (spec.md P7; the Queue needs 168 columns) the chat is a strip of two rows under a rule, above the ticker: the first line of the latest answer (` ● ` acc, fg, cut with `⏎ more` at the right) and the input (dim while the room has the keyboard). `\` hides it to nothing and shows it again; remembered.
+`` ` `` gives the chat the keyboard and grows the strip to the dock of 01-queue-with-dock.txt; `esc` shrinks it back to the strip and returns the keyboard. Below 100 columns there is no strip; `` ` `` opens Chat full screen.
+Cutting the latest answer's first line is allowed: the strip is a list-like preview, and the whole answer is one key away (tui-v2 principle 5: lists may cut, readers wrap).
