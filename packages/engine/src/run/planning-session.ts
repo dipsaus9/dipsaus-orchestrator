@@ -127,6 +127,13 @@ import {
 import type { z } from "zod";
 
 import { cycleThrough } from "../gate/rules";
+import {
+  chatFacts,
+  type ChatFactSources,
+  contextKey,
+  proposalSchemaFor,
+  takesRoleProposals,
+} from "./chat-facts";
 import { baseCommit } from "../box/image";
 import { retro, type RoleRunCounts, roleRunCounts, roleRunLines } from "../records/retro";
 import { loadRoleFiles } from "../roles/base";
@@ -324,12 +331,12 @@ export function threadTitle(goal: string): string {
 
 /** Pure: the chat command a message is (`/new`, `/end`) and the text after it; none for any other. */
 export function chatCommandOf(text: string): {
-  readonly name: "new" | "end" | null;
+  readonly name: "new" | "end" | "general" | "here" | null;
   readonly rest: string;
 } {
-  const found = /^\/(new|end)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  const found = /^\/(new|end|general|here)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (found === null) return { name: null, rest: text.trim() };
-  return { name: found[1] === "new" ? "new" : "end", rest: (found[2] ?? "").trim() };
+  return { name: found[1] as "new" | "end" | "general" | "here", rest: (found[2] ?? "").trim() };
 }
 
 /** Pure: the kind the record keeps for a thread opened from `context` (0024): `roles` or `plan`. */
@@ -356,10 +363,10 @@ export function roleProposalSchema(
   };
 }
 
-/** Pure: the first message of a roles session: the roster, its runs and the role proposal schema. */
-function rolesFirstMessage(facts: PlanningFacts): string {
-  const runs = new Map((facts.roleRuns ?? []).map((counts) => [counts.role, counts]));
-  const roster = facts.roles.map((role) =>
+/** Pure: each role as text, with its purpose, its model and effort, its instructions and its recent runs. */
+function rosterOf(roles: PlanningFacts["roles"], roleRuns: readonly RoleRunCounts[]): string[] {
+  const runs = new Map(roleRuns.map((counts) => [counts.role, counts]));
+  return roles.map((role) =>
     [
       `## ${role.name}`,
       `purpose: ${role.purpose}`,
@@ -370,6 +377,11 @@ function rolesFirstMessage(facts: PlanningFacts): string {
       role.instructions ?? "",
     ].join("\n"),
   );
+}
+
+/** Pure: the first message of a roles session: the roster, its runs and the role proposal schema. */
+function rolesFirstMessage(facts: PlanningFacts): string {
+  const roster = rosterOf(facts.roles, facts.roleRuns ?? []);
   return renderTemplate(TASK_TEMPLATES.planningRoles, {
     kind: facts.kind,
     goal: facts.goal,
@@ -542,6 +554,12 @@ interface Open {
   readonly continued: Continued | null;
   readonly agent: AgentId;
   readonly kind: PlanningKind;
+  /** The place of the last message sent to this model session (DIPO-524); null before any. */
+  context: ChatContext | null;
+  /** The place the model session got the facts of last (`contextKey`); null before any. */
+  factsKey: string | null;
+  /** Whether the schema the model session got last is the role proposals' (the Roles room's). */
+  rolesSchema: boolean;
   readonly goal: string;
   readonly model: string;
   readonly startedAt: number;
@@ -587,6 +605,8 @@ interface Held {
   readonly thread: RunId;
   readonly opens?: { readonly kind: PlanningKind };
   readonly text: string;
+  /** The place it was written from (DIPO-524); none for an alias, which keeps the place. */
+  readonly context?: ChatContext;
   readonly at: number;
   state: "held" | "sent" | "opened" | "failed";
   error?: unknown;
@@ -742,6 +762,8 @@ export class PlanningSessions {
   readonly #held = new Map<OfficeId, Held[]>();
   /** The offices whose next message opens a thread: a bare `/new` was sent. */
   readonly #fresh = new Set<OfficeId>();
+  /** The offices whose chat asks `/general`: the focused item is dropped until `/here` (DIPO-524). */
+  readonly #general = new Set<OfficeId>();
   /** The `#pump` running for each office, and the offices it goes round again for. */
   readonly #pumps = new Map<OfficeId, Promise<void>>();
   readonly #pumpAgain = new Set<OfficeId>();
@@ -828,6 +850,12 @@ export class PlanningSessions {
     const office = ctx.office.officeId as OfficeId;
     const handle = ctx.office;
     const command = chatCommandOf(args.text);
+    if (command.name === "general") this.#general.add(office);
+    if (command.name === "here") this.#general.delete(office);
+    const context = this.#placeOf(office, args.context);
+    if ((command.name === "general" || command.name === "here") && command.rest === "") {
+      return { result: { outcome: "noted", context }, changed: false };
+    }
     if (command.name === "end") {
       const ended = await this.#endThread(office, handle, args.thread ?? null);
       return {
@@ -853,10 +881,11 @@ export class PlanningSessions {
       thread === null
         ? this.#hold(office, {
             thread: RunId.parse(this.#deps.ids.next("run")),
-            opens: { kind: threadKindOf(args.context) },
+            opens: { kind: threadKindOf(context) },
             text: command.rest,
+            context,
           })
-        : this.#hold(office, { thread, text: command.rest });
+        : this.#hold(office, { thread, text: command.rest, context });
     if (thread === null) this.#fresh.delete(office);
     await this.#post(office, held);
     if (held.state === "failed") throw held.error;
@@ -864,6 +893,11 @@ export class PlanningSessions {
       result: { thread: held.thread, outcome: held.state === "held" ? "queued" : held.state },
       changed: true,
     };
+  }
+
+  /** The place a message goes with: `/general` drops the focused item, `/here` brings it back. */
+  #placeOf(office: OfficeId, context: ChatContext): ChatContext {
+    return this.#general.has(office) ? { room: context.room } : context;
   }
 
   /** `planning.start`, the alias of `/new` with a kind and a goal: its reply waits for the start. */
@@ -958,7 +992,7 @@ export class PlanningSessions {
   // ---- the chat's threads (DIPO-523) -----------------------------------------------------------
 
   /** Holds `item` for the office's chat; `#post` or a turn end sends it. */
-  #hold(office: OfficeId, item: Pick<Held, "thread" | "opens" | "text">): Held {
+  #hold(office: OfficeId, item: Pick<Held, "thread" | "opens" | "text" | "context">): Held {
     const done = Promise.withResolvers<void>();
     // A failure is read from `state` and `error`; a caller that waits reads it from `done`.
     done.promise.catch(() => undefined);
@@ -1061,6 +1095,7 @@ export class PlanningSessions {
           goal: first.text,
           session: null,
           continued: null,
+          ...(first.context === undefined ? {} : { context: first.context }),
         }),
       );
       return;
@@ -1081,6 +1116,7 @@ export class PlanningSessions {
         open,
         batch.map((item) => item.text),
         batch.map((item) => item.at),
+        batch.map((item) => item.context),
       ),
     );
   }
@@ -1099,6 +1135,7 @@ export class PlanningSessions {
       return;
     }
     const { previous, reason } = thread;
+    const placed = batch.findLast((item) => item.context !== undefined)?.context;
     const run = RunId.parse(this.#deps.ids.next("run"));
     handle.immediate(() => {
       for (const item of batch) {
@@ -1106,6 +1143,7 @@ export class PlanningSessions {
           kind: "message",
           run,
           text: item.text,
+          ...(item.context === undefined ? {} : { subject: JSON.stringify(item.context) }),
           outputOffset: 0,
           at: item.at,
         });
@@ -1118,6 +1156,7 @@ export class PlanningSessions {
         goal: thread.goal,
         session,
         continued: { previous: RunId.parse(previous), reason },
+        ...(placed === undefined ? {} : { context: placed }),
       }),
     );
   }
@@ -1305,19 +1344,39 @@ export class PlanningSessions {
    * session waits. What the maintainer decided since their last message goes first, as `[dipo]`
    * lines. Each text is kept in the record with the time it was written (`ats`).
    */
-  async #deliver(open: Open, texts: readonly string[], ats: readonly number[]): Promise<void> {
+  async #deliver(
+    open: Open,
+    texts: readonly string[],
+    ats: readonly number[],
+    contexts: readonly (ChatContext | undefined)[] = [],
+  ): Promise<void> {
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
     const notes = open.notes;
     const filing = await this.#filingNote(open);
+    // The facts of the place go once per change of place (DIPO-524).
+    const placed = contexts.findLast((context) => context !== undefined);
+    const facts = placed === undefined ? null : this.#placeFacts(open, placed);
     if (
       !(await this.#sendText(
         open,
-        [...notes, ...(filing === null ? [] : [filing.note]), ...texts].join("\n\n"),
+        [
+          ...notes,
+          ...(filing === null ? [] : [filing.note]),
+          ...(facts === null ? [] : [facts.text]),
+          ...texts,
+        ].join("\n\n"),
       ))
     ) {
       throw notOpen(`${open.run} could not be reached`);
     }
-    for (const [index, text] of texts.entries()) this.#recordMessage(open, text, ats[index]);
+    if (placed !== undefined) {
+      open.context = placed;
+      open.factsKey = contextKey(placed);
+      open.rolesSchema = takesRoleProposals(placed);
+    }
+    for (const [index, text] of texts.entries()) {
+      this.#recordMessage(open, text, ats[index], contexts[index]);
+    }
     // The view lists the message the moment it was kept (DIPO-490).
     this.#append(open, () => [this.#updated(open)]);
     if (filing !== null) open.filedSeen = filing.signature;
@@ -1325,8 +1384,60 @@ export class PlanningSessions {
     open.autoRefusals = 0;
   }
 
+  /**
+   * The `<context>` block a message written from `context` carries (DIPO-524): the facts code
+   * builds for the place, and the proposal schema of the place when its family (the Roles room's
+   * role proposals, or the others) is not the one the model session got last. Null when the place
+   * is the one the model session got the facts of, or has no facts.
+   */
+  #placeFacts(open: Open, context: ChatContext): { readonly text: string } | null {
+    const roles = takesRoleProposals(context);
+    const facts =
+      open.factsKey === contextKey(context)
+        ? null
+        : open.handle.deferred(() => chatFacts(open.handle, context, this.#factSources(open)));
+    const schema =
+      roles === open.rolesSchema
+        ? null
+        : `<proposal_schema>\nFrom here ${roles ? "only role, role-edit and role-remove proposals are taken" : "story proposals are taken, and no role proposal"}. Each proposal is one \`\`\`${PLANNING_PROPOSAL_FENCE} block holding one JSON object that passes this JSON Schema:\n${JSON.stringify(proposalSchemaFor(context, this.#deps.worker.reportSchema.planning))}\n</proposal_schema>`;
+    const parts = [facts, schema].filter((part): part is string => part !== null);
+    return parts.length === 0 ? null : { text: parts.join("\n\n") };
+  }
+
+  /** What the facts of a place read besides the office's rows. */
+  #factSources(open: Open): ChatFactSources {
+    const deps = this.#deps;
+    return {
+      now: deps.clock.now(),
+      ...(deps.desk === undefined ? {} : { desk: deps.desk }),
+      roles: () => {
+        const loaded = loadRoleFiles(this.#roleFacts(open)?.files ?? new Map());
+        const roster = rosterOf(loaded.roles, roleRunCounts(open.handle));
+        return [
+          roster.length === 0 ? "The office has no roles." : roster.join("\n\n"),
+          ...(loaded.problems.length === 0
+            ? []
+            : ["role files that failed to load:", ...loaded.problems]),
+        ].join("\n");
+      },
+    };
+  }
+
+  /** The place of the last message in words, for a refusal to name; undefined before any. */
+  #placeName(open: Open): string | undefined {
+    const context = open.context;
+    return context === null
+      ? undefined
+      : `the ${context.room} room${context.item === undefined ? "" : ` on ${context.item}`}`;
+  }
+
+  /** The kind proposals are checked against: the place of the last message, else the thread's kind. */
+  #proposalKind(open: Open): PlanningKind {
+    return open.context === null ? open.kind : threadKindOf(open.context);
+  }
+
   /** Keeps the maintainer's message in the record, with the model session's output offset (DIPO-489). */
-  #recordMessage(open: Open, text: string, written?: number): void {
+  #recordMessage(open: Open, text: string, written?: number, context?: ChatContext): void {
     const { handle } = open;
     const at = written ?? this.#deps.clock.now();
     try {
@@ -1335,6 +1446,7 @@ export class PlanningSessions {
           kind: "message",
           run: open.run,
           text,
+          ...(context === undefined ? {} : { subject: JSON.stringify(context) }),
           outputOffset: outputEndOf(handle, open.run),
           at,
         }),
@@ -1489,8 +1601,9 @@ export class PlanningSessions {
     const checked = checkProposal(
       args.edited,
       this.#roleFacts(open),
-      open.kind,
+      this.#proposalKind(open),
       this.#deps.decisionFiles?.(open.office),
+      this.#placeName(open),
     );
     if (!checked.ok) {
       throw new CommandError(
@@ -1915,8 +2028,9 @@ export class PlanningSessions {
     for (const read of readProposals(
       text,
       this.#roleFacts(open),
-      open.kind,
+      this.#proposalKind(open),
       this.#deps.decisionFiles?.(open.office),
+      this.#placeName(open),
     )) {
       if (read.ok) {
         open.proposals.push({
@@ -2075,6 +2189,8 @@ export class PlanningSessions {
       /** The planning session this model session continues; null for a new one. */
       readonly session: RunId | null;
       readonly continued: Continued | null;
+      /** The place the first message was written from, whose facts it carries (DIPO-524). */
+      readonly context?: ChatContext;
     },
   ): Promise<PlanningView> {
     const deps = this.#deps;
@@ -2102,6 +2218,9 @@ export class PlanningSessions {
       continued: args.continued,
       agent,
       kind: args.kind,
+      context: args.context ?? null,
+      factsKey: null,
+      rolesSchema: args.kind === "roles",
       goal: args.goal,
       model: settings.model,
       startedAt,
@@ -2238,7 +2357,7 @@ export class PlanningSessions {
     // The stories the session filed so far (a continuing session): the same list its messages carry.
     const filed = this.#filedStories(open, commit);
     open.filedSeen = filedSignature(filed);
-    const taskMessage = planningFirstMessage(
+    const firstMessage = planningFirstMessage(
       handle.deferred(() => {
         const loaded = loadRoleFiles(this.#roleFacts(open)?.files ?? new Map());
         return {
@@ -2258,6 +2377,13 @@ export class PlanningSessions {
         };
       }),
     );
+    // The facts of the place the first message was written from follow it (DIPO-524).
+    const placed = open.context === null ? null : this.#placeFacts(open, open.context);
+    if (open.context !== null) {
+      open.factsKey = contextKey(open.context);
+      open.rolesSchema = takesRoleProposals(open.context);
+    }
+    const taskMessage = placed === null ? firstMessage : `${firstMessage}\n\n${placed.text}`;
     const systemFile = renderSystemFile("planning-box", ROLE_TEMPLATES.planner);
     const spec: WorkerSpec = {
       run,

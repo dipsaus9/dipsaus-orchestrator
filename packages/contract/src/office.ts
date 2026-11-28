@@ -447,8 +447,9 @@ export type ChatContext = z.infer<typeof ChatContext>;
 // What the chat did with a message: `sent` it to the thread's model session as its next turn,
 // `queued` it until the answer in progress ends or the model session starts, `opened` a thread
 // titled by it, `new` (a bare `/new`: the next message opens a thread) or `closed` the thread
-// (`/end`).
-export const KNOWN_CHAT_OUTCOMES = ["sent", "queued", "opened", "new", "closed"] as const;
+// (`/end`) or `noted` (a bare `/general` or `/here`: the place of the next messages is set, and the
+// result's `context` is the one they go with).
+export const KNOWN_CHAT_OUTCOMES = ["sent", "queued", "opened", "new", "closed", "noted"] as const;
 export const ChatOutcome = openEnum(KNOWN_CHAT_OUTCOMES);
 export type ChatOutcome = z.infer<typeof ChatOutcome>;
 
@@ -460,8 +461,11 @@ export type StayedRefined = z.infer<typeof StayedRefined>;
 // One message to the office chat. It goes to `thread`, or else to the open thread (the newest open
 // one when no model session runs), or opens a thread titled by it when none is open; nothing is
 // refused because another thread is open. `/new` opens a thread (titled by the text after it, or
-// by the next message), `/end` closes the thread with its Ready step; a thread idle
-// `planning.idleHours` closes by itself. One model session answers per office: a message sent
+// by the next message), `/end` closes the thread with its Ready step; `/general` drops the focused
+// item from this and the next messages and `/here` brings it back (DIPO-524); a thread idle
+// `planning.idleHours` closes by itself. Each message stores its `context` (room and optional item);
+// code builds the facts of that place and sends them with the message when the place changed
+// (DIPO-524). One model session answers per office: a message sent
 // while it answers, starts or goes to another thread waits as `queued` and is sent when the
 // answer ends. Errors: `chat.threadUnknown` (`thread` names no open thread), `planning.notOpen`
 // (`/end` with no open thread) and `planning.startFailed`.
@@ -477,6 +481,7 @@ export const chatMessage = defineCommand({
     thread: RunId.optional(),
     outcome: ChatOutcome,
     refined: z.array(StayedRefined).optional(),
+    context: ChatContext.optional(),
   }),
   confirm: false,
   irreversible: false,
